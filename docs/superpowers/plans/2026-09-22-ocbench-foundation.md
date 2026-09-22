@@ -1427,10 +1427,10 @@ type MCPStatus struct {
 }
 
 type Options struct {
-	Bin     string
-	Timeout time.Duration
-	Env     []string // nil means os.Environ()
-	Dir     string
+	Bin        string
+	Timeout    time.Duration
+	Env        []string // nil means os.Environ()
+	TestPrefix []string // test-only: argv inserted before the opencode args
 }
 
 func NewReal(opts Options) *Real
