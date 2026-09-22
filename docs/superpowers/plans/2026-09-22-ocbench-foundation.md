@@ -1697,7 +1697,7 @@ Implementation requirements:
    - `skill/<name>`: `description`, `content_sha256` (sha256 of `Content`), `files_sha256` (sha256 over sorted `relpath\0bytes` for all regular files under `filepath.Dir(Location)`), `source` (normalized `filepath.Dir(Location)`). If the directory is unreadable, fall back to `files_sha256 = content_sha256` and record `source_error: true` — never fail the whole fingerprint for one skill.
    - `mcp/<name>`: redacted+normalized MCP entry from resolved config; keep `environment_keys` (sorted key names) instead of the environment map.
    - `plugin/<spec>`: from `plugin` array; for `file://` specs compute `local_sha256` over file bytes (or directory walk if the plugin is a directory); include origin from `plugin_origins` when present (normalized).
-   - `instructions/<scope>`: sha256 of each `Sources.Instructions` entry.
+   - `instructions/<scope>`: `path` (normalized) and `sha256` of each `Sources.Instructions` entry, per spec §5.1.
    - `config`: resolved config minus the keys consumed above (`model`, `small_model`, `default_agent`, `agent`, `mcp`, `plugin`, `plugin_origins`, `skills`, `permission`, `username`, `$schema`), redacted+normalized.
    - `environment`: `{sandbox, env_names (sorted), auto, pure, overrides}`.
 4. Assemble `map[string]any{"schema":1,"opencode_version":...,"components":{key: subtree}}`; compute `profile.Hash = canon.Hash(snapshot)`; per component `Hash = canon.Hash(subtree)`; `CanonicalJSON = canon.JSON(snapshot)`.
@@ -1741,7 +1741,7 @@ Tests: insert twice with the same hash → second returns no error, table has on
 
 - [ ] **Step 5: Implement `persist.go` and `diff.go` plus tests**
 
-`Persist`: serialize profile to rows; call `InsertProfile`; if `GetProfileByHash` already existed before insert, return `created=false`. Raw captures: write `resolved-config.json` (redacted), `skills.json` (redacted metadata + hashes only — do NOT write full skill content), `agents.json`, `snapshot.json` (canonical JSON) under `paths.Profiles/<hash>/`. `os.MkdirAll` idempotent. `Diff` compares components by `(Kind,Name)`, returning `added`/`removed`/`changed` entries sorted by kind then name. Tests: diff of two fixtures yields exactly one change when one skill changes; added/removed cases; `Diff(p,p)` empty.
+`Persist`: serialize profile to rows; call `InsertProfile`; if `GetProfileByHash` already existed before insert, return `created=false`. Raw captures under `paths.Profiles/<hash>/` per spec §5.4/§5.5: `resolved-config.json` (redacted), `skills.json` (name, description, location, and **full skill content** — the raw skill bodies are retained once per profile so a benchmarked profile stays auditable after the skills on disk change; they are never copied into the database), `instructions.json` (scope → raw text of each discovered instruction file), `agents.json`, `snapshot.json` (canonical JSON). Never write secret values: redaction applies to structured config; raw skill/instruction text is user-authored content retained for audit. `os.MkdirAll` idempotent; do not rewrite captures from a profile whose `Captures` are empty (e.g. one loaded via `Latest`). `Diff` compares components by `(Kind,Name)`, returning `added`/`removed`/`changed` entries sorted by kind then name. Tests: diff of two fixtures yields exactly one change when one skill changes; added/removed cases; `Diff(p,p)` empty.
 
 - [ ] **Step 6: Run all profile + store tests**
 
