@@ -51,8 +51,8 @@ func execute(ctx context.Context, args []string, d Deps) error {
 }
 
 // exitCode maps an execute error onto the documented process exit code: 0 when
-// there is no error, 2 for a usage/config error, 1 for any other
-// (infrastructure) failure.
+// there is no error, 3 for an opted-in task failure, 2 for a usage/config
+// error, 1 for any other (infrastructure) failure.
 func exitCode(err error) int {
 	if err == nil {
 		return 0
@@ -60,6 +60,9 @@ func exitCode(err error) int {
 	var usage *UsageError
 	if errors.As(err, &usage) {
 		return 2
+	}
+	if errors.Is(err, ErrTaskFailure) {
+		return 3
 	}
 	return 1
 }
@@ -82,6 +85,7 @@ func NewRootWithDeps(d Deps) *cobra.Command {
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newDoctorCmd(d))
 	root.AddCommand(newSnapshotCmd(d))
+	root.AddCommand(newRunCmd(d))
 	return root
 }
 

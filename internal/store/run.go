@@ -76,6 +76,37 @@ type ValidationRow struct {
 	OutputExcerpt string
 }
 
+// ExperimentRow is one experiments row. The CLI creates exactly one per
+// `ocbench run` invocation; ID is a fresh UUID.
+type ExperimentRow struct {
+	ID        string
+	Name      string
+	SpecJSON  string
+	CreatedAt string
+}
+
+// InsertExperiment writes an experiments row in one transaction. An existing
+// row with the same id is left untouched, so a retried insert is idempotent.
+func (s *Store) InsertExperiment(ctx context.Context, row ExperimentRow) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("insert experiment: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO experiments (id, name, spec_json, created_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT DO NOTHING`,
+		row.ID, row.Name, row.SpecJSON, rfc3339UTC(row.CreatedAt)); err != nil {
+		return fmt.Errorf("insert experiment %s: %w", row.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("insert experiment %s: %w", row.ID, err)
+	}
+	return nil
+}
+
 // InsertSuite upserts a suite in one transaction. An existing row for the same
 // id or (name, version, hash) is left untouched.
 func (s *Store) InsertSuite(ctx context.Context, row SuiteRow) error {

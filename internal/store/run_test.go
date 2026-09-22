@@ -371,3 +371,42 @@ func runIDs(runs []RunRow) []string {
 	}
 	return out
 }
+
+func TestInsertExperimentRoundTrip(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+
+	want := ExperimentRow{
+		ID:        "exp-1",
+		Name:      "run core@1 2026-03-01T10:00:00Z",
+		SpecJSON:  `{"repeat":2,"suite":"core"}`,
+		CreatedAt: "2026-03-01T10:00:00Z",
+	}
+	if err := st.InsertExperiment(ctx, want); err != nil {
+		t.Fatalf("InsertExperiment: %v", err)
+	}
+	// A second insert of the same id is idempotent and does not duplicate.
+	if err := st.InsertExperiment(ctx, want); err != nil {
+		t.Fatalf("second InsertExperiment: %v", err)
+	}
+
+	var (
+		id, name, spec, created string
+	)
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT id, name, spec_json, created_at FROM experiments WHERE id = ?`, want.ID).
+		Scan(&id, &name, &spec, &created); err != nil {
+		t.Fatalf("query experiment: %v", err)
+	}
+	if id != want.ID || name != want.Name || spec != want.SpecJSON || created != want.CreatedAt {
+		t.Fatalf("experiment = %q/%q/%q/%q, want %+v", id, name, spec, created, want)
+	}
+
+	var n int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM experiments`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("experiments = %d, want 1", n)
+	}
+}
