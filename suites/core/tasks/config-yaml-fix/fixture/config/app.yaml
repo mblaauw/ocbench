@@ -1,0 +1,4 @@
+# Application settings for the demo service.
+name: demo
+retires: 3
+timeout_seconds: 30

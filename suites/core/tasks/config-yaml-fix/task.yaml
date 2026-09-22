@@ -1,0 +1,11 @@
+id: config-yaml-fix
+version: 1
+name: Fix the misspelled config key
+tags: [python, config, yaml]
+timeout: 300
+requires: [python3]
+allow_changes: ["config/**"]
+validators:
+  - kind: command
+    name: config tests
+    command: ["python3", "-m", "unittest", "discover", "-s", "tests"]

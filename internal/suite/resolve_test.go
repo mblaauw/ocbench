@@ -36,7 +36,7 @@ func exportCore(t *testing.T) string {
 	return dest
 }
 
-func TestEmbeddedCoreSuiteListsThreeTasks(t *testing.T) {
+func TestEmbeddedCoreSuiteListsTasks(t *testing.T) {
 	s := embeddedCore(t)
 
 	if s.Name != "core" {
@@ -46,7 +46,7 @@ func TestEmbeddedCoreSuiteListsThreeTasks(t *testing.T) {
 		t.Error("Hash is empty")
 	}
 	got := taskIDs(s.Tasks)
-	want := []string{"multi-file-feature", "py-bugfix", "repo-investigation"}
+	want := []string{"code-review", "config-yaml-fix", "multi-file-feature", "py-bugfix", "repo-investigation"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("task ids = %v, want %v", got, want)
 	}

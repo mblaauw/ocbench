@@ -1,0 +1,11 @@
+{
+  "patterns": [
+    "(?i)\\bchunks?\\b",
+    "(?i)off[ -]?by[ -]?one|size\\s*-\\s*1|step",
+    "(?i)\\bparse_ints\\b",
+    "(?i)swallow|silently|ignor(?:e|es|ed)|except\\s+valueerror",
+    "(?i)\\btake\\b",
+    "(?i)wrong default|defaults?\\s+to\\s+10|should\\s+(?:be|default\\s+to)\\s+3"
+  ],
+  "mode": "all"
+}

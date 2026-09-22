@@ -1,0 +1,9 @@
+id: code-review
+version: 1
+name: Review the batch module
+tags: [python, review, reading]
+timeout: 300
+allow_changes: []
+validators:
+  - kind: answer
+    name: all three defects identified
