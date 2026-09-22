@@ -114,7 +114,7 @@ Rules (spec §7): `suite.yaml` requires `name` and `version`; each `tasks/<id>/t
 ### Task 2: Embedded core suite and suite resolution
 
 **Files:**
-- Create: `suites/embed.go` (package `suites`, `//go:embed core`, `func FS() fs.FS`)
+- Create: `suites/embed.go` (package `suites`, `//go:embed all:core` — the `all:` prefix is required because plain `//go:embed` silently omits `_`- and `.`-prefixed files such as `__init__.py` — and `func FS() fs.FS`)
 - Create: `suites/core/suite.yaml`, `suites/core/tasks/{repo-investigation,py-bugfix,multi-file-feature}/{task.yaml,prompt.md,fixture/…}`
 - Create: `internal/suite/resolve.go`; test `internal/suite/resolve_test.go`
 - Modify: `internal/cli/deps.go` (add `SuiteFS fs.FS` to `Deps`, default `suites.FS()`)
