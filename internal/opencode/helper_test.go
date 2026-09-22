@@ -83,7 +83,7 @@ func TestHelperProcess(t *testing.T) {
 // isRunMode reports whether mode selects a streaming `run` helper mode.
 func isRunMode(mode string) bool {
 	switch mode {
-	case "run-ok", "run-fail", "run-slow", "run-big", "run-no-session":
+	case "run-ok", "run-fail", "run-slow", "run-big", "run-no-session", "run-many", "run-no-newline":
 		return true
 	}
 	return false
@@ -112,6 +112,17 @@ func helperRun(mode string, args []string) {
 	case "run-no-session":
 		fmt.Fprintln(os.Stdout, `{"type":"text","timestamp":1,"part":{"type":"text","text":"no session here"}}`)
 		fmt.Fprintln(os.Stdout, `{"type":"step_finish","timestamp":2,"part":{"type":"step-finish","reason":"stop"}}`)
+	case "run-many":
+		// More lines than the Events buffer so an undrained consumer blocks the
+		// tailer.
+		line := `{"type":"text","timestamp":1,"sessionID":"ses_many","part":{"type":"text","text":"x"}}`
+		for i := 0; i < 600; i++ {
+			fmt.Fprintln(os.Stdout, line)
+		}
+	case "run-no-newline":
+		// The final probe line has no trailing newline, exercising the tailer's
+		// final drain path.
+		fmt.Fprint(os.Stdout, strings.TrimSuffix(probeEvents, "\n"))
 	}
 	os.Exit(0)
 }

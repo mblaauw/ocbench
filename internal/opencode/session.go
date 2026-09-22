@@ -49,6 +49,11 @@ type Session struct {
 	procDone chan struct{}
 	tailDone chan struct{}
 
+	// discard lets Wait abandon any events the tailer has not yet delivered;
+	// it is closed by Wait before it joins the tailer.
+	discard     chan struct{}
+	discardOnce sync.Once
+
 	waitOnce sync.Once
 	killOnce sync.Once
 
@@ -112,7 +117,9 @@ func (s *Session) wait() {
 		<-s.procDone
 	}
 
-	// The tailer drains the stdout file and closes Events before tailDone.
+	// Stop the tailer from blocking on an undrained Events channel, then join
+	// it. The tailer drains the stdout file and closes Events before tailDone.
+	close(s.discardSignal())
 	<-s.tailDone
 	// Join the Kill grace goroutine if it was started.
 	if done := s.joinKill(); done != nil {
@@ -154,6 +161,13 @@ func (s *Session) wait() {
 // Kill terminates the child's process group with SIGTERM, escalating to SIGKILL
 // after killGracePeriod. It is idempotent and safe to call after Wait.
 func (s *Session) Kill() {
+	// Once the process has been reaped its PID (and process group) may be
+	// reused, so never signal a stale group.
+	select {
+	case <-s.procDone:
+		return
+	default:
+	}
 	s.killOnce.Do(func() {
 		_ = terminateProcessGroup(s.cmd)
 		done := make(chan struct{})
@@ -256,10 +270,24 @@ func (s *Session) readAvailable(f *os.File, offset *int64, chunk []byte, buf *[]
 	}
 }
 
-// emit records any session ID on line and publishes the raw line.
+// emit records any session ID on line and publishes the raw line. Delivery is
+// abandoned once Wait has closed the discard signal, so a consumer that stops
+// draining Events cannot block the tailer (and therefore Wait) forever.
 func (s *Session) emit(line []byte) {
 	s.captureSessionID(line)
-	s.events <- line
+	select {
+	case s.events <- line:
+	case <-s.discardSignal():
+	}
+}
+
+// discardSignal lazily creates the channel Wait closes to abandon undelivered
+// events. It is safe for concurrent use by emit and Wait.
+func (s *Session) discardSignal() chan struct{} {
+	s.discardOnce.Do(func() {
+		s.discard = make(chan struct{})
+	})
+	return s.discard
 }
 
 // captureSessionID extracts the first sessionID seen. Lines that are not JSON

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -137,6 +138,55 @@ func TestStartWithoutSessionID(t *testing.T) {
 	}
 }
 
+func TestStartFinalLineWithoutNewline(t *testing.T) {
+	a := newTestAdapter(t, 10*time.Second, "run-no-newline")
+	sess, err := a.Start(context.Background(), RunRequest{Prompt: "no trailing newline"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := collectEvents(sess)
+	code, err := sess.Wait()
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	want := probeEventLines()
+	if len(lines) != len(want) {
+		t.Fatalf("got %d lines, want %d", len(lines), len(want))
+	}
+	last := string(lines[len(lines)-1])
+	if last != want[len(want)-1] {
+		t.Fatalf("last line mismatch:\n got %q\nwant %q", last, want[len(want)-1])
+	}
+	if strings.HasSuffix(last, "\n") {
+		t.Fatal("last line unexpectedly ends with a newline")
+	}
+	if got := sess.ID(); got != probeSessionID {
+		t.Fatalf("ID = %q, want %q", got, probeSessionID)
+	}
+}
+
+// TestKillAfterWaitIsNoop verifies the guard that stops Kill from signalling the
+// process group of an already-reaped process (PID reuse hazard).
+func TestKillAfterWaitIsNoop(t *testing.T) {
+	a := newTestAdapter(t, 10*time.Second, "run-ok")
+	sess, err := a.Start(context.Background(), RunRequest{Prompt: "reaped"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectEvents(sess)
+	code, err := sess.Wait()
+	if err != nil || code != 0 {
+		t.Fatalf("Wait = (%d, %v)", code, err)
+	}
+	sess.Kill()
+	if done := sess.joinKill(); done != nil {
+		t.Fatal("Kill after Wait signalled a reaped process group")
+	}
+}
+
 func TestStartContextCancellation(t *testing.T) {
 	a := newTestAdapter(t, 10*time.Second, "run-slow")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -209,5 +259,39 @@ func TestStartNoGoroutineLeak(t *testing.T) {
 			t.Fatalf("goroutine leak: before=%d after=%d", before, runtime.NumGoroutine())
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestWaitDoesNotBlockOnUndrainedEvents ensures a caller that stops draining
+// Events cannot deadlock Wait: the tailer must drop pending lines once Wait
+// begins. Kept last in the file so its leaked goroutines (before the fix) do
+// not disturb the goroutine-leak test.
+func TestWaitDoesNotBlockOnUndrainedEvents(t *testing.T) {
+	a := newTestAdapter(t, 10*time.Second, "run-many")
+	sess, err := a.Start(context.Background(), RunRequest{Prompt: "flood", Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately do not drain Events(): run-many produces more lines than the
+	// 256-line buffer.
+	type result struct {
+		code int
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		code, err := sess.Wait()
+		done <- result{code, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("Wait: %v", r.err)
+		}
+		if r.code != 0 {
+			t.Fatalf("exit = %d, want 0", r.code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Wait blocked because Events() was not drained")
 	}
 }
