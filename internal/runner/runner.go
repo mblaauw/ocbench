@@ -205,6 +205,12 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	defer stopCancelWatch()
 
 	if err := drainEvents(filepath.Join(runDir, "events.jsonl"), session.Events(), metrics); err != nil {
+		// The drain failed, so the normal Wait path below will not run. Kill and
+		// reap the session before returning, otherwise its process group keeps
+		// running, the tailer stays blocked and the temp files leak. The drain
+		// error stays authoritative even if cleanup itself errors.
+		session.Kill()
+		session.Wait()
 		return Result{}, err
 	}
 	drainDone.Store(true)
@@ -361,11 +367,16 @@ func postRunContext(ctx context.Context, timeout time.Duration) (context.Context
 	return context.WithTimeout(context.WithoutCancel(ctx), max(timeout, 5*time.Second))
 }
 
+// openEventsFile opens the events artifact for writing. It is a package-private
+// seam so tests can inject a deterministic drain failure; production uses
+// os.Create.
+var openEventsFile = os.Create
+
 // drainEvents writes every raw event line to path as newline-terminated JSONL
 // while feeding the metrics. It ranges until the channel closes, which the
 // adapter does before Wait returns; the drain therefore completes before Wait.
 func drainEvents(path string, events <-chan []byte, metrics *evaluation.Metrics) (err error) {
-	f, err := os.Create(path)
+	f, err := openEventsFile(path)
 	if err != nil {
 		return fmt.Errorf("create events.jsonl: %w", err)
 	}

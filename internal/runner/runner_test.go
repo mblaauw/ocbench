@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -28,6 +30,9 @@ import (
 const (
 	fakeHelperGuard = "OCBENCH_FAKE_OPENCODE"
 	fakeModeVar     = "OCBENCH_FAKE_MODE"
+	// fakePIDFileVar, when set, makes the slow helper record its PID so a test
+	// can prove the process was reaped after Run returned.
+	fakePIDFileVar = "OCBENCH_FAKE_PIDFILE"
 
 	fakeExportJSON = `{"info":{"id":"ses_test","tokens":{"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.01},"messages":[]}`
 
@@ -66,6 +71,9 @@ func TestRunnerHelperProcess(t *testing.T) {
 	if len(args) > 0 && args[0] == "run" {
 		switch mode {
 		case "slow":
+			if pf := os.Getenv(fakePIDFileVar); pf != "" {
+				_ = os.WriteFile(pf, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+			}
 			fmt.Fprintln(os.Stdout, fakeStepStart)
 			time.Sleep(30 * time.Second)
 			os.Exit(0)
@@ -637,6 +645,82 @@ func TestRunTimeout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "worktree")); !os.IsNotExist(err) {
 		t.Fatalf("worktree still present after timeout (err = %v)", err)
 	}
+}
+
+// TestRunDrainErrorKillsAndReapsSession proves that a failure while draining
+// the event stream (for example an events.jsonl open/write error) does not
+// return before the session process group is killed and reaped. The slow helper
+// sleeps for 30s, so the process can only be gone if Run killed and waited on
+// it; the injected seam makes the drain fail after the child has started.
+func TestRunDrainErrorKillsAndReapsSession(t *testing.T) {
+	useMode(t, "slow")
+	f := setupRunner(t)
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	t.Setenv(fakePIDFileVar, pidFile)
+
+	childReady := make(chan struct{})
+	openEventsFile = func(string) (*os.File, error) {
+		// Block until the helper child has recorded its PID, so the drain
+		// failure provably lands after the session began.
+		<-childReady
+		return nil, errors.New("injected events.jsonl open failure")
+	}
+	t.Cleanup(func() { openEventsFile = os.Create })
+
+	a := newScriptedAdapter(t)
+	req := runnerRequest(f)
+	req.EnvPolicy.PassEnv = append(req.EnvPolicy.PassEnv, fakePIDFileVar)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := Run(context.Background(), a, f.st, req)
+		done <- err
+	}()
+
+	waitForFile(t, pidFile, 20*time.Second)
+	close(childReady)
+	pid := readChildPID(t, pidFile)
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "injected events.jsonl open failure") {
+			t.Fatalf("Run error = %v, want the injected drain error", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Run did not return after a drain error")
+	}
+
+	// With the fix Run killed and reaped the child before returning; without it
+	// the slow helper is still sleeping and this signal succeeds.
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Fatalf("helper child %d is still alive after Run returned the drain error", pid)
+	}
+
+	// The deferred cleanup must still have removed the disposable worktree.
+	entries, err := os.ReadDir(f.paths.Runs)
+	if err != nil {
+		t.Fatalf("read runs dir: %v", err)
+	}
+	for _, e := range entries {
+		if _, err := os.Stat(filepath.Join(f.paths.Runs, e.Name(), "worktree")); !os.IsNotExist(err) {
+			t.Fatalf("worktree still present under %s after drain error", e.Name())
+		}
+	}
+}
+
+// readChildPID reads the integer PID the slow helper recorded.
+func readChildPID(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read helper pid: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		t.Fatalf("parse helper pid %q: %v", data, err)
+	}
+	return pid
 }
 
 func TestRunDryRunStartsNoSession(t *testing.T) {
