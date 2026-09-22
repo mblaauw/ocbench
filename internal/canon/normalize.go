@@ -20,17 +20,16 @@ type PathPrefix struct {
 // when it equals the prefix or starts with prefix+"/", so paths embedded in
 // prose are left untouched.
 func NormalizePaths(v any, prefixes ...PathPrefix) (any, error) {
-	sorted := make([]PathPrefix, 0, len(prefixes))
+	ordered := make([]PathPrefix, 0, len(prefixes))
 	for _, p := range prefixes {
-		if p.From == "" {
-			continue
+		if p.From != "" {
+			ordered = append(ordered, p)
 		}
-		sorted = append(sorted, p)
 	}
-	sort.SliceStable(sorted, func(i, j int) bool {
-		return len(sorted[i].From) > len(sorted[j].From)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return len(ordered[i].From) > len(ordered[j].From)
 	})
-	return normalize(v, sorted)
+	return normalize(v, ordered)
 }
 
 func normalize(v any, prefixes []PathPrefix) (any, error) {
