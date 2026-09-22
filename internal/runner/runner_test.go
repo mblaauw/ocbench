@@ -629,6 +629,14 @@ func TestRunTimeout(t *testing.T) {
 	if row.Status != "timeout" {
 		t.Fatalf("run row status = %q, want timeout", row.Status)
 	}
+	// The post-run phase (artifact capture, persistence, cleanup) must not
+	// inherit the exhausted 1s task budget: with a fresh max(timeout, 5s)
+	// deadline the timed-out run still writes its result and removes its
+	// worktree, even under -race instrumentation.
+	artifact(t, res.ArtifactsDir, "result.json")
+	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "worktree")); !os.IsNotExist(err) {
+		t.Fatalf("worktree still present after timeout (err = %v)", err)
+	}
 }
 
 func TestRunDryRunStartsNoSession(t *testing.T) {

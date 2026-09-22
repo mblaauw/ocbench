@@ -124,7 +124,9 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		}
 		res.Status = "dry_run"
 		res.DurationMS = time.Since(started).Milliseconds()
-		if err := persist(ctx, st, req, res, baseline, started, "", nil, nil); err != nil {
+		postCtx, postCancel := postRunContext(ctx, timeout)
+		defer postCancel()
+		if err := persist(postCtx, st, req, res, baseline, started, "", nil, nil); err != nil {
 			return Result{}, err
 		}
 		return res, nil
@@ -158,7 +160,11 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		if werr := writeResult(runDir, req, res, baseline, started.Format(time.RFC3339), finished); werr != nil {
 			return Result{}, werr
 		}
-		if perr := persist(ctx, st, req, res, baseline, started, finished, res.Metrics, nil); perr != nil {
+		// A cancellation observed at Start must still persist the row, so
+		// persistence uses a cancellation-free context.
+		postCtx, postCancel := postRunContext(ctx, timeout)
+		defer postCancel()
+		if perr := persist(postCtx, st, req, res, baseline, started, finished, res.Metrics, nil); perr != nil {
 			return Result{}, perr
 		}
 		return res, nil
@@ -213,10 +219,10 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	}
 
 	// A cancelled command context must not stop the interrupted run from being
-	// recorded: the artifact capture and persistence use a cancellation-free
-	// context bounded by the task timeout so a row is always written and the
-	// deferred cleanup still runs.
-	postCtx, postCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	// recorded: artifact capture and persistence use a cancellation-free,
+	// task-timeout-bounded context with a fresh deadline so the session's own
+	// budget does not consume it.
+	postCtx, postCancel := postRunContext(ctx, timeout)
 	defer postCancel()
 
 	// Export is best-effort: a failure is recorded but never fails the run.
@@ -248,6 +254,15 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 
 	res.ChangedFiles = changed
 	res.UnexpectedFiles = unexpectedFiles(req.Task.AllowChanges, changed)
+
+	// Cancellation can also arrive after Wait while post-session artifacts are
+	// captured; once the drain watcher is stopped the request context is the
+	// source of truth. Re-check it here so a late Ctrl-C skips validators and
+	// records error, instead of running them on a dead context and reading as
+	// failed.
+	if ctx.Err() != nil {
+		cancelledRun = true
+	}
 
 	// Validators are skipped after cancellation: the session was interrupted,
 	// so there is no completed answer to validate and running them would delay
@@ -308,6 +323,21 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		return Result{}, err
 	}
 	return res, nil
+}
+
+// postRunContext returns the context used for post-run work: artifact capture,
+// result writing, persistence and cleanup. It preserves the request context's
+// values but ignores its cancellation so a run interrupted by Ctrl-C can still
+// record its outcome.
+//
+// The deadline is max(task timeout, 5s), not the task timeout alone. The model
+// execution budget is distinct from deterministic post-run work: a run that
+// already consumed its whole task timeout (or timed out early) would otherwise
+// start this phase with an already-expired context, and the local Export and
+// git artifact capture could fail to persist or clean up. Each call still gets
+// a fresh deadline, so the session's own budget is never consumed here.
+func postRunContext(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), max(timeout, 5*time.Second))
 }
 
 // drainEvents writes every raw event line to path as newline-terminated JSONL
