@@ -1,0 +1,14 @@
+{
+  "name": "build",
+  "description": "Primary build agent",
+  "mode": "primary",
+  "native": false,
+  "model": "anthropic/claude-sonnet-4-5",
+  "variant": "high",
+  "temperature": 0.1,
+  "steps": 60,
+  "tools": {"bash": true, "read": true, "edit": true},
+  "options": {"reasoningEffort": "high"},
+  "permission": [{"permission": "bash", "pattern": "*", "action": "ask"}],
+  "prompt": "You are build. This prompt is synthetic test data."
+}

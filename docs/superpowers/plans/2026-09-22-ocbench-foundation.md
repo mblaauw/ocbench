@@ -461,6 +461,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -469,7 +470,7 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg != DefaultsConfig() {
+	if !reflect.DeepEqual(cfg, DefaultsConfig()) {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	if cfg.OpenCodeBin != "opencode" || cfg.Defaults.TimeoutSeconds != 900 || cfg.Defaults.Repeat != 1 {
@@ -893,7 +894,7 @@ git commit -m "feat: add sqlite store with embedded schema migrations"
   - `canon.Hash(v any) (string, error)` — hex sha256 of `canon.JSON(v)`.
   - `canon.HashBytes(b []byte) string`
   - `canon.Redact(v any) (any, error)` — deep copy with sensitive keys replaced by `"<redacted>"`; matches keys case-insensitively against `api[_-]?key|token|secret|password|passwd|credential|authorization|cookie` (also matches when the key merely *contains* these substrings, e.g. `X-Api-Key`).
-  - `canon.NormalizePaths(v any, home, runDir string) (any, error)` — replaces the home prefix with `~`, `runDir` with `<run-dir>`; only whole leading path segments are replaced (no substring edits inside arbitrary text — implement by checking each string value: if it equals a prefix path or starts with prefix+"/").
+  - `canon.PathPrefix{From, To string}` and `canon.NormalizePaths(v any, prefixes ...PathPrefix) (any, error)` — replaces each prefix (`$HOME`→`~`, run dir→`<run-dir>`, worktree→`<worktree>`); only whole leading path segments are replaced (no substring edits inside arbitrary text — check each string value: if it equals a prefix or starts with `prefix+"/"`). The **longest matching prefix wins**, so a run dir nested under `$HOME` (the default layout) normalises to `<run-dir>`, not to a `~`-path with a per-run UUID still in it.
   - `canon.SHA256Hex(b []byte) string`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1051,7 +1052,10 @@ func TestNormalizePaths(t *testing.T) {
 		"homeish":  "/Users/michelle/x",
 		"embedded": "see /Users/mich/.config for details",
 	}
-	out, err := NormalizePaths(v, home, runDir)
+	out, err := NormalizePaths(v,
+		PathPrefix{From: home, To: "~"},
+		PathPrefix{From: runDir, To: "<run-dir>"},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1073,9 +1077,64 @@ func TestNormalizePaths(t *testing.T) {
 	}
 }
 
-func TestNormalizePathsEmptyInputsAreNoOps(t *testing.T) {
+func TestNormalizePathsLongestPrefixWins(t *testing.T) {
+	home := "/Users/mich"
+	runDir := "/Users/mich/.local/share/ocbench/runs/6f1e-uuid"
+	wt := "/Users/mich/.cache/ocbench/worktrees/6f1e-uuid"
+	v := map[string]any{
+		"run_artifact": runDir + "/events.jsonl",
+		"worktree":     wt + "/src/main.py",
+		"home_file":    home + "/.config/opencode/opencode.json",
+		"exact_run":    runDir,
+		"exact_home":   home,
+	}
+	out, err := NormalizePaths(v,
+		PathPrefix{From: home, To: "~"},
+		PathPrefix{From: runDir, To: "<run-dir>"},
+		PathPrefix{From: wt, To: "<worktree>"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := out.(map[string]any)
+	if m["run_artifact"] != "<run-dir>/events.jsonl" {
+		t.Fatalf("run dir shadowed by home: %v", m["run_artifact"])
+	}
+	if m["worktree"] != "<worktree>/src/main.py" {
+		t.Fatalf("worktree = %v", m["worktree"])
+	}
+	if m["home_file"] != "~/.config/opencode/opencode.json" {
+		t.Fatalf("home = %v", m["home_file"])
+	}
+	if m["exact_run"] != "<run-dir>" || m["exact_home"] != "~" {
+		t.Fatalf("exact matches: %v %v", m["exact_run"], m["exact_home"])
+	}
+}
+
+func TestNormalizePathsIsIdempotentAndNonMutating(t *testing.T) {
+	home := "/Users/mich"
+	original := map[string]any{"p": "/Users/mich/x", "n": 1}
+	out, err := NormalizePaths(original, PathPrefix{From: home, To: "~"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if original["p"] != "/Users/mich/x" {
+		t.Fatal("input mutated")
+	}
+	again, err := NormalizePaths(out, PathPrefix{From: home, To: "~"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b1, _ := json.Marshal(out)
+	b2, _ := json.Marshal(again)
+	if string(b1) != string(b2) {
+		t.Fatalf("not idempotent: %s vs %s", b1, b2)
+	}
+}
+
+func TestNormalizePathsEmptyPrefixesAreNoOps(t *testing.T) {
 	v := map[string]any{"a": "/x/y"}
-	out, err := NormalizePaths(v, "", "")
+	out, err := NormalizePaths(v, PathPrefix{From: "", To: "~"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1233,25 +1292,35 @@ Use a small helper `jsonUnmarshalStrictish` that wraps `json.Unmarshal` with a c
 ```go
 package canon
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
-func NormalizePaths(v any, home, runDir string) (any, error) {
-	replacements := make([][2]string, 0, 2)
-	if home != "" {
-		replacements = append(replacements, [2]string{home, "~"})
-	}
-	if runDir != "" {
-		replacements = append(replacements, [2]string{runDir, "<run-dir>"})
-	}
-	return normalize(v, replacements)
+type PathPrefix struct {
+	From string
+	To   string
 }
 
-func normalize(v any, replacements [][2]string) (any, error) {
+func NormalizePaths(v any, prefixes ...PathPrefix) (any, error) {
+	ordered := make([]PathPrefix, 0, len(prefixes))
+	for _, p := range prefixes {
+		if p.From != "" {
+			ordered = append(ordered, p)
+		}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return len(ordered[i].From) > len(ordered[j].From)
+	})
+	return normalize(v, ordered)
+}
+
+func normalize(v any, prefixes []PathPrefix) (any, error) {
 	switch t := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, val := range t {
-			nv, err := normalize(val, replacements)
+			nv, err := normalize(val, prefixes)
 			if err != nil {
 				return nil, err
 			}
@@ -1261,7 +1330,7 @@ func normalize(v any, replacements [][2]string) (any, error) {
 	case []any:
 		out := make([]any, len(t))
 		for i, item := range t {
-			nv, err := normalize(item, replacements)
+			nv, err := normalize(item, prefixes)
 			if err != nil {
 				return nil, err
 			}
@@ -1269,34 +1338,31 @@ func normalize(v any, replacements [][2]string) (any, error) {
 		}
 		return out, nil
 	case string:
-		return normalizeString(t, replacements), nil
+		return normalizeString(t, prefixes), nil
 	default:
 		return v, nil
 	}
 }
 
-func normalizeString(s string, replacements [][2]string) string {
-	for _, r := range replacements {
-		from, to := r[0], r[1]
-		if from == "" {
-			continue
+func normalizeString(s string, prefixes []PathPrefix) string {
+	for _, p := range prefixes {
+		if s == p.From {
+			return p.To
 		}
-		if s == from {
-			s = to
-			continue
-		}
-		if strings.HasPrefix(s, from+"/") {
-			s = to + s[len(from):]
+		if strings.HasPrefix(s, p.From+"/") {
+			return p.To + s[len(p.From):]
 		}
 	}
 	return s
 }
 ```
 
+Longest-prefix-first ordering is what keeps a run directory nested under `$HOME` (the default layout) from being shadowed by the home rule and leaking a per-run UUID into the canonical JSON.
+
 - [ ] **Step 6: Run all canon tests**
 
 Run: `go test ./internal/canon/ -v`
-Expected: PASS (6 tests).
+Expected: PASS (all tests in the brief plus the longest-prefix, idempotence and empty-prefix cases).
 
 - [ ] **Step 7: Commit**
 
@@ -1361,10 +1427,10 @@ type MCPStatus struct {
 }
 
 type Options struct {
-	Bin     string
-	Timeout time.Duration
-	Env     []string // nil means os.Environ()
-	Dir     string
+	Bin        string
+	Timeout    time.Duration
+	Env        []string // nil means os.Environ()
+	TestPrefix []string // test-only: argv inserted before the opencode args
 }
 
 func NewReal(opts Options) *Real
@@ -1394,10 +1460,8 @@ func (r *Real) Run(ctx context.Context, args ...string) (stdout []byte, stderr [
 package opencode
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 )
 
@@ -1443,25 +1507,8 @@ func TestHelperProcess(t *testing.T) {
 	os.Exit(42)
 }
 
-func fakeBin(t *testing.T) string {
-	t.Helper()
-	return helperCommand(t)
-}
-
-func helperCommand(t *testing.T) string {
-	t.Helper()
-	return os.Args[0]
-}
-
 func helperEnv() []string {
 	return append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
-}
-
-func runHelper(t *testing.T, args ...string) ([]byte, error) {
-	t.Helper()
-	cmd := exec.Command(os.Args[0], append([]string{"-test.run=TestHelperProcess", "--"}, args...)...)
-	cmd.Env = helperEnv()
-	return cmd.Output()
 }
 ```
 
@@ -1590,6 +1637,7 @@ type Sources struct {
 	Agents          []opencode.AgentInfo
 	Instructions    map[string][]byte // scope → content, key like "global:AGENTS.md"
 	Dir             string
+	Home            string // used for path normalisation; tests set it explicitly
 }
 
 type Options struct {
@@ -1634,14 +1682,14 @@ func Latest(ctx context.Context, st *store.Store) (*Profile, error)
 
 - [ ] **Step 1: Write the failing Fingerprint determinism test**
 
-`internal/profile/fingerprint_test.go` — build `Sources` from testdata twice with deliberately shuffled map/slice order and assert identical `Hash`; assert that changing only one skill's content changes `skill/<name>` and the overall hash but not `agent/build`; assert redaction: the MCP secret from testdata never appears in `CanonicalJSON`; assert path normalisation: with `Sources.Dir=/tmp/ocbench/run-x` and a skill location under the fake home, canonical JSON contains `~` and `<run-dir>` and no absolute home path.
+`internal/profile/fingerprint_test.go` — build `Sources` from testdata twice with deliberately shuffled map/slice order and assert identical `Hash`; assert that changing only one skill's content changes `skill/<name>` and the overall hash but not `agent/build`; assert redaction: the MCP secret from testdata never appears in `CanonicalJSON`; assert path normalisation: with `Sources.Home=/home/u` and a skill location under that home, canonical JSON contains `~` and no absolute home path. (`Sources.Dir` is not normalised in Plan 1 — run-dir/worktree prefixes arrive with the runner in Plan 2.)
 
 - [ ] **Step 2: Run and watch it fail, then implement `fingerprint.go`**
 
 Implementation requirements:
 
 1. Decode `ResolvedConfig` into `map[string]any`.
-2. Redact the decoded config, then normalise paths (`home` from `Sources.Instructions` global path's directory or an injected field — add `Home string` to `Sources`, populated by `Discover` from `os.UserHomeDir()`/`HOME`; tests set it explicitly).
+2. Redact the decoded config, then normalise paths with `canon.NormalizePaths(v, canon.PathPrefix{From: s.Home, To: "~"})`. In Plan 1 no run directory or worktree exists yet, so only the home prefix is passed; Plan 2 passes additional `PathPrefix` entries for the run dir and worktree. `Sources.Home` is populated by `Discover` from `os.UserHomeDir()`/`HOME`; tests set it explicitly.
 3. Build components:
    - `primary`: `default_agent`, `model`, `small_model` from resolved config; apply `Options.Agent/Model/Variant` overrides (an override replaces the effective value and sets `environment.overrides`).
    - `agent/<name>` for every agent in resolved config `.agent`, enriched with the matching `AgentInfo` from `Sources.Agents` (`mode`, `native`, `tools`); include `model`, `variant`, `temperature`, `steps`, `options`, and `prompt_sha256` (hash of the raw prompt bytes if present); exclude `permission` (see next bullet).
@@ -1649,7 +1697,7 @@ Implementation requirements:
    - `skill/<name>`: `description`, `content_sha256` (sha256 of `Content`), `files_sha256` (sha256 over sorted `relpath\0bytes` for all regular files under `filepath.Dir(Location)`), `source` (normalized `filepath.Dir(Location)`). If the directory is unreadable, fall back to `files_sha256 = content_sha256` and record `source_error: true` — never fail the whole fingerprint for one skill.
    - `mcp/<name>`: redacted+normalized MCP entry from resolved config; keep `environment_keys` (sorted key names) instead of the environment map.
    - `plugin/<spec>`: from `plugin` array; for `file://` specs compute `local_sha256` over file bytes (or directory walk if the plugin is a directory); include origin from `plugin_origins` when present (normalized).
-   - `instructions/<scope>`: sha256 of each `Sources.Instructions` entry.
+   - `instructions/<scope>`: `path` (normalized) and `sha256` of each `Sources.Instructions` entry, per spec §5.1.
    - `config`: resolved config minus the keys consumed above (`model`, `small_model`, `default_agent`, `agent`, `mcp`, `plugin`, `plugin_origins`, `skills`, `permission`, `username`, `$schema`), redacted+normalized.
    - `environment`: `{sandbox, env_names (sorted), auto, pure, overrides}`.
 4. Assemble `map[string]any{"schema":1,"opencode_version":...,"components":{key: subtree}}`; compute `profile.Hash = canon.Hash(snapshot)`; per component `Hash = canon.Hash(subtree)`; `CanonicalJSON = canon.JSON(snapshot)`.
@@ -1693,7 +1741,7 @@ Tests: insert twice with the same hash → second returns no error, table has on
 
 - [ ] **Step 5: Implement `persist.go` and `diff.go` plus tests**
 
-`Persist`: serialize profile to rows; call `InsertProfile`; if `GetProfileByHash` already existed before insert, return `created=false`. Raw captures: write `resolved-config.json` (redacted), `skills.json` (redacted metadata + hashes only — do NOT write full skill content), `agents.json`, `snapshot.json` (canonical JSON) under `paths.Profiles/<hash>/`. `os.MkdirAll` idempotent. `Diff` compares components by `(Kind,Name)`, returning `added`/`removed`/`changed` entries sorted by kind then name. Tests: diff of two fixtures yields exactly one change when one skill changes; added/removed cases; `Diff(p,p)` empty.
+`Persist`: serialize profile to rows; call `InsertProfile`; if `GetProfileByHash` already existed before insert, return `created=false`. Raw captures under `paths.Profiles/<hash>/` per spec §5.4/§5.5: `resolved-config.json` (redacted), `skills.json` (name, description, location, and **full skill content** — the raw skill bodies are retained once per profile so a benchmarked profile stays auditable after the skills on disk change; they are never copied into the database), `instructions.json` (scope → raw text of each discovered instruction file), `agents.json`, `snapshot.json` (canonical JSON). Never write secret values: redaction applies to structured config; raw skill/instruction text is user-authored content retained for audit. `os.MkdirAll` idempotent; do not rewrite captures from a profile whose `Captures` are empty (e.g. one loaded via `Latest`). `Diff` compares components by `(Kind,Name)`, returning `added`/`removed`/`changed` entries sorted by kind then name. Tests: diff of two fixtures yields exactly one change when one skill changes; added/removed cases; `Diff(p,p)` empty.
 
 - [ ] **Step 6: Run all profile + store tests**
 
@@ -1712,7 +1760,8 @@ git commit -m "feat: resolve, fingerprint, persist and diff OpenCode execution p
 ### Task 7: `ocbench doctor`
 
 **Files:**
-- Create: `internal/doctor/doctor.go`, `internal/doctor/doctor_test.go`, `internal/cli/doctor.go`
+- Create: `internal/doctor/doctor.go`, `internal/doctor/doctor_test.go`, `internal/cli/doctor.go`, `internal/cli/deps.go`
+- Modify: `internal/cli/root.go` (register `doctor`, introduce injectable deps)
 
 **Interfaces:**
 - Consumes: `config`, `store`, `opencode`, `profile`, `version`.
@@ -1746,9 +1795,22 @@ func Run(ctx context.Context, a opencode.Adapter, paths config.Paths, cfg config
 Checks: `opencode` binary resolvable and version parseable (fail if not); `git` present (warn if missing — Plan 2 needs it); data dirs creatable and DB openable + `Migrate` (fail on error); config file parse (fail); profile discovery + fingerprint (fail on adapter error); skills/agents/MCP counts (warn when zero); sandbox mode summary (ok, informational). `Run` returns the report and a non-nil error only for programming errors; check failures are reported in `Report`.
 
 - [ ] **Step 1: Write failing tests** using the helper adapter and temp `Paths`; assert: all-ok report against the fake; fail entry when `Bin` points at a missing file; DB migration applied; counts match canned data.
-- [ ] **Step 2: Implement `doctor.go` and the CLI command** (`ocbench doctor [--json]`, human output is an aligned table `NAME  STATUS  DETAIL`, exit code `1` when `!Healthy()`, `0` otherwise).
-- [ ] **Step 3: Run tests + manual smoke**: `go run ./cmd/ocbench doctor --json` against the real environment; it must report ok for opencode/git/db/config and non-zero counts. This is the first real-OpenCode execution; if the adapter fails against the real binary, fix the adapter (not the test) and record what was learned.
-- [ ] **Step 4: Commit** `feat: add doctor command`
+- [ ] **Step 2: Introduce injectable CLI dependencies** in `internal/cli/deps.go`:
+
+```go
+type Deps struct {
+	Adapter opencode.Adapter // nil → real adapter built from config
+	Paths   config.Paths     // zero → config.ResolveOS()
+	Config  config.Config    // zero → config.DefaultsConfig()
+}
+
+func NewRootWithDeps(d Deps) *cobra.Command
+```
+
+`NewRoot()` becomes `NewRootWithDeps(Deps{})`. `NewRootWithDeps` resolves zero fields lazily: paths via `config.ResolveOS()`, config via `config.Load(paths)` (returning an error from `RunE` validation), adapter via `opencode.NewReal(opencode.Options{Bin: cfg.OpenCodeBin})`. Every subsequent command (doctor, snapshot, and later run/history/compare/serve) receives `Deps` and never reaches for the environment directly. `execute()` must return an error rather than calling `os.Exit` so command-level tests can assert on it; `Execute()` in `root.go` maps non-nil errors to exit code 1.
+- [ ] **Step 3: Implement `doctor.go` and the CLI command** (`ocbench doctor [--json]`, human output is an aligned table `NAME  STATUS  DETAIL`, exit code `1` when `!Healthy()`, `0` otherwise). `doctor_test.go` covers `doctor.Run`; `doctor.go` in `internal/cli` builds a `doctor.Report` from `Deps` and renders it.
+- [ ] **Step 4: Run tests + manual smoke**: `go run ./cmd/ocbench doctor --json` against the real environment; it must report ok for opencode/git/db/config and non-zero counts. This is the first real-OpenCode execution; if the adapter fails against the real binary, fix the adapter (not the test) and record what was learned.
+- [ ] **Step 5: Commit** `feat: add doctor command`
 
 ---
 
@@ -1792,7 +1854,7 @@ changes vs 4e921fcc
 
 - [ ] **Step 1: Write failing render tests** (golden strings for a fixture profile with two components and one change).
 - [ ] **Step 2: Implement `render.go`; run tests.**
-- [ ] **Step 3: Write the CLI command wired to a `cliDeps` struct** so tests can inject a fake adapter + temp paths (add `NewRootWithDeps(deps Deps) *cobra.Command` in `internal/cli`, where `Deps{Adapter opencode.Adapter; Paths config.Paths; Config config.Config}` is resolved lazily from the environment when zero). Refactor `NewRoot` to build default deps. This is the mechanism every later command uses in tests.
+- [ ] **Step 3: Wire the snapshot command through the `Deps`/`NewRootWithDeps` mechanism introduced in Task 7.** No new injection mechanism: `snapshot.go` reads `d.Adapter`, `d.Paths`, `d.Config` and uses a package-level `newSnapshotCmd(d Deps)` constructor registered by `NewRootWithDeps`.
 - [ ] **Step 4: Command-level tests** with fake adapter + temp paths: two snapshots → one profile row, no changes; mutate a fake skill content between runs → second snapshot reports exactly that one change and creates a second profile; `--json` shape parses.
 - [ ] **Step 5: Real smoke (manual, by the implementer on the dev machine):**
 

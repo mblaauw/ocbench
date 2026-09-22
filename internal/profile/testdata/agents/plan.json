@@ -1,0 +1,11 @@
+{
+  "name": "plan",
+  "description": "Primary planning agent",
+  "mode": "primary",
+  "native": false,
+  "model": "anthropic/claude-sonnet-4-5",
+  "steps": 20,
+  "tools": {"read": true, "edit": false},
+  "options": {},
+  "permission": [{"permission": "edit", "pattern": "*", "action": "ask"}]
+}
