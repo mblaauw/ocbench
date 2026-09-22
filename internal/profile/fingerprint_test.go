@@ -189,6 +189,69 @@ func TestFingerprintSkillChangeIsIsolated(t *testing.T) {
 	}
 }
 
+func TestFingerprintPermissionOrderIndependent(t *testing.T) {
+	// OpenCode's `debug agent` returns the permission array in a different
+	// order between identical invocations; the profile hash must not depend on
+	// it (spec 5.2).
+	const permA = `[
+		{"permission":"bash","pattern":"*","action":"ask"},
+		{"permission":"edit","pattern":"*","action":"allow"},
+		{"permission":"webfetch","pattern":"*","action":"deny"}
+	]`
+	const permB = `[
+		{"permission":"webfetch","pattern":"*","action":"deny"},
+		{"permission":"bash","pattern":"*","action":"ask"},
+		{"permission":"edit","pattern":"*","action":"allow"}
+	]`
+	build := func(perm string) *Sources {
+		s := loadTestSources(t)
+		for i := range s.Agents {
+			if s.Agents[i].Name == "build" {
+				s.Agents[i].Permission = json.RawMessage(perm)
+			}
+		}
+		return s
+	}
+	p1, err := Fingerprint(build(permA), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := Fingerprint(build(permB), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p1.Hash != p2.Hash {
+		t.Fatalf("profile hash depends on permission order:\n %s\n %s", p1.Hash, p2.Hash)
+	}
+	if componentByKey(t, p1, "permissions").Hash != componentByKey(t, p2, "permissions").Hash {
+		t.Fatal("permissions component hash depends on permission order")
+	}
+
+	// The canonicalised component still contains exactly the same rule set.
+	var comp struct {
+		ByAgent map[string][]struct {
+			Permission string `json:"permission"`
+			Action     string `json:"action"`
+		} `json:"by_agent"`
+	}
+	if err := json.Unmarshal(componentByKey(t, p1, "permissions").CanonicalJSON, &comp); err != nil {
+		t.Fatal(err)
+	}
+	rules := comp.ByAgent["build"]
+	if len(rules) != 3 {
+		t.Fatalf("build permission rules = %d, want 3", len(rules))
+	}
+	seen := map[string]bool{}
+	for _, r := range rules {
+		seen[r.Permission+"/"+r.Action] = true
+	}
+	for _, want := range []string{"bash/ask", "edit/allow", "webfetch/deny"} {
+		if !seen[want] {
+			t.Fatalf("missing permission rule %q in %+v", want, rules)
+		}
+	}
+}
+
 func TestFingerprintSkillFilesChange(t *testing.T) {
 	dir := t.TempDir()
 	if err := copyDir(filepath.Join("testdata", "skills", "ruff"), dir); err != nil {

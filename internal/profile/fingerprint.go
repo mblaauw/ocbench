@@ -305,14 +305,17 @@ func buildAgents(cfg map[string]any, infos []opencode.AgentInfo, home string) (m
 	}
 
 	for name, v := range byAgentPerm {
-		clean, err := canonicalize(v, home)
+		clean, err := canonicalizePermission(v, home)
 		if err != nil {
 			return nil, nil, err
 		}
 		byAgentPerm[name] = clean
 	}
 
-	global := cfg["permission"]
+	global, err := canonicalizePermission(cfg["permission"], home)
+	if err != nil {
+		return nil, nil, err
+	}
 	if global == nil {
 		global = map[string]any{}
 	}
@@ -529,6 +532,42 @@ func canonicalize(v any, home string) (any, error) {
 		return nil, err
 	}
 	return canon.NormalizePaths(redacted, normPrefixes(home)...)
+}
+
+// canonicalizePermission applies the standard redaction/normalisation and then
+// canonicalises the order of permission rule arrays. OpenCode returns the
+// per-agent permission array in nondeterministic order between identical
+// invocations, so sorting the elements by their canonical JSON encoding makes
+// the hashed subtree order-independent for any element shape (including the
+// real {"permission","action","pattern"} objects). Object-valued permission
+// maps are already deterministic through canon.JSON and are left untouched.
+func canonicalizePermission(v any, home string) (any, error) {
+	clean, err := canonicalize(v, home)
+	if err != nil {
+		return nil, err
+	}
+	arr, ok := clean.([]any)
+	if !ok {
+		return clean, nil
+	}
+	type rule struct {
+		key string
+		val any
+	}
+	rules := make([]rule, 0, len(arr))
+	for _, e := range arr {
+		b, err := canon.JSON(e)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule{key: string(b), val: e})
+	}
+	sort.SliceStable(rules, func(i, j int) bool { return rules[i].key < rules[j].key })
+	out := make([]any, len(rules))
+	for i := range rules {
+		out[i] = rules[i].val
+	}
+	return out, nil
 }
 
 // normPrefixes are the Plan 1 normalisation prefixes: the home directory, plus
