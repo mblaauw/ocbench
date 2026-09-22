@@ -80,6 +80,11 @@ func runSuite(cmd *cobra.Command, d Deps, opts runOptions, args []string) error 
 		suiteName = args[0]
 		taskIDs = args[1:]
 	}
+	if taskIDs == nil {
+		// An absent task filter is recorded in the experiment spec as an empty
+		// list rather than JSON null, so the schema is stable.
+		taskIDs = []string{}
+	}
 
 	repeat := opts.repeat
 	if !cmd.Flags().Changed("repeat") {

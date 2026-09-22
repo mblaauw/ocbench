@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,19 +25,17 @@ import (
 const (
 	runHelperGuard = "GO_WANT_HELPER_PROCESS"
 	runHelperMode  = "RUN_HELPER_MODE"
+	// runHelperCounterDir, when set, makes each `run` invocation emit a
+	// different token total (10, 20, 30, ...) by counting calls in that dir.
+	runHelperCounterDir = "RUN_HELPER_COUNTER_DIR"
+	// runHelperMCPTool, when set, adds a tool_use event with that tool name so
+	// MCP classification can be observed.
+	runHelperMCPTool = "RUN_HELPER_MCP_TOOL"
 
 	runHelperSession = "ses_cli"
 
 	runHelperConfig = `{"default_agent":"build","agent":{"build":{}},"mcp":{"gitlab":{"enabled":true}}}`
 	runHelperExport = `{"info":{"id":"ses_cli","tokens":{"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.01},"messages":[]}`
-
-	// A minimal 4-line stream: step_start, one completed tool_use, a
-	// step_finish carrying tokens, and a text part.
-	runHelperEvents = `{"type":"step_start","timestamp":1,"sessionID":"ses_cli","part":{"type":"step-start"}}
-{"type":"tool_use","timestamp":2,"sessionID":"ses_cli","part":{"type":"tool","tool":"read","callID":"c1","state":{"status":"completed"}}}
-{"type":"step_finish","timestamp":3,"sessionID":"ses_cli","part":{"type":"step-finish","reason":"stop","tokens":{"total":15,"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.01}}
-{"type":"text","timestamp":4,"sessionID":"ses_cli","part":{"type":"text","text":"done"}}
-`
 )
 
 // TestRunHelperProcess impersonates opencode for the CLI run tests. It is only
@@ -72,24 +71,65 @@ func TestRunHelperProcess(t *testing.T) {
 			fmt.Fprintln(os.Stdout, `{"type":"step_start","timestamp":1,"sessionID":"ses_cli","part":{"type":"step-start"}}`)
 			os.Exit(3)
 		}
-		fmt.Fprint(os.Stdout, runHelperEvents)
-		os.Exit(0)
+		emitHelperRun()
 	}
 	os.Exit(42)
 }
 
-// runTestAdapter serves discovery through the helper-backed Real adapter and
-// counts Start calls so tests can prove --dry-run never opens a session.
+// emitHelperRun writes one canned `opencode run --format json` stream: a
+// step_start, a completed read tool, an optional MCP tool, a step_finish with
+// tokens, and a text part. Token totals are 15 by default; when the counter dir
+// is configured they grow by 10 per invocation so repeat medians are testable.
+func emitHelperRun() {
+	tokens := helperTokenTotal()
+	fmt.Fprintln(os.Stdout, `{"type":"step_start","timestamp":1,"sessionID":"ses_cli","part":{"type":"step-start"}}`)
+	fmt.Fprintln(os.Stdout, `{"type":"tool_use","timestamp":2,"sessionID":"ses_cli","part":{"type":"tool","tool":"read","callID":"c1","state":{"status":"completed"}}}`)
+	if tool := os.Getenv(runHelperMCPTool); tool != "" {
+		fmt.Fprintf(os.Stdout, `{"type":"tool_use","timestamp":3,"sessionID":"ses_cli","part":{"type":"tool","tool":%q,"callID":"c2","state":{"status":"completed"}}}`+"\n", tool)
+	}
+	fmt.Fprintf(os.Stdout, `{"type":"step_finish","timestamp":4,"sessionID":"ses_cli","part":{"type":"step-finish","reason":"stop","tokens":{"total":%d,"input":%d,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.01}}`+"\n", tokens, tokens-5)
+	fmt.Fprintln(os.Stdout, `{"type":"text","timestamp":5,"sessionID":"ses_cli","part":{"type":"text","text":"done"}}`)
+	os.Exit(0)
+}
+
+// helperTokenTotal returns the token total for this run invocation. Without a
+// configured counter directory every invocation is identical (15); with one,
+// invocations increment a shared counter so each is 10, 20, 30, ...
+func helperTokenTotal() int {
+	dir := os.Getenv(runHelperCounterDir)
+	if dir == "" {
+		return 15
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return 15
+	}
+	path := filepath.Join(dir, "count")
+	n := 0
+	if b, err := os.ReadFile(path); err == nil {
+		n, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	n++
+	if err := os.WriteFile(path, []byte(strconv.Itoa(n)), 0o644); err != nil {
+		return 15
+	}
+	return n * 10
+}
+
+// runTestAdapter serves discovery through the helper-backed Real adapter,
+// counts Start calls so tests can prove --dry-run never opens a session, and
+// records each request so tests can assert execution order.
 type runTestAdapter struct {
 	*opencode.Real
 
 	mu     sync.Mutex
 	starts int
+	calls  []opencode.RunRequest
 }
 
 func (a *runTestAdapter) Start(ctx context.Context, req opencode.RunRequest) (*opencode.Session, error) {
 	a.mu.Lock()
 	a.starts++
+	a.calls = append(a.calls, req)
 	a.mu.Unlock()
 	return a.Real.Start(ctx, req)
 }
@@ -98,6 +138,17 @@ func (a *runTestAdapter) startCount() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.starts
+}
+
+// startPrompts returns the prompt of every Start call in invocation order.
+func (a *runTestAdapter) startPrompts() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]string, len(a.calls))
+	for i, req := range a.calls {
+		out[i] = req.Prompt
+	}
+	return out
 }
 
 // newRunTestDeps builds deps whose adapter is the guarded test binary. The
@@ -118,7 +169,7 @@ func newRunTestDeps(t *testing.T) (Deps, *runTestAdapter) {
 	}
 	cfg := config.DefaultsConfig()
 	cfg.OpenCodeBin = filepath.Join(base, "opencode-unused")
-	cfg.Sandbox.PassEnv = []string{runHelperGuard, runHelperMode}
+	cfg.Sandbox.PassEnv = []string{runHelperGuard, runHelperMode, runHelperCounterDir, runHelperMCPTool}
 	bin, err := filepath.Abs(os.Args[0])
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +203,7 @@ func writeRunSuite(t *testing.T, tasks ...runTaskSpec) string {
 		task := fmt.Sprintf("id: %s\nversion: \"1\"\nname: %s\nvalidators:\n  - kind: command\n    name: check\n    command: [\"sh\", \"-c\", \"%s\"]\n",
 			ts.id, ts.id, exit)
 		writeRunFile(t, filepath.Join(base, "task.yaml"), task)
-		writeRunFile(t, filepath.Join(base, "prompt.md"), "do the thing\n")
+		writeRunFile(t, filepath.Join(base, "prompt.md"), "do the thing for "+ts.id+"\n")
 		writeRunFile(t, filepath.Join(base, "fixture", "hello.txt"), "hi\n")
 	}
 	return dir
@@ -464,7 +515,7 @@ func TestRunCommandJSONOutput(t *testing.T) {
 	t.Run("single run has empty aggregates", func(t *testing.T) {
 		d, _ := newRunTestDeps(t)
 		suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
-		out, err := runRunCmd(t, d, "--json", "mini", "--suite-dir", suiteDir)
+		out, err := runRunCmd(t, d, "--json", "--suite-dir", suiteDir)
 		if err != nil {
 			t.Fatalf("run --json: %v\n%s", err, out)
 		}
@@ -499,6 +550,16 @@ func TestRunCommandJSONOutput(t *testing.T) {
 		if r.TokensTotal != 15 || r.ToolCallsTotal != 1 || r.ValidatorsFailed != 0 {
 			t.Fatalf("run metrics = %+v", r)
 		}
+
+		// An absent task filter records an empty list, never JSON null.
+		st := openRunStore(t, d)
+		var spec string
+		if err := st.DB().QueryRow(`SELECT spec_json FROM experiments LIMIT 1`).Scan(&spec); err != nil {
+			t.Fatalf("read experiment spec: %v", err)
+		}
+		if !strings.Contains(spec, `"tasks":[]`) {
+			t.Fatalf("experiment spec = %s, want \"tasks\":[]", spec)
+		}
 	})
 
 	t.Run("repeat produces aggregates", func(t *testing.T) {
@@ -532,4 +593,188 @@ func TestRunCommandJSONOutput(t *testing.T) {
 			t.Fatalf("duration aggregate = %+v", a)
 		}
 	})
+}
+
+func TestRunCommandTaskMajorRepeatOrdering(t *testing.T) {
+	d, adapter := newRunTestDeps(t)
+	suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"}, runTaskSpec{id: "t2"})
+
+	out, err := runRunCmd(t, d, "--repeat", "2", "mini", "--suite-dir", suiteDir)
+	if err != nil {
+		t.Fatalf("run --repeat 2: %v\n%s", err, out)
+	}
+
+	// The adapter's Start order is the execution order. Each task's prompt is
+	// unique, so the prompts show task-major scheduling: t1,t1,t2,t2.
+	wantPrompts := []string{
+		"do the thing for t1\n", "do the thing for t1\n",
+		"do the thing for t2\n", "do the thing for t2\n",
+	}
+	if got := adapter.startPrompts(); !equalStrings(got, wantPrompts) {
+		t.Fatalf("start prompts = %q, want %q", got, wantPrompts)
+	}
+
+	// The persisted rows, read back in insertion order, are the same sequence.
+	st := openRunStore(t, d)
+	rows, err := st.DB().QueryContext(context.Background(),
+		`SELECT task_id, repeat_index FROM runs ORDER BY rowid`)
+	if err != nil {
+		t.Fatalf("query runs: %v", err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var taskID string
+		var repeat int
+		if err := rows.Scan(&taskID, &repeat); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, fmt.Sprintf("%s:%d", taskID, repeat))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"t1:0", "t1:1", "t2:0", "t2:1"}
+	if !equalStrings(got, want) {
+		t.Fatalf("persisted run order = %q, want %q", got, want)
+	}
+}
+
+func TestMedianInts(t *testing.T) {
+	cases := []struct {
+		name string
+		in   []int64
+		want float64
+	}{
+		{"empty", nil, 0},
+		{"single", []int64{7}, 7},
+		{"odd unsorted", []int64{30, 10, 20}, 20},
+		{"even unsorted", []int64{40, 10, 30, 20}, 25},
+		{"even with duplicates", []int64{5, 5, 1, 3}, 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := medianInts(tc.in); got != tc.want {
+				t.Fatalf("medianInts(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunCommandRepeatMedianTokens(t *testing.T) {
+	t.Run("four repeats uses the mean of the two middles", func(t *testing.T) {
+		d, _ := newRunTestDeps(t)
+		t.Setenv(runHelperCounterDir, t.TempDir())
+		suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
+
+		out, err := runRunCmd(t, d, "--json", "--repeat", "4", "mini", "--suite-dir", suiteDir)
+		if err != nil {
+			t.Fatalf("run --json --repeat 4: %v\n%s", err, out)
+		}
+		var doc runJSONDoc
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("decode doc: %v\n%s", err, out)
+		}
+		tokens := make([]int64, 0, len(doc.Runs))
+		for _, r := range doc.Runs {
+			tokens = append(tokens, r.TokensTotal)
+		}
+		if !equalInt64s(tokens, []int64{10, 20, 30, 40}) {
+			t.Fatalf("run tokens = %v, want 10,20,30,40", tokens)
+		}
+		if len(doc.Aggregates) != 1 {
+			t.Fatalf("aggregates = %d, want 1", len(doc.Aggregates))
+		}
+		a := doc.Aggregates[0]
+		if a.MedianTokens != 25 {
+			t.Fatalf("median_tokens = %v, want 25", a.MedianTokens)
+		}
+		if a.MedianTokens != medianInts(tokens) {
+			t.Fatalf("median_tokens = %v, medianInts = %v", a.MedianTokens, medianInts(tokens))
+		}
+		if a.MinTokens != 10 || a.MaxTokens != 40 {
+			t.Fatalf("min/max = %d/%d, want 10/40", a.MinTokens, a.MaxTokens)
+		}
+	})
+
+	t.Run("three repeats uses the middle value", func(t *testing.T) {
+		d, _ := newRunTestDeps(t)
+		t.Setenv(runHelperCounterDir, t.TempDir())
+		suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
+
+		out, err := runRunCmd(t, d, "--json", "--repeat", "3", "mini", "--suite-dir", suiteDir)
+		if err != nil {
+			t.Fatalf("run --json --repeat 3: %v\n%s", err, out)
+		}
+		var doc runJSONDoc
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("decode doc: %v\n%s", err, out)
+		}
+		tokens := make([]int64, 0, len(doc.Runs))
+		for _, r := range doc.Runs {
+			tokens = append(tokens, r.TokensTotal)
+		}
+		if !equalInt64s(tokens, []int64{10, 20, 30}) {
+			t.Fatalf("run tokens = %v, want 10,20,30", tokens)
+		}
+		if len(doc.Aggregates) != 1 {
+			t.Fatalf("aggregates = %d, want 1", len(doc.Aggregates))
+		}
+		if got := doc.Aggregates[0].MedianTokens; got != 20 {
+			t.Fatalf("median_tokens = %v, want 20", got)
+		}
+	})
+}
+
+func TestRunCommandMCPToolCalls(t *testing.T) {
+	d, _ := newRunTestDeps(t)
+	t.Setenv(runHelperMCPTool, "gitlab_get_mr")
+	suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
+
+	out, err := runRunCmd(t, d, "mini", "--suite-dir", suiteDir)
+	if err != nil {
+		t.Fatalf("run: %v\n%s", err, out)
+	}
+
+	st := openRunStore(t, d)
+	runs, err := st.ListRuns(context.Background(), 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("runs = %d, want 1", len(runs))
+	}
+	if got := runMetric(t, st, runs[0].ID, "mcp_calls"); got != 1 {
+		t.Fatalf("mcp_calls = %v, want 1", got)
+	}
+	if got := runMetric(t, st, runs[0].ID, "mcp_calls_gitlab"); got != 1 {
+		t.Fatalf("mcp_calls_gitlab = %v, want 1", got)
+	}
+	if got := runMetric(t, st, runs[0].ID, "tool_calls_total"); got != 2 {
+		t.Fatalf("tool_calls_total = %v, want 2 (read + gitlab_get_mr)", got)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalInt64s(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
