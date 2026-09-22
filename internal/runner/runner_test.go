@@ -64,15 +64,35 @@ func TestRunnerHelperProcess(t *testing.T) {
 		os.Exit(0)
 	}
 	if len(args) > 0 && args[0] == "run" {
-		if mode == "slow" {
+		switch mode {
+		case "slow":
 			fmt.Fprintln(os.Stdout, fakeStepStart)
 			time.Sleep(30 * time.Second)
+			os.Exit(0)
+		case "near":
+			// Emit events and finish before the task deadline so the watchdog
+			// must not misclassify the run as timed out. The margin is wide
+			// because a race-instrumented child binary can take over a second to
+			// start.
+			fmt.Fprint(os.Stdout, fakeEvents)
+			_ = os.WriteFile("src/main.go", []byte("package main // changed by agent\n"), 0o644)
+			_ = os.WriteFile("untracked.txt", []byte("hello untracked\n"), 0o644)
+			time.Sleep(500 * time.Millisecond)
 			os.Exit(0)
 		}
 		// Emit the canned stream and mutate the worktree (cwd is the worktree).
 		fmt.Fprint(os.Stdout, fakeEvents)
 		_ = os.WriteFile("src/main.go", []byte("package main // changed by agent\n"), 0o644)
 		_ = os.WriteFile("untracked.txt", []byte("hello untracked\n"), 0o644)
+		if mode == "symlink" {
+			// A link pointing outside the worktree: it must be recorded in
+			// changed.json but its target must not be copied into untracked/.
+			_ = os.WriteFile(filepath.Join("..", "..", "outside-secret.txt"), []byte("secret\n"), 0o644)
+			_ = os.Symlink(filepath.Join("..", "..", "outside-secret.txt"), "escape-link")
+		}
+		if mode == "exit3" {
+			os.Exit(3)
+		}
 		os.Exit(0)
 	}
 	os.Exit(42)
@@ -282,11 +302,22 @@ func TestRunHappyPath(t *testing.T) {
 	wantMetrics := map[string]float64{
 		"steps": 1, "tool_calls_total": 2, "mcp_calls": 1, "mcp_calls_gitlab": 1,
 		"tokens_input": 10, "tokens_output": 5, "tokens_total": 15, "cost": 0.01,
+		// Runner-derived spec §9 metrics.
+		"files_changed": 2, "files_created": 1, "files_deleted": 0,
+		"diff_lines_added": 1, "diff_lines_removed": 1,
+		"files_unexpected": 0, "validator_failures": 0,
+		"success": 1, "first_shot_success": 1,
 	}
 	for k, want := range wantMetrics {
 		if got := res.Metrics[k]; got != want {
 			t.Errorf("metric %s = %v, want %v", k, got, want)
 		}
+	}
+	if res.Metrics["duration_ms"] < 0 {
+		t.Errorf("duration_ms = %v, want >= 0", res.Metrics["duration_ms"])
+	}
+	if res.ExitCode == nil || *res.ExitCode != 0 {
+		t.Fatalf("exit code = %v, want 0", res.ExitCode)
 	}
 
 	if len(res.Validations) != 2 {
@@ -335,13 +366,16 @@ func TestRunHappyPath(t *testing.T) {
 		t.Fatalf("artifacts dir = %q, want %q", row.ArtifactsDir, res.ArtifactsDir)
 	}
 
-	var metricCount int
-	if err := f.st.DB().QueryRowContext(context.Background(),
-		`SELECT COUNT(*) FROM run_metrics WHERE run_id = ?`, res.RunID).Scan(&metricCount); err != nil {
-		t.Fatal(err)
-	}
-	if metricCount == 0 {
-		t.Fatal("no run_metrics rows persisted")
+	// Runner-derived metrics are persisted, not just returned.
+	for name, want := range map[string]float64{"files_changed": 2, "files_created": 1, "success": 1, "validator_failures": 0} {
+		var got float64
+		if err := f.st.DB().QueryRowContext(context.Background(),
+			`SELECT value_num FROM run_metrics WHERE run_id = ? AND name = ?`, res.RunID, name).Scan(&got); err != nil {
+			t.Fatalf("run_metrics %s: %v", name, err)
+		}
+		if got != want {
+			t.Fatalf("persisted metric %s = %v, want %v", name, got, want)
+		}
 	}
 	var validationCount int
 	if err := f.st.DB().QueryRowContext(context.Background(),
@@ -391,12 +425,28 @@ func TestRunValidatorFailure(t *testing.T) {
 	if len(res.Validations) != 1 || res.Validations[0].Status != "failed" {
 		t.Fatalf("validations = %+v", res.Validations)
 	}
+	for name, want := range map[string]float64{
+		"validator_failures": 1, "success": 0, "first_shot_success": 0,
+		"files_changed": 2, "files_created": 1, "diff_lines_added": 1, "diff_lines_removed": 1,
+	} {
+		if got := res.Metrics[name]; got != want {
+			t.Errorf("metric %s = %v, want %v", name, got, want)
+		}
+	}
 	row, err := f.st.GetRun(context.Background(), res.RunID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if row.Status != "failed" {
 		t.Fatalf("run row status = %q, want failed", row.Status)
+	}
+	var persistedSuccess float64
+	if err := f.st.DB().QueryRowContext(context.Background(),
+		`SELECT value_num FROM run_metrics WHERE run_id = ? AND name = 'success'`, res.RunID).Scan(&persistedSuccess); err != nil {
+		t.Fatalf("persisted success metric: %v", err)
+	}
+	if persistedSuccess != 0 {
+		t.Fatalf("persisted success = %v, want 0", persistedSuccess)
 	}
 }
 
@@ -419,6 +469,24 @@ func TestRunStartError(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "events.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("events.jsonl exists for a failed start: %v", err)
 	}
+	// result.json is written even when Start fails, with an empty metric set.
+	resultBytes, err := os.ReadFile(filepath.Join(res.ArtifactsDir, "result.json"))
+	if err != nil {
+		t.Fatalf("result.json missing on start error: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(resultBytes, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["status"] != "error" || !strings.Contains(result["error"].(string), "boom") {
+		t.Fatalf("result.json = %v", result)
+	}
+	if metrics, ok := result["metrics"].(map[string]any); !ok || len(metrics) != 0 {
+		t.Fatalf("result.json metrics = %v, want an empty object", result["metrics"])
+	}
+	if res.ExitCode != nil {
+		t.Fatalf("exit code = %v, want nil", res.ExitCode)
+	}
 	row, err := f.st.GetRun(context.Background(), res.RunID)
 	if err != nil {
 		t.Fatal(err)
@@ -426,6 +494,115 @@ func TestRunStartError(t *testing.T) {
 	if row.Status != "error" || !strings.Contains(row.Error, "boom") {
 		t.Fatalf("run row = %+v", row)
 	}
+	var metricRows int
+	if err := f.st.DB().QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM run_metrics WHERE run_id = ?`, res.RunID).Scan(&metricRows); err != nil {
+		t.Fatal(err)
+	}
+	if metricRows != 0 {
+		t.Fatalf("run_metrics rows on start error = %d, want 0 (omit, do not zero)", metricRows)
+	}
+}
+
+func TestRunNonZeroExitIsError(t *testing.T) {
+	useMode(t, "exit3")
+	f := setupRunner(t)
+	// The validator passes, but a non-zero OpenCode exit still makes the run an
+	// error.
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "unit tests", Command: []string{"sh", "-c", "exit 0"}},
+	}
+	a := newScriptedAdapter(t)
+
+	res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != "error" {
+		t.Fatalf("status = %q, want error", res.Status)
+	}
+	if res.ExitCode == nil || *res.ExitCode != 3 {
+		t.Fatalf("exit code = %v, want 3", res.ExitCode)
+	}
+	if len(res.Validations) != 1 || res.Validations[0].Status != "passed" {
+		t.Fatalf("validations = %+v, want one passed", res.Validations)
+	}
+	if res.Metrics["success"] != 0 || res.Metrics["first_shot_success"] != 0 {
+		t.Fatalf("success metrics = %v/%v, want 0/0", res.Metrics["success"], res.Metrics["first_shot_success"])
+	}
+	row, err := f.st.GetRun(context.Background(), res.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != "error" || row.ExitCode == nil || *row.ExitCode != 3 {
+		t.Fatalf("run row = %+v", row)
+	}
+}
+
+func TestRunNonZeroExitBeatsValidatorFailure(t *testing.T) {
+	useMode(t, "exit3")
+	f := setupRunner(t)
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "unit tests", Command: []string{"sh", "-c", "exit 1"}},
+	}
+	a := newScriptedAdapter(t)
+
+	res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != "error" {
+		t.Fatalf("status = %q, want error (exit takes precedence over a failing validator)", res.Status)
+	}
+	if len(res.Validations) != 1 || res.Validations[0].Status != "failed" {
+		t.Fatalf("validations = %+v", res.Validations)
+	}
+	if res.Metrics["validator_failures"] != 1 {
+		t.Fatalf("validator_failures = %v, want 1", res.Metrics["validator_failures"])
+	}
+}
+
+func TestRunCompletionBeforeDeadlinePasses(t *testing.T) {
+	useMode(t, "near")
+	f := setupRunner(t)
+	f.task.TimeoutSeconds = 5
+	a := newScriptedAdapter(t)
+
+	res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != "passed" {
+		t.Fatalf("status = %q, want passed (a process finishing before the deadline is not a timeout)", res.Status)
+	}
+	if res.ExitCode == nil || *res.ExitCode != 0 {
+		t.Fatalf("exit code = %v, want 0", res.ExitCode)
+	}
+}
+
+func TestRunUntrackedSymlinkNotCopied(t *testing.T) {
+	useMode(t, "symlink")
+	f := setupRunner(t)
+	f.task.AllowChanges = []string{"src/**", "untracked.txt", "escape-link"}
+	a := newScriptedAdapter(t)
+
+	res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !contains(res.ChangedFiles, "escape-link") {
+		t.Fatalf("changed = %v, want escape-link", res.ChangedFiles)
+	}
+	if _, err := os.Lstat(filepath.Join(res.ArtifactsDir, "untracked", "escape-link")); !os.IsNotExist(err) {
+		t.Fatalf("symlink target was copied into untracked/: %v", err)
+	}
+	// The target really existed outside the worktree, so the copy was skipped
+	// because it is a symlink, not because the target was missing.
+	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "..", "outside-secret.txt")); err != nil {
+		t.Fatalf("outside symlink target missing: %v", err)
+	}
+	// Regular untracked bytes are still captured.
+	artifact(t, res.ArtifactsDir, "untracked/untracked.txt")
 }
 
 func TestRunTimeout(t *testing.T) {
@@ -504,6 +681,10 @@ func TestRunDryRunStartsNoSession(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "events.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("events.jsonl exists in dry run: %v", err)
+	}
+	// Dry run is the documented exception: plan.json, no result.json.
+	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "result.json")); !os.IsNotExist(err) {
+		t.Fatalf("result.json exists in dry run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "worktree")); !os.IsNotExist(err) {
 		t.Fatalf("worktree exists after dry run: %v", err)

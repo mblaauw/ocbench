@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"mbl/ocbench/internal/canon"
@@ -51,6 +52,7 @@ type Result struct {
 	Status          string // dry_run|passed|failed|error|timeout
 	TaskID          string
 	SessionID       string
+	ExitCode        *int // nil when no session ran (dry run, start failure)
 	Metrics         map[string]float64
 	Validations     []evaluation.ValidationResult
 	ChangedFiles    []string
@@ -122,7 +124,7 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		}
 		res.Status = "dry_run"
 		res.DurationMS = time.Since(started).Milliseconds()
-		if err := persist(ctx, st, req, res, baseline, started, "", nil, nil, nil); err != nil {
+		if err := persist(ctx, st, req, res, baseline, started, "", nil, nil); err != nil {
 			return Result{}, err
 		}
 		return res, nil
@@ -148,8 +150,15 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if err != nil {
 		res.Status = "error"
 		res.Error = err.Error()
+		// No session ran, so the event, file and validator metrics are not
+		// computable: record an empty metric set rather than misleading zeroes.
+		res.Metrics = map[string]float64{}
 		res.DurationMS = time.Since(started).Milliseconds()
-		if perr := persist(ctx, st, req, res, baseline, started, time.Now().UTC().Format(time.RFC3339), nil, nil, nil); perr != nil {
+		finished := time.Now().UTC().Format(time.RFC3339)
+		if werr := writeResult(runDir, req, res, baseline, started.Format(time.RFC3339), finished); werr != nil {
+			return Result{}, werr
+		}
+		if perr := persist(ctx, st, req, res, baseline, started, finished, res.Metrics, nil); perr != nil {
 			return Result{}, perr
 		}
 		return res, nil
@@ -158,16 +167,29 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	// The adapter only kills a timed-out process group when Wait runs, but Wait
 	// must not run until Events is fully drained (its discard path is lossy).
 	// This watchdog kills at the same deadline while the drain is in progress.
-	watchdog := time.AfterFunc(timeout, session.Kill)
+	// It records a timeout only when it actually kills a live process: a process
+	// that finishes just before the deadline must not be misclassified. The
+	// events channel closes only after the child has exited, so drainDone is a
+	// reliable "process already finished" signal.
+	var timedOut, drainDone atomic.Bool
+	watchdog := time.AfterFunc(timeout, func() {
+		if drainDone.Load() {
+			return // the process already exited; nothing to kill
+		}
+		timedOut.Store(true)
+		session.Kill()
+	})
 	defer watchdog.Stop()
 
 	if err := drainEvents(filepath.Join(runDir, "events.jsonl"), session.Events(), metrics); err != nil {
 		return Result{}, err
 	}
+	drainDone.Store(true)
 
 	exitCode, waitErr := session.Wait()
-	timedOut := !watchdog.Stop()
+	watchdog.Stop()
 	res.SessionID = session.ID()
+	res.ExitCode = &exitCode
 
 	if err := os.WriteFile(filepath.Join(runDir, "stderr.txt"), []byte(session.Stderr()), 0o644); err != nil {
 		return Result{}, fmt.Errorf("write stderr.txt: %w", err)
@@ -214,26 +236,41 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	res.Validations = validations
 
 	switch {
-	case timedOut || errors.Is(waitErr, context.DeadlineExceeded):
+	case timedOut.Load() || errors.Is(waitErr, context.DeadlineExceeded):
 		res.Status = "timeout"
 		appendNote(&res.Error, "task timed out")
 	case waitErr != nil:
 		res.Status = "error"
 		appendNote(&res.Error, waitErr.Error())
+	case exitCode != 0:
+		// A non-zero OpenCode exit is an error even when the validators pass:
+		// the agent did not complete normally.
+		res.Status = "error"
+		appendNote(&res.Error, fmt.Sprintf("opencode exited with code %d", exitCode))
 	case validatorsFailed(validations):
 		res.Status = "failed"
 	default:
 		res.Status = "passed"
 	}
 
-	res.Metrics = metrics.MetricsMap()
 	res.DurationMS = time.Since(started).Milliseconds()
-	finished := time.Now().UTC().Format(time.RFC3339)
-
-	if err := writeResult(runDir, req, res, baseline, started.Format(time.RFC3339), finished, &exitCode); err != nil {
+	res.Metrics = metrics.MetricsMap()
+	if res.Metrics == nil {
+		res.Metrics = map[string]float64{}
+	}
+	created, deleted, err := changeCounts(ctx, worktree, baseline.SHA)
+	if err != nil {
 		return Result{}, err
 	}
-	if err := persist(ctx, st, req, res, baseline, started, finished, &exitCode, res.Metrics, validationRows); err != nil {
+	for name, value := range derivedMetrics(res, changed, diff, validations, created, deleted) {
+		res.Metrics[name] = value
+	}
+	finished := time.Now().UTC().Format(time.RFC3339)
+
+	if err := writeResult(runDir, req, res, baseline, started.Format(time.RFC3339), finished); err != nil {
+		return Result{}, err
+	}
+	if err := persist(ctx, st, req, res, baseline, started, finished, res.Metrics, validationRows); err != nil {
 		return Result{}, err
 	}
 	return res, nil
@@ -333,7 +370,7 @@ func validatorsFailed(results []evaluation.ValidationResult) bool {
 
 // persist writes the suite, task and run (plus metrics and validations) in one
 // transaction per store method. Metrics and validations are optional.
-func persist(ctx context.Context, st *store.Store, req Request, res Result, baseline Baseline, started time.Time, finished string, exitCode *int, metricsMap map[string]float64, validationRows []store.ValidationRow) error {
+func persist(ctx context.Context, st *store.Store, req Request, res Result, baseline Baseline, started time.Time, finished string, metricsMap map[string]float64, validationRows []store.ValidationRow) error {
 	suiteID := req.Suite.Hash
 	manifest, err := canon.JSON(map[string]any{
 		"name": req.Suite.Name, "version": req.Suite.Version,
@@ -399,7 +436,7 @@ func persist(ctx context.Context, st *store.Store, req Request, res Result, base
 		Variant:         req.Variant,
 		Status:          res.Status,
 		DryRun:          req.DryRun,
-		ExitCode:        exitCode,
+		ExitCode:        res.ExitCode,
 		SessionID:       res.SessionID,
 		StartedAt:       started.Format(time.RFC3339),
 		FinishedAt:      finished,

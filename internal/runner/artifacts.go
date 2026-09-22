@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"mbl/ocbench/internal/evaluation"
 	"mbl/ocbench/internal/suite"
 )
 
@@ -120,8 +121,10 @@ func writePlan(runDir string, req Request, runID string, env []string, baseline 
 	})
 }
 
-// writeResult writes result.json for a completed (or failed) run.
-func writeResult(runDir string, req Request, res Result, baseline Baseline, started, finished string, exitCode *int) error {
+// writeResult writes result.json for a completed (or failed) run. The artifact
+// map is built after the other artifacts exist and explicitly records
+// result.json, which this call is about to create.
+func writeResult(runDir string, req Request, res Result, baseline Baseline, started, finished string) error {
 	validations := make([]validationArtifact, 0, len(res.Validations))
 	for _, v := range res.Validations {
 		validations = append(validations, validationArtifact{
@@ -135,6 +138,8 @@ func writeResult(runDir string, req Request, res Result, baseline Baseline, star
 			Excerpt:    v.Excerpt,
 		})
 	}
+	artifacts := existingArtifacts(runDir)
+	artifacts["result.json"] = filepath.Join(runDir, "result.json")
 	return writeJSON(filepath.Join(runDir, "result.json"), resultFile{
 		RunID:           res.RunID,
 		Status:          res.Status,
@@ -150,7 +155,7 @@ func writeResult(runDir string, req Request, res Result, baseline Baseline, star
 		Agent:           req.Agent,
 		Model:           req.Model,
 		Variant:         req.Variant,
-		ExitCode:        exitCode,
+		ExitCode:        res.ExitCode,
 		Metrics:         res.Metrics,
 		Validations:     validations,
 		ChangedFiles:    res.ChangedFiles,
@@ -160,17 +165,18 @@ func writeResult(runDir string, req Request, res Result, baseline Baseline, star
 		StartedAt:       started,
 		FinishedAt:      finished,
 		ArtifactsDir:    res.ArtifactsDir,
-		Artifacts:       existingArtifacts(runDir),
+		Artifacts:       artifacts,
 	})
 }
 
 // existingArtifacts maps relative artifact names to absolute paths for every
-// artifact that was actually written.
+// artifact that was actually written. result.json is added by writeResult
+// itself, after this scan, because it does not exist yet at this point.
 func existingArtifacts(runDir string) map[string]string {
 	out := map[string]string{}
 	for _, rel := range []string{
 		"plan.json", "events.jsonl", "stderr.txt", "session.json",
-		"diff.patch", "changed.json", "result.json",
+		"diff.patch", "changed.json",
 		"suite.yaml", "task.yaml", "prompt.md",
 	} {
 		if info, err := os.Stat(filepath.Join(runDir, rel)); err == nil && info.Mode().IsRegular() {
@@ -214,7 +220,10 @@ func copySuiteInputs(runDir string, s *suite.Suite, t *suite.Task) error {
 
 // captureUntracked copies every untracked regular file under worktree to
 // <runDir>/untracked/<relpath>. Untracked bytes never appear in a git diff, so
-// they are retained separately. It returns the captured paths, sorted.
+// they are retained separately. Symlinks are deliberately not followed or
+// copied: they are recorded in changed.json (via ChangedFiles) only, so a link
+// pointing outside the worktree cannot exfiltrate its target into the run
+// artifacts. It returns the captured paths, sorted.
 func captureUntracked(ctx context.Context, runDir, worktree string) ([]string, error) {
 	out, err := runGit(ctx, worktree, nil, "ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
@@ -222,13 +231,14 @@ func captureUntracked(ctx context.Context, runDir, worktree string) ([]string, e
 	}
 	var captured []string
 	for _, rel := range splitNul(out) {
-		if rel == "" || filepath.IsAbs(rel) || strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
+		if rel == "" || rel == ".." || filepath.IsAbs(rel) ||
+			strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
 			continue
 		}
 		src := filepath.Join(worktree, filepath.FromSlash(rel))
-		info, err := os.Stat(src)
+		info, err := os.Lstat(src)
 		if err != nil || !info.Mode().IsRegular() {
-			continue
+			continue // symlinks, directories and specials are not copied
 		}
 		data, err := os.ReadFile(src)
 		if err != nil {
@@ -250,6 +260,123 @@ func captureUntracked(ctx context.Context, runDir, worktree string) ([]string, e
 // validationRelPath is the artifact-relative log path of a validator.
 func validationRelPath(seq int, name string) string {
 	return path.Join("validation", fmt.Sprintf("%d-%s.log", seq, safeLogName(name)))
+}
+
+// changeCounts counts created and deleted paths against baselineSHA by unioning
+// `git status --porcelain -z` with `git diff --name-status -z`, keyed by path so
+// a file counted from both sources is only counted once. Untracked (??) entries
+// count as created; renames and copies count as neither.
+func changeCounts(ctx context.Context, worktree, baselineSHA string) (created, deleted int, err error) {
+	status, err := runGit(ctx, worktree, nil, "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return 0, 0, fmt.Errorf("count created/deleted: %w", err)
+	}
+	diff, err := runGit(ctx, worktree, nil, "diff", "--name-status", "-z", baselineSHA, "--")
+	if err != nil {
+		return 0, 0, fmt.Errorf("count created/deleted: %w", err)
+	}
+
+	kinds := map[string]byte{}
+	fields := bytes.Split(status, []byte{0})
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if len(f) < 4 {
+			continue
+		}
+		code := string(f[:2])
+		p := string(f[3:])
+		switch {
+		case code == "??":
+			kinds[p] = 'A'
+		case strings.Contains(code, "A"):
+			kinds[p] = 'A'
+		case strings.Contains(code, "D"):
+			kinds[p] = 'D'
+		}
+		if strings.ContainsAny(code, "RC") && i+1 < len(fields) && len(fields[i+1]) > 0 {
+			i++ // the other path of a rename/copy: neither created nor deleted
+		}
+	}
+	fields = bytes.Split(diff, []byte{0})
+	for i := 0; i < len(fields); i++ {
+		st := fields[i]
+		if len(st) == 0 {
+			continue
+		}
+		i++
+		if i >= len(fields) {
+			break
+		}
+		p := string(fields[i])
+		switch st[0] {
+		case 'A':
+			if kinds[p] != 'D' {
+				kinds[p] = 'A'
+			}
+		case 'D':
+			kinds[p] = 'D'
+		case 'R', 'C':
+			i++ // the other path of a rename/copy
+		}
+	}
+	for _, k := range kinds {
+		switch k {
+		case 'A':
+			created++
+		case 'D':
+			deleted++
+		}
+	}
+	return created, deleted, nil
+}
+
+// diffLineCounts counts added and removed lines in a unified diff, excluding
+// the +++/--- file headers.
+func diffLineCounts(diff []byte) (added, removed int) {
+	for _, line := range bytes.Split(diff, []byte{'\n'}) {
+		switch {
+		case bytes.HasPrefix(line, []byte("+++")), bytes.HasPrefix(line, []byte("---")):
+		case bytes.HasPrefix(line, []byte("+")):
+			added++
+		case bytes.HasPrefix(line, []byte("-")):
+			removed++
+		}
+	}
+	return added, removed
+}
+
+// derivedMetrics builds the spec §9 metrics that come from the runner rather
+// than the event stream. It is only called for a run whose session completed,
+// so every value is computable.
+func derivedMetrics(res Result, changed []string, diff []byte, validations []evaluation.ValidationResult, created, deleted int) map[string]float64 {
+	added, removed := diffLineCounts(diff)
+	failures := 0
+	for _, v := range validations {
+		switch v.Status {
+		case "failed", "error", "timeout":
+			failures++
+		}
+	}
+	success := 0.0
+	if res.Status == "passed" {
+		success = 1
+	}
+	firstShot := 0.0
+	if failures == 0 && res.Status == "passed" {
+		firstShot = 1
+	}
+	return map[string]float64{
+		"files_changed":      float64(len(changed)),
+		"files_created":      float64(created),
+		"files_deleted":      float64(deleted),
+		"diff_lines_added":   float64(added),
+		"diff_lines_removed": float64(removed),
+		"files_unexpected":   float64(len(res.UnexpectedFiles)),
+		"duration_ms":        float64(res.DurationMS),
+		"validator_failures": float64(failures),
+		"success":            success,
+		"first_shot_success": firstShot,
+	}
 }
 
 // matchAny reports whether name matches at least one glob.
