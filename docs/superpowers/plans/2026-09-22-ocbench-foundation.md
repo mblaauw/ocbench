@@ -1682,7 +1682,7 @@ func Latest(ctx context.Context, st *store.Store) (*Profile, error)
 
 - [ ] **Step 1: Write the failing Fingerprint determinism test**
 
-`internal/profile/fingerprint_test.go` — build `Sources` from testdata twice with deliberately shuffled map/slice order and assert identical `Hash`; assert that changing only one skill's content changes `skill/<name>` and the overall hash but not `agent/build`; assert redaction: the MCP secret from testdata never appears in `CanonicalJSON`; assert path normalisation: with `Sources.Dir=/tmp/ocbench/run-x` and a skill location under the fake home, canonical JSON contains `~` and `<run-dir>` and no absolute home path.
+`internal/profile/fingerprint_test.go` — build `Sources` from testdata twice with deliberately shuffled map/slice order and assert identical `Hash`; assert that changing only one skill's content changes `skill/<name>` and the overall hash but not `agent/build`; assert redaction: the MCP secret from testdata never appears in `CanonicalJSON`; assert path normalisation: with `Sources.Home=/home/u` and a skill location under that home, canonical JSON contains `~` and no absolute home path. (`Sources.Dir` is not normalised in Plan 1 — run-dir/worktree prefixes arrive with the runner in Plan 2.)
 
 - [ ] **Step 2: Run and watch it fail, then implement `fingerprint.go`**
 
