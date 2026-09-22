@@ -1,28 +1,44 @@
 package canon
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
-// NormalizePaths returns a deep copy of v in which the home prefix is replaced
-// by "~" and the run directory prefix by "<run-dir>". Only whole leading path
-// segments are replaced: a string is rewritten when it equals the prefix or
-// starts with prefix+"/", so paths embedded in prose are left untouched.
-func NormalizePaths(v any, home, runDir string) (any, error) {
-	replacements := make([][2]string, 0, 2)
-	if home != "" {
-		replacements = append(replacements, [2]string{home, "~"})
-	}
-	if runDir != "" {
-		replacements = append(replacements, [2]string{runDir, "<run-dir>"})
-	}
-	return normalize(v, replacements)
+// PathPrefix maps a leading path prefix to the portable placeholder that
+// replaces it in canonical output.
+type PathPrefix struct {
+	From string
+	To   string
 }
 
-func normalize(v any, replacements [][2]string) (any, error) {
+// NormalizePaths returns a deep copy of v in which each leading path prefix is
+// replaced by its placeholder. Empty From entries are dropped and the rest are
+// sorted by descending prefix length (stable), so the most specific prefix wins
+// even when one prefix is nested inside another (e.g. a run directory under
+// $HOME). Only whole leading path segments are replaced: a string is rewritten
+// when it equals the prefix or starts with prefix+"/", so paths embedded in
+// prose are left untouched.
+func NormalizePaths(v any, prefixes ...PathPrefix) (any, error) {
+	sorted := make([]PathPrefix, 0, len(prefixes))
+	for _, p := range prefixes {
+		if p.From == "" {
+			continue
+		}
+		sorted = append(sorted, p)
+	}
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return len(sorted[i].From) > len(sorted[j].From)
+	})
+	return normalize(v, sorted)
+}
+
+func normalize(v any, prefixes []PathPrefix) (any, error) {
 	switch t := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, val := range t {
-			nv, err := normalize(val, replacements)
+			nv, err := normalize(val, prefixes)
 			if err != nil {
 				return nil, err
 			}
@@ -32,7 +48,7 @@ func normalize(v any, replacements [][2]string) (any, error) {
 	case []any:
 		out := make([]any, len(t))
 		for i, item := range t {
-			nv, err := normalize(item, replacements)
+			nv, err := normalize(item, prefixes)
 			if err != nil {
 				return nil, err
 			}
@@ -40,24 +56,19 @@ func normalize(v any, replacements [][2]string) (any, error) {
 		}
 		return out, nil
 	case string:
-		return normalizeString(t, replacements), nil
+		return normalizeString(t, prefixes), nil
 	default:
 		return v, nil
 	}
 }
 
-func normalizeString(s string, replacements [][2]string) string {
-	for _, r := range replacements {
-		from, to := r[0], r[1]
-		if from == "" {
-			continue
+func normalizeString(s string, prefixes []PathPrefix) string {
+	for _, p := range prefixes {
+		if s == p.From {
+			return p.To
 		}
-		if s == from {
-			s = to
-			continue
-		}
-		if strings.HasPrefix(s, from+"/") {
-			s = to + s[len(from):]
+		if strings.HasPrefix(s, p.From+"/") {
+			return p.To + s[len(p.From):]
 		}
 	}
 	return s

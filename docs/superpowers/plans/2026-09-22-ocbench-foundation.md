@@ -894,7 +894,7 @@ git commit -m "feat: add sqlite store with embedded schema migrations"
   - `canon.Hash(v any) (string, error)` — hex sha256 of `canon.JSON(v)`.
   - `canon.HashBytes(b []byte) string`
   - `canon.Redact(v any) (any, error)` — deep copy with sensitive keys replaced by `"<redacted>"`; matches keys case-insensitively against `api[_-]?key|token|secret|password|passwd|credential|authorization|cookie` (also matches when the key merely *contains* these substrings, e.g. `X-Api-Key`).
-  - `canon.NormalizePaths(v any, home, runDir string) (any, error)` — replaces the home prefix with `~`, `runDir` with `<run-dir>`; only whole leading path segments are replaced (no substring edits inside arbitrary text — implement by checking each string value: if it equals a prefix path or starts with prefix+"/").
+  - `canon.PathPrefix{From, To string}` and `canon.NormalizePaths(v any, prefixes ...PathPrefix) (any, error)` — replaces each prefix (`$HOME`→`~`, run dir→`<run-dir>`, worktree→`<worktree>`); only whole leading path segments are replaced (no substring edits inside arbitrary text — check each string value: if it equals a prefix or starts with `prefix+"/"`). The **longest matching prefix wins**, so a run dir nested under `$HOME` (the default layout) normalises to `<run-dir>`, not to a `~`-path with a per-run UUID still in it.
   - `canon.SHA256Hex(b []byte) string`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1052,7 +1052,10 @@ func TestNormalizePaths(t *testing.T) {
 		"homeish":  "/Users/michelle/x",
 		"embedded": "see /Users/mich/.config for details",
 	}
-	out, err := NormalizePaths(v, home, runDir)
+	out, err := NormalizePaths(v,
+		PathPrefix{From: home, To: "~"},
+		PathPrefix{From: runDir, To: "<run-dir>"},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1074,9 +1077,64 @@ func TestNormalizePaths(t *testing.T) {
 	}
 }
 
-func TestNormalizePathsEmptyInputsAreNoOps(t *testing.T) {
+func TestNormalizePathsLongestPrefixWins(t *testing.T) {
+	home := "/Users/mich"
+	runDir := "/Users/mich/.local/share/ocbench/runs/6f1e-uuid"
+	wt := "/Users/mich/.cache/ocbench/worktrees/6f1e-uuid"
+	v := map[string]any{
+		"run_artifact": runDir + "/events.jsonl",
+		"worktree":     wt + "/src/main.py",
+		"home_file":    home + "/.config/opencode/opencode.json",
+		"exact_run":    runDir,
+		"exact_home":   home,
+	}
+	out, err := NormalizePaths(v,
+		PathPrefix{From: home, To: "~"},
+		PathPrefix{From: runDir, To: "<run-dir>"},
+		PathPrefix{From: wt, To: "<worktree>"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := out.(map[string]any)
+	if m["run_artifact"] != "<run-dir>/events.jsonl" {
+		t.Fatalf("run dir shadowed by home: %v", m["run_artifact"])
+	}
+	if m["worktree"] != "<worktree>/src/main.py" {
+		t.Fatalf("worktree = %v", m["worktree"])
+	}
+	if m["home_file"] != "~/.config/opencode/opencode.json" {
+		t.Fatalf("home = %v", m["home_file"])
+	}
+	if m["exact_run"] != "<run-dir>" || m["exact_home"] != "~" {
+		t.Fatalf("exact matches: %v %v", m["exact_run"], m["exact_home"])
+	}
+}
+
+func TestNormalizePathsIsIdempotentAndNonMutating(t *testing.T) {
+	home := "/Users/mich"
+	original := map[string]any{"p": "/Users/mich/x", "n": 1}
+	out, err := NormalizePaths(original, PathPrefix{From: home, To: "~"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if original["p"] != "/Users/mich/x" {
+		t.Fatal("input mutated")
+	}
+	again, err := NormalizePaths(out, PathPrefix{From: home, To: "~"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b1, _ := json.Marshal(out)
+	b2, _ := json.Marshal(again)
+	if string(b1) != string(b2) {
+		t.Fatalf("not idempotent: %s vs %s", b1, b2)
+	}
+}
+
+func TestNormalizePathsEmptyPrefixesAreNoOps(t *testing.T) {
 	v := map[string]any{"a": "/x/y"}
-	out, err := NormalizePaths(v, "", "")
+	out, err := NormalizePaths(v, PathPrefix{From: "", To: "~"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1234,25 +1292,35 @@ Use a small helper `jsonUnmarshalStrictish` that wraps `json.Unmarshal` with a c
 ```go
 package canon
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
-func NormalizePaths(v any, home, runDir string) (any, error) {
-	replacements := make([][2]string, 0, 2)
-	if home != "" {
-		replacements = append(replacements, [2]string{home, "~"})
-	}
-	if runDir != "" {
-		replacements = append(replacements, [2]string{runDir, "<run-dir>"})
-	}
-	return normalize(v, replacements)
+type PathPrefix struct {
+	From string
+	To   string
 }
 
-func normalize(v any, replacements [][2]string) (any, error) {
+func NormalizePaths(v any, prefixes ...PathPrefix) (any, error) {
+	ordered := make([]PathPrefix, 0, len(prefixes))
+	for _, p := range prefixes {
+		if p.From != "" {
+			ordered = append(ordered, p)
+		}
+	}
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return len(ordered[i].From) > len(ordered[j].From)
+	})
+	return normalize(v, ordered)
+}
+
+func normalize(v any, prefixes []PathPrefix) (any, error) {
 	switch t := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, val := range t {
-			nv, err := normalize(val, replacements)
+			nv, err := normalize(val, prefixes)
 			if err != nil {
 				return nil, err
 			}
@@ -1262,7 +1330,7 @@ func normalize(v any, replacements [][2]string) (any, error) {
 	case []any:
 		out := make([]any, len(t))
 		for i, item := range t {
-			nv, err := normalize(item, replacements)
+			nv, err := normalize(item, prefixes)
 			if err != nil {
 				return nil, err
 			}
@@ -1270,34 +1338,31 @@ func normalize(v any, replacements [][2]string) (any, error) {
 		}
 		return out, nil
 	case string:
-		return normalizeString(t, replacements), nil
+		return normalizeString(t, prefixes), nil
 	default:
 		return v, nil
 	}
 }
 
-func normalizeString(s string, replacements [][2]string) string {
-	for _, r := range replacements {
-		from, to := r[0], r[1]
-		if from == "" {
-			continue
+func normalizeString(s string, prefixes []PathPrefix) string {
+	for _, p := range prefixes {
+		if s == p.From {
+			return p.To
 		}
-		if s == from {
-			s = to
-			continue
-		}
-		if strings.HasPrefix(s, from+"/") {
-			s = to + s[len(from):]
+		if strings.HasPrefix(s, p.From+"/") {
+			return p.To + s[len(p.From):]
 		}
 	}
 	return s
 }
 ```
 
+Longest-prefix-first ordering is what keeps a run directory nested under `$HOME` (the default layout) from being shadowed by the home rule and leaking a per-run UUID into the canonical JSON.
+
 - [ ] **Step 6: Run all canon tests**
 
 Run: `go test ./internal/canon/ -v`
-Expected: PASS (6 tests).
+Expected: PASS (all tests in the brief plus the longest-prefix, idempotence and empty-prefix cases).
 
 - [ ] **Step 7: Commit**
 
@@ -1624,7 +1689,7 @@ func Latest(ctx context.Context, st *store.Store) (*Profile, error)
 Implementation requirements:
 
 1. Decode `ResolvedConfig` into `map[string]any`.
-2. Redact the decoded config, then normalise paths (`home` from `Sources.Instructions` global path's directory or an injected field — add `Home string` to `Sources`, populated by `Discover` from `os.UserHomeDir()`/`HOME`; tests set it explicitly).
+2. Redact the decoded config, then normalise paths with `canon.NormalizePaths(v, canon.PathPrefix{From: s.Home, To: "~"})`. In Plan 1 no run directory or worktree exists yet, so only the home prefix is passed; Plan 2 passes additional `PathPrefix` entries for the run dir and worktree. `Sources.Home` is populated by `Discover` from `os.UserHomeDir()`/`HOME`; tests set it explicitly.
 3. Build components:
    - `primary`: `default_agent`, `model`, `small_model` from resolved config; apply `Options.Agent/Model/Variant` overrides (an override replaces the effective value and sets `environment.overrides`).
    - `agent/<name>` for every agent in resolved config `.agent`, enriched with the matching `AgentInfo` from `Sources.Agents` (`mode`, `native`, `tools`); include `model`, `variant`, `temperature`, `steps`, `options`, and `prompt_sha256` (hash of the raw prompt bytes if present); exclude `permission` (see next bullet).
