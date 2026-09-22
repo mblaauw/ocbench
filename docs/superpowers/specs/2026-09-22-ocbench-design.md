@@ -440,7 +440,9 @@ run request
 ```
 
 Environment sandbox: allowlist by default. Always kept: `HOME`, `PATH`,
-`LANG`/`LC_*`, `TZ`, `TERM`, `USER`. Dropped: everything else, notably
+`LANG`/`LC_*`, `TZ`, `TERM`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `TEMP`,
+`TMP`, plus any `LC_*`. Always set: `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat`,
+`PAGER=cat`, `NO_COLOR=1`, `OCBENCH=1`. Dropped: everything else, notably
 `KUBECONFIG`, `AWS_*`, `AZURE_*`, `GOOGLE_*`, `GITLAB_TOKEN`,
 `SSH_AUTH_SOCK`. Additional names may be forwarded via
 `config.sandbox.pass_env`. `GIT_TERMINAL_PROMPT=0` always set.
