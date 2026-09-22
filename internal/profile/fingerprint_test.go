@@ -252,6 +252,136 @@ func TestFingerprintPermissionOrderIndependent(t *testing.T) {
 	}
 }
 
+func TestFingerprintSandboxModeChangesEnvironment(t *testing.T) {
+	s := loadTestSources(t)
+	def, err := Fingerprint(s, Options{Dir: s.Dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inherit, err := Fingerprint(s, Options{Dir: s.Dir, SandboxMode: "inherit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if componentByKey(t, def, "environment").Hash == componentByKey(t, inherit, "environment").Hash {
+		t.Fatal("environment component hash did not change with SandboxMode")
+	}
+	if def.Hash == inherit.Hash {
+		t.Fatal("overall hash did not change with SandboxMode")
+	}
+
+	var envDef, envInherit map[string]any
+	if err := json.Unmarshal(componentByKey(t, def, "environment").CanonicalJSON, &envDef); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(componentByKey(t, inherit, "environment").CanonicalJSON, &envInherit); err != nil {
+		t.Fatal(err)
+	}
+	if envDef["sandbox"] != "default" {
+		t.Fatalf("default sandbox = %v, want default", envDef["sandbox"])
+	}
+	if envInherit["sandbox"] != "inherit" {
+		t.Fatalf("inherit sandbox = %v, want inherit", envInherit["sandbox"])
+	}
+}
+
+func TestFingerprintNestedPermissionOrderIndependent(t *testing.T) {
+	// Permission values may be objects whose nested rule arrays are returned in
+	// nondeterministic order. Canonicalisation must sort arrays at any depth,
+	// not just a top-level rule list (spec 5.2).
+	const (
+		globalA = `{"bash":[{"permission":"bash","pattern":"*.go","action":"allow"},{"permission":"bash","pattern":"*.md","action":"deny"}],"edit":"ask"}`
+		globalB = `{"bash":[{"permission":"bash","pattern":"*.md","action":"deny"},{"permission":"bash","pattern":"*.go","action":"allow"}],"edit":"ask"}`
+		agentA  = `[{"permission":"edit","pattern":"*.go","action":"allow","nested":[{"b":2},{"a":1}]},{"permission":"edit","pattern":"*.md","action":"deny","nested":[{"d":4},{"c":3}]}]`
+		agentB  = `[{"permission":"edit","pattern":"*.md","action":"deny","nested":[{"c":3},{"d":4}]},{"permission":"edit","pattern":"*.go","action":"allow","nested":[{"a":1},{"b":2}]}]`
+	)
+	build := func(global, agent string) *Sources {
+		return &Sources{
+			OpenCodeVersion: "1.18.32",
+			ResolvedConfig:  []byte(`{"permission":` + global + `,"agent":{"build":{}}}`),
+			Agents: []opencode.AgentInfo{{
+				Name:       "build",
+				Permission: json.RawMessage(agent),
+			}},
+			Home: "/home/u",
+		}
+	}
+	p1, err := Fingerprint(build(globalA, agentA), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := Fingerprint(build(globalB, agentB), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p1.Hash != p2.Hash {
+		t.Fatalf("profile hash depends on nested permission order:\n %s\n %s", p1.Hash, p2.Hash)
+	}
+	if componentByKey(t, p1, "permissions").Hash != componentByKey(t, p2, "permissions").Hash {
+		t.Fatal("permissions component hash depends on nested permission order")
+	}
+}
+
+func TestFingerprintMCPEnvironmentValuesNotCaptured(t *testing.T) {
+	build := func(dsn string) *Sources {
+		return &Sources{
+			OpenCodeVersion: "1.18.32",
+			ResolvedConfig: []byte(`{"mcp":{"db":{"type":"local","environment":{` +
+				`"DB_DSN":"` + dsn + `","DB_HOST":"localhost"}}}}`),
+			Home: "/home/u",
+		}
+	}
+	const secretValue = "postgres://user:pw@host/db"
+	before, err := Fingerprint(build(secretValue), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := string(before.Captures.ResolvedConfig)
+	if !strings.Contains(capture, "DB_DSN") {
+		t.Fatalf("resolved-config capture missing environment key name: %s", capture)
+	}
+	if strings.Contains(capture, secretValue) {
+		t.Fatalf("resolved-config capture leaked an MCP environment value: %s", capture)
+	}
+
+	// Rotating a non-sensitive MCP environment value must not change the hash.
+	after, err := Fingerprint(build("postgres://other:secret@host/otherdb"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Hash != after.Hash {
+		t.Fatalf("profile hash changed when only an MCP environment value rotated:\n %s\n %s", before.Hash, after.Hash)
+	}
+}
+
+func TestFingerprintAgentsCapturePermissionOrderStable(t *testing.T) {
+	const (
+		permA = `[{"permission":"bash","pattern":"*","action":"ask"},{"permission":"edit","pattern":"*","action":"allow"}]`
+		permB = `[{"permission":"edit","pattern":"*","action":"allow"},{"permission":"bash","pattern":"*","action":"ask"}]`
+	)
+	build := func(perm string) *Sources {
+		s := loadTestSources(t)
+		for i := range s.Agents {
+			if s.Agents[i].Name == "build" {
+				s.Agents[i].Raw = nil
+				s.Agents[i].Permission = json.RawMessage(perm)
+			}
+		}
+		return s
+	}
+	p1, err := Fingerprint(build(permA), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := Fingerprint(build(permB), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(p1.Captures.Agents) != string(p2.Captures.Agents) {
+		t.Fatalf("agents.json depends on permission order:\n%s\n%s", p1.Captures.Agents, p2.Captures.Agents)
+	}
+}
+
 func TestFingerprintSkillFilesChange(t *testing.T) {
 	dir := t.TempDir()
 	if err := copyDir(filepath.Join("testdata", "skills", "ruff"), dir); err != nil {

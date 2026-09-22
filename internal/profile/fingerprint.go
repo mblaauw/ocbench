@@ -130,7 +130,7 @@ func Fingerprint(s *Sources, opts Options) (*Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	resolvedCapture, err := canon.JSON(cfg)
+	resolvedCapture, err := canon.JSON(configCapture(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +185,12 @@ func buildPrimary(cfg map[string]any, opts Options) (map[string]any, map[string]
 
 	envNames := append([]string(nil), opts.EnvNames...)
 	sort.Strings(envNames)
+	sandbox := opts.SandboxMode
+	if sandbox == "" {
+		sandbox = "default"
+	}
 	environment := map[string]any{
-		"sandbox":   "default",
+		"sandbox":   sandbox,
 		"env_names": toAnyStrings(envNames),
 		"auto":      opts.Auto,
 		"pure":      opts.Pure,
@@ -370,13 +374,52 @@ func buildMCP(entry map[string]any) map[string]any {
 		}
 		out[k] = v
 	}
-	env := toAnyMap(entry["environment"])
+	out["environment_keys"] = environmentKeyNames(toAnyMap(entry["environment"]))
+	return out
+}
+
+// environmentKeyNames returns the sorted key names of an MCP environment map.
+// It is the single projection shared by the mcp/<name> component and the
+// resolved-config capture so neither retains the environment values.
+func environmentKeyNames(env map[string]any) []any {
 	keys := make([]string, 0, len(env))
 	for k := range env {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	out["environment_keys"] = toAnyStrings(keys)
+	return toAnyStrings(keys)
+}
+
+// configCapture projects the resolved config for the raw resolved-config.json
+// capture. It mirrors cfg, but every mcp.<name>.environment value map is
+// replaced by its sorted key names: redaction only removes values under
+// sensitive key names, so a non-sensitive MCP environment value would
+// otherwise survive into the capture. The structure fed to hashing and the
+// mcp/<name> component are untouched.
+func configCapture(cfg map[string]any) map[string]any {
+	out := make(map[string]any, len(cfg))
+	for k, v := range cfg {
+		out[k] = v
+	}
+	mcp, ok := cfg["mcp"].(map[string]any)
+	if !ok {
+		return out
+	}
+	mcpOut := make(map[string]any, len(mcp))
+	for name, entry := range mcp {
+		e := toAnyMap(entry)
+		if _, ok := e["environment"]; !ok {
+			mcpOut[name] = entry
+			continue
+		}
+		projected := make(map[string]any, len(e))
+		for k, v := range e {
+			projected[k] = v
+		}
+		projected["environment"] = environmentKeyNames(toAnyMap(e["environment"]))
+		mcpOut[name] = projected
+	}
+	out["mcp"] = mcpOut
 	return out
 }
 
@@ -475,6 +518,19 @@ func buildAgentsCapture(agents []opencode.AgentInfo, home string) ([]byte, error
 		if err != nil {
 			return nil, err
 		}
+		// `opencode debug agent` emits permission arrays in nondeterministic
+		// order; canonicalise them so agents.json is byte-stable for a given
+		// profile hash. Only the permission value is retouched, matching the
+		// permissions component.
+		if m, ok := clean.(map[string]any); ok {
+			if perm, ok := m["permission"]; ok {
+				sortedPerm, err := sortPermissionArrays(perm)
+				if err != nil {
+					return nil, fmt.Errorf("agent %s capture permission: %w", a.Name, err)
+				}
+				m["permission"] = sortedPerm
+			}
+		}
 		name := a.Name
 		if name == "" {
 			name = stringValue(toAnyMap(clean)["name"])
@@ -535,39 +591,64 @@ func canonicalize(v any, home string) (any, error) {
 }
 
 // canonicalizePermission applies the standard redaction/normalisation and then
-// canonicalises the order of permission rule arrays. OpenCode returns the
-// per-agent permission array in nondeterministic order between identical
-// invocations, so sorting the elements by their canonical JSON encoding makes
-// the hashed subtree order-independent for any element shape (including the
-// real {"permission","action","pattern"} objects). Object-valued permission
-// maps are already deterministic through canon.JSON and are left untouched.
+// canonicalises the order of permission arrays. OpenCode returns permission
+// arrays in nondeterministic order between identical invocations, so sorting
+// the elements by their canonical JSON encoding makes the hashed subtree
+// order-independent for any element shape (including the real
+// {"permission","action","pattern"} objects) and at any nesting depth. The sort
+// is recursive because a permission value may be an object keyed by permission
+// name whose rule arrays are nested one level down. Object key order is already
+// deterministic through canon.JSON.
 func canonicalizePermission(v any, home string) (any, error) {
 	clean, err := canonicalize(v, home)
 	if err != nil {
 		return nil, err
 	}
-	arr, ok := clean.([]any)
-	if !ok {
-		return clean, nil
-	}
-	type rule struct {
-		key string
-		val any
-	}
-	rules := make([]rule, 0, len(arr))
-	for _, e := range arr {
-		b, err := canon.JSON(e)
-		if err != nil {
-			return nil, err
+	return sortPermissionArrays(clean)
+}
+
+// sortPermissionArrays recursively canonicalises the element order of every
+// array inside a permission value. Elements are canonicalised first, then
+// sorted by their canonical JSON encoding, so a shuffled nested rule list
+// yields the same structure as a sorted one.
+func sortPermissionArrays(v any) (any, error) {
+	switch t := v.(type) {
+	case []any:
+		type element struct {
+			key string
+			val any
 		}
-		rules = append(rules, rule{key: string(b), val: e})
+		elements := make([]element, 0, len(t))
+		for _, e := range t {
+			ce, err := sortPermissionArrays(e)
+			if err != nil {
+				return nil, err
+			}
+			b, err := canon.JSON(ce)
+			if err != nil {
+				return nil, err
+			}
+			elements = append(elements, element{key: string(b), val: ce})
+		}
+		sort.SliceStable(elements, func(i, j int) bool { return elements[i].key < elements[j].key })
+		out := make([]any, len(elements))
+		for i := range elements {
+			out[i] = elements[i].val
+		}
+		return out, nil
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, e := range t {
+			ce, err := sortPermissionArrays(e)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = ce
+		}
+		return out, nil
+	default:
+		return v, nil
 	}
-	sort.SliceStable(rules, func(i, j int) bool { return rules[i].key < rules[j].key })
-	out := make([]any, len(rules))
-	for i := range rules {
-		out[i] = rules[i].val
-	}
-	return out, nil
 }
 
 // normPrefixes are the Plan 1 normalisation prefixes: the home directory, plus

@@ -26,11 +26,18 @@ func newSnapshotCmd(d Deps) *cobra.Command {
 		Short: "Capture and persist the resolved OpenCode execution profile",
 		Long: "Discover the locally resolved OpenCode execution profile, persist it content-addressed " +
 			"(identical profiles are reused), and report the component differences against the previous profile.",
-		Args: cobra.NoArgs,
+		Args: usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			resolved, err := d.resolve()
 			if err != nil {
 				return err
+			}
+			// The environment component records the effective sandbox mode
+			// (spec 5.1).
+			if resolved.Config.Sandbox.InheritEnvironment {
+				opts.SandboxMode = "inherit"
+			} else {
+				opts.SandboxMode = "default"
 			}
 			dir := opts.Dir
 			if dir == "" {

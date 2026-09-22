@@ -22,7 +22,7 @@ func newDoctorCmd(d Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check that the local environment is ready to benchmark",
-		Args:  cobra.NoArgs,
+		Args:  usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			resolved, err := d.resolve()
 			if err != nil {

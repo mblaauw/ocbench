@@ -35,13 +35,14 @@ type Sources struct {
 // Options captures the run-time selections that are not part of the resolved
 // config but do change agent behaviour.
 type Options struct {
-	Dir      string
-	Agent    string
-	Model    string
-	Variant  string
-	Auto     bool
-	Pure     bool
-	EnvNames []string
+	Dir         string
+	Agent       string
+	Model       string
+	Variant     string
+	SandboxMode string // "default" or "inherit"; empty defaults to "default"
+	Auto        bool
+	Pure        bool
+	EnvNames    []string
 }
 
 // Component is one disjoint slice of the profile, keyed by (Kind, Name).

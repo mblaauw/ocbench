@@ -15,7 +15,7 @@ vet:
 	go vet ./...
 
 fmt:
-	gofmt -l -w .
+	gofmt -l -w ./cmd ./internal
 
 lint: fmt vet
 
