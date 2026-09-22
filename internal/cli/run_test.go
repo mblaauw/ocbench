@@ -31,6 +31,10 @@ const (
 	// runHelperMCPTool, when set, adds a tool_use event with that tool name so
 	// MCP classification can be observed.
 	runHelperMCPTool = "RUN_HELPER_MCP_TOOL"
+	// runHelperStartedDir, when set, makes the slow helper write a "started"
+	// file holding its PID as soon as the session is live, so the cancellation
+	// test can cancel exactly while the child is running.
+	runHelperStartedDir = "RUN_HELPER_STARTED_DIR"
 
 	runHelperSession = "ses_cli"
 
@@ -71,9 +75,29 @@ func TestRunHelperProcess(t *testing.T) {
 			fmt.Fprintln(os.Stdout, `{"type":"step_start","timestamp":1,"sessionID":"ses_cli","part":{"type":"step-start"}}`)
 			os.Exit(3)
 		}
+		if os.Getenv(runHelperMode) == "slow" {
+			markHelperStarted()
+			// Emit the session id, then stay alive long enough that only a
+			// cancellation (not the task timeout or natural completion) can end
+			// the run promptly.
+			fmt.Fprintln(os.Stdout, `{"type":"step_start","timestamp":1,"sessionID":"ses_cli","part":{"type":"step-start"}}`)
+			time.Sleep(30 * time.Second)
+			os.Exit(0)
+		}
 		emitHelperRun()
 	}
 	os.Exit(42)
+}
+
+// markHelperStarted records the helper's PID in the configured started dir so
+// the cancellation test knows the child process is live.
+func markHelperStarted() {
+	dir := os.Getenv(runHelperStartedDir)
+	if dir == "" {
+		return
+	}
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "started"), []byte(strconv.Itoa(os.Getpid())), 0o644)
 }
 
 // emitHelperRun writes one canned `opencode run --format json` stream: a
@@ -169,7 +193,7 @@ func newRunTestDeps(t *testing.T) (Deps, *runTestAdapter) {
 	}
 	cfg := config.DefaultsConfig()
 	cfg.OpenCodeBin = filepath.Join(base, "opencode-unused")
-	cfg.Sandbox.PassEnv = []string{runHelperGuard, runHelperMode, runHelperCounterDir, runHelperMCPTool}
+	cfg.Sandbox.PassEnv = []string{runHelperGuard, runHelperMode, runHelperCounterDir, runHelperMCPTool, runHelperStartedDir}
 	bin, err := filepath.Abs(os.Args[0])
 	if err != nil {
 		t.Fatal(err)

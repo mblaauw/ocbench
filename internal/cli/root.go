@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -18,9 +20,18 @@ type UsageError struct{ Err error }
 func (e *UsageError) Error() string { return e.Err.Error() }
 func (e *UsageError) Unwrap() error { return e.Err }
 
+// signalContext returns a context that is cancelled when the process receives
+// SIGINT (Ctrl-C) or SIGTERM. The returned stop function restores the default
+// signal handling and must be deferred by the caller.
+func signalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
 // Execute runs the CLI with the process arguments and returns the exit code.
 func Execute() int {
-	if err := execute(context.Background(), os.Args[1:], Deps{}); err != nil {
+	ctx, stop := signalContext()
+	defer stop()
+	if err := execute(ctx, os.Args[1:], Deps{}); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		return exitCode(err)
 	}

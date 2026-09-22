@@ -199,6 +199,12 @@ func runSuite(cmd *cobra.Command, d Deps, opts runOptions, args []string) error 
 				return err
 			}
 			records = append(records, newRunRecord(res, i))
+			// A cancelled command context has now been persisted and cleaned
+			// up by the runner; surface the cancellation promptly rather than
+			// starting further repeats.
+			if cerr := ctx.Err(); cerr != nil {
+				return fmt.Errorf("run cancelled: %w", cerr)
+			}
 		}
 	}
 

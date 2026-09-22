@@ -171,7 +171,7 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	// that finishes just before the deadline must not be misclassified. The
 	// events channel closes only after the child has exited, so drainDone is a
 	// reliable "process already finished" signal.
-	var timedOut, drainDone atomic.Bool
+	var timedOut, cancelled, drainDone atomic.Bool
 	watchdog := time.AfterFunc(timeout, func() {
 		if drainDone.Load() {
 			return // the process already exited; nothing to kill
@@ -181,34 +181,58 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	})
 	defer watchdog.Stop()
 
+	// The session only observes context cancellation inside Wait, but Wait
+	// cannot run until the event drain completes. Kill the process group as
+	// soon as the command context ends so Ctrl-C tears the child down promptly
+	// instead of leaving it running until the task deadline.
+	stopCancelWatch := context.AfterFunc(ctx, func() {
+		if drainDone.Load() {
+			return
+		}
+		cancelled.Store(true)
+		session.Kill()
+	})
+	defer stopCancelWatch()
+
 	if err := drainEvents(filepath.Join(runDir, "events.jsonl"), session.Events(), metrics); err != nil {
 		return Result{}, err
 	}
 	drainDone.Store(true)
+	// The drain is finished, so Wait now observes ctx cancellation directly;
+	// stopping the watcher prevents a late callback from racing the outcome.
+	stopCancelWatch()
 
 	exitCode, waitErr := session.Wait()
 	watchdog.Stop()
 	res.SessionID = session.ID()
 	res.ExitCode = &exitCode
+	cancelledRun := cancelled.Load() || errors.Is(waitErr, context.Canceled)
 
 	if err := os.WriteFile(filepath.Join(runDir, "stderr.txt"), []byte(session.Stderr()), 0o644); err != nil {
 		return Result{}, fmt.Errorf("write stderr.txt: %w", err)
 	}
 
+	// A cancelled command context must not stop the interrupted run from being
+	// recorded: the artifact capture and persistence use a cancellation-free
+	// context bounded by the task timeout so a row is always written and the
+	// deferred cleanup still runs.
+	postCtx, postCancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer postCancel()
+
 	// Export is best-effort: a failure is recorded but never fails the run.
 	if res.SessionID == "" {
 		appendNote(&res.Error, "export skipped: no session id")
-	} else if data, err := a.Export(ctx, res.SessionID); err != nil {
+	} else if data, err := a.Export(postCtx, res.SessionID); err != nil {
 		appendNote(&res.Error, "export: "+err.Error())
 	} else if err := os.WriteFile(filepath.Join(runDir, "session.json"), data, 0o644); err != nil {
 		return Result{}, fmt.Errorf("write session.json: %w", err)
 	}
 
-	changed, err := ChangedFiles(ctx, worktree, baseline.SHA)
+	changed, err := ChangedFiles(postCtx, worktree, baseline.SHA)
 	if err != nil {
 		return Result{}, err
 	}
-	diff, err := DiffAgainstBaseline(ctx, worktree, baseline.SHA)
+	diff, err := DiffAgainstBaseline(postCtx, worktree, baseline.SHA)
 	if err != nil {
 		return Result{}, err
 	}
@@ -218,20 +242,27 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if err := writeJSON(filepath.Join(runDir, "changed.json"), changed); err != nil {
 		return Result{}, err
 	}
-	if _, err := captureUntracked(ctx, runDir, worktree); err != nil {
+	if _, err := captureUntracked(postCtx, runDir, worktree); err != nil {
 		return Result{}, err
 	}
 
 	res.ChangedFiles = changed
 	res.UnexpectedFiles = unexpectedFiles(req.Task.AllowChanges, changed)
 
-	// Each validator gets the full task timeout, not the remaining budget: the
-	// budget is shared by the agent session and validators are cheap, so a fixed
-	// per-validator bound is simpler and keeps a single validator from being
-	// starved by an earlier one.
-	validations, validationRows, err := runValidators(ctx, req, runDir, worktree, env, timeout, metrics.FinalAnswer)
-	if err != nil {
-		return Result{}, err
+	// Validators are skipped after cancellation: the session was interrupted,
+	// so there is no completed answer to validate and running them would delay
+	// the prompt return.
+	var validations []evaluation.ValidationResult
+	var validationRows []store.ValidationRow
+	if !cancelledRun {
+		// Each validator gets the full task timeout, not the remaining budget:
+		// the budget is shared by the agent session and validators are cheap,
+		// so a fixed per-validator bound is simpler and keeps a single validator
+		// from being starved by an earlier one.
+		validations, validationRows, err = runValidators(ctx, req, runDir, worktree, env, timeout, metrics.FinalAnswer)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	res.Validations = validations
 
@@ -239,6 +270,9 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	case timedOut.Load() || errors.Is(waitErr, context.DeadlineExceeded):
 		res.Status = "timeout"
 		appendNote(&res.Error, "task timed out")
+	case cancelledRun:
+		res.Status = "error"
+		appendNote(&res.Error, "run cancelled")
 	case waitErr != nil:
 		res.Status = "error"
 		appendNote(&res.Error, waitErr.Error())
@@ -258,7 +292,7 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if res.Metrics == nil {
 		res.Metrics = map[string]float64{}
 	}
-	created, deleted, err := changeCounts(ctx, worktree, baseline.SHA)
+	created, deleted, err := changeCounts(postCtx, worktree, baseline.SHA)
 	if err != nil {
 		return Result{}, err
 	}
@@ -270,7 +304,7 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if err := writeResult(runDir, req, res, baseline, started.Format(time.RFC3339), finished); err != nil {
 		return Result{}, err
 	}
-	if err := persist(ctx, st, req, res, baseline, started, finished, res.Metrics, validationRows); err != nil {
+	if err := persist(postCtx, st, req, res, baseline, started, finished, res.Metrics, validationRows); err != nil {
 		return Result{}, err
 	}
 	return res, nil
