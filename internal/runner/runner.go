@@ -320,7 +320,15 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if res.Metrics == nil {
 		res.Metrics = map[string]float64{}
 	}
-	created, deleted, err := changeCounts(postCtx, worktree, baseline.SHA)
+
+	// Validators can consume the whole task budget (each gets the full timeout),
+	// so the pre-validator postCtx may already be expired by the time they
+	// return. A fresh cancellation-free bounded context guarantees the change
+	// counts, result and persisted row are still produced after cancellation or
+	// timeout; otherwise the run would be lost after its validators ran.
+	finalCtx, finalCancel := postRunContext(ctx, timeout)
+	defer finalCancel()
+	created, deleted, err := changeCounts(finalCtx, worktree, baseline.SHA)
 	if err != nil {
 		return Result{}, err
 	}
@@ -332,7 +340,7 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if err := writeResult(runDir, req, res, baseline, started.Format(time.RFC3339), finished); err != nil {
 		return Result{}, err
 	}
-	if err := persist(postCtx, st, req, res, baseline, started, finished, res.Metrics, validationRows); err != nil {
+	if err := persist(finalCtx, st, req, res, baseline, started, finished, res.Metrics, validationRows); err != nil {
 		return Result{}, err
 	}
 	return res, nil
@@ -392,13 +400,23 @@ func runValidators(ctx context.Context, req Request, runDir, worktree string, en
 	for i, v := range req.Task.Validators {
 		seq := i + 1
 		var res evaluation.ValidationResult
-		if len(missing) > 0 {
+		switch {
+		case len(missing) > 0:
 			reason := "skipped: missing requirements: " + strings.Join(missing, ", ")
 			res = evaluation.ValidationResult{
 				Seq: seq, Kind: v.Kind, Name: v.Name,
 				Status: "skipped", ExitCode: -1, Output: reason, Excerpt: reason,
 			}
-		} else {
+		case ctx.Err() != nil:
+			// Cancellation arrived while an earlier validator was running (or
+			// between validators): later validators must not start. Record them
+			// as skipped with an explicit reason so the interruption is visible.
+			reason := "skipped: run cancelled"
+			res = evaluation.ValidationResult{
+				Seq: seq, Kind: v.Kind, Name: v.Name,
+				Status: "skipped", ExitCode: -1, Output: reason, Excerpt: reason,
+			}
+		default:
 			res = evaluation.RunValidator(ctx, seq, evaluation.ValidatorSpec{
 				Kind: v.Kind, Name: v.Name, Command: v.Command, Patterns: v.Patterns, Mode: v.Mode,
 			}, worktree, env, timeout, finalAnswer)
