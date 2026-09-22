@@ -1,0 +1,14 @@
+[
+  {
+    "name": "ruff",
+    "description": "Lint and format Python code with ruff",
+    "location": "/home/u/.agents/skills/ruff/SKILL.md",
+    "content": "# ruff\n\nSYNTHETIC-SKILL-BODY-MARKER run ruff before committing.\n"
+  },
+  {
+    "name": "docs",
+    "description": "Write and maintain project documentation",
+    "location": "/home/u/.agents/skills/docs/SKILL.md",
+    "content": "# docs\n\nKeep the docs in sync with the code.\n"
+  }
+]
