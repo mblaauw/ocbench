@@ -185,4 +185,12 @@ func TestCodeReviewAnswerPatterns(t *testing.T) {
 	if res.Status != "failed" {
 		t.Fatalf("review omitting the swallowed exception status = %q, want failed; output:\n%s", res.Status, res.Output)
 	}
+
+	// A generic review that name-drops every defect keyword without binding any
+	// of them to the function, location or correction must not pass.
+	falsePositive := "chunks step parse_ints ignore take should be 3"
+	res = evaluation.RunValidator(ctx, 3, spec, "", nil, 0, falsePositive)
+	if res.Status != "failed" {
+		t.Fatalf("generic keyword-only review status = %q, want failed; output:\n%s", res.Status, res.Output)
+	}
 }

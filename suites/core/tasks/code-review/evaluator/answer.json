@@ -1,11 +1,14 @@
 {
   "patterns": [
     "(?i)\\bchunks?\\b",
-    "(?i)off[ -]?by[ -]?one|size\\s*-\\s*1|step",
+    "(?i)off[ -]?by[ -]?one|size\\s*-\\s*1|\\brange\\b",
+    "(?i)len\\s*\\(|\\bsize\\b",
     "(?i)\\bparse_ints\\b",
-    "(?i)swallow|silently|ignor(?:e|es|ed)|except\\s+valueerror",
+    "(?i)swallow|silently|except\\s+valueerror|\\bpass\\b",
+    "(?i)raise|propagat|re-?raise|report|surface|not\\s+silently|instead\\s+of\\s+pass|rather\\s+than",
     "(?i)\\btake\\b",
-    "(?i)wrong default|defaults?\\s+to\\s+10|should\\s+(?:be|default\\s+to)\\s+3"
+    "(?i)(?:default|limit|take|current|is)[^\\n]{0,60}\\b10\\b|\\b10\\b[^\\n]{0,60}(?:default|limit|take|current|wrong|3)",
+    "(?i)(?:default|should|correct|instead|expected|right|not)[^\\n]{0,60}\\b3\\b|\\b3\\b[^\\n]{0,60}(?:default|should|correct|instead|expected|right|10)"
   ],
   "mode": "all"
 }

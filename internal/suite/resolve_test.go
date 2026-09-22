@@ -45,6 +45,9 @@ func TestEmbeddedCoreSuiteListsTasks(t *testing.T) {
 	if s.Hash == "" {
 		t.Error("Hash is empty")
 	}
+	if s.Version != "1.1.0" {
+		t.Errorf("Version = %q, want 1.1.0", s.Version)
+	}
 	got := taskIDs(s.Tasks)
 	want := []string{"code-review", "config-yaml-fix", "multi-file-feature", "py-bugfix", "repo-investigation"}
 	if !reflect.DeepEqual(got, want) {
