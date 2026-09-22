@@ -100,7 +100,7 @@ func (s *Suite) Task(id string) (*Task, error)
 func (t *Task) EffectiveTimeout(s *Suite) time.Duration
 ```
 
-Rules (spec §7): `suite.yaml` requires `name` and `version`; each `tasks/<id>/task.yaml` requires `id`, `version`, `name`, `prompt.md` and a `fixture/` directory; `id` must equal the directory name; unknown validator kinds are load errors; `answer` validators need `patterns` in `task.yaml` or in `evaluator/answer.json` (`{"patterns":[…],"mode":"all|any"}`); command validators need a non-empty argv; `timeout` defaults to `suite.defaults.timeout_seconds` then 900; tags default empty; `allow_changes` defaults empty (meaning: any change is unexpected).
+Rules (spec §7): `suite.yaml` requires `name` and `version`; each `tasks/<id>/task.yaml` requires `id`, `version`, `name`, `prompt.md` and a `fixture/` directory; `id` must equal the directory name; unknown validator kinds are load errors; `answer` validators need `patterns` in `task.yaml` or in `evaluator/answer.json` (`{"patterns":[…],"mode":"all|any"}`); command validators need a non-empty argv; `timeout` defaults to `suite.defaults.timeout` then 900; tags default empty; `allow_changes` defaults empty (meaning: any change is unexpected). Both YAML files decode with `yaml.Decoder.KnownFields(true)` so a misspelled key is a load error naming the file, never a silent default.
 
 `Hash` = SHA256 of canonical JSON (use `canon.JSON`) of `{name, version, tasks:[{id, version, timeout, requires, allow_changes, validators, prompt_sha256, fixture_hash, evaluator_sha256}]}` sorted by task id. `FixtureHash` = SHA256 over sorted `relpath\0sha256(bytes)` of every regular file in the fixture tree. Loading must be deterministic: walk with `fs.WalkDir` (lexical order) and never include absolute paths.
 
