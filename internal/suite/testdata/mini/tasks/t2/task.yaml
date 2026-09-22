@@ -1,0 +1,6 @@
+id: t2
+version: 2
+name: Task two
+validators:
+  - kind: answer
+    name: hidden answer

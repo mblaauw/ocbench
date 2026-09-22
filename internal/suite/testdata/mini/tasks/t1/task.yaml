@@ -1,0 +1,15 @@
+id: t1
+version: 1
+name: Task one
+tags: [alpha, beta]
+timeout: 300
+requires: [sh]
+allow_changes:
+  - "src/**"
+validators:
+  - kind: command
+    name: check
+    command: ["sh", "-c", "true"]
+  - kind: answer
+    name: cause
+    patterns: ["yes"]
