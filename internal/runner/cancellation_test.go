@@ -129,6 +129,81 @@ func TestRunCancelledAfterSessionSkipsValidatorsAndPersists(t *testing.T) {
 	}
 }
 
+// TestRunCancelledDuringValidatorPersistsError proves that a cancellation
+// landing while a command validator is already running is the authoritative
+// outcome: the started validator is still recorded, but the run is persisted as
+// error rather than failed, and the worktree is removed.
+func TestRunCancelledDuringValidatorPersistsError(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	marker := filepath.Join(t.TempDir(), "validator-started")
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "blocking", Command: []string{"sh", "-c", "touch " + marker + " && sleep 30"}},
+	}
+	a := newScriptedAdapter(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type outcome struct {
+		res Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := Run(ctx, a, f.st, runnerRequest(f))
+		done <- outcome{res, err}
+	}()
+
+	// Cancel only once the validator has actually started, so the cancellation
+	// deterministically lands inside RunValidator rather than before it.
+	waitForFile(t, marker, 20*time.Second)
+	cancel()
+
+	select {
+	case out := <-done:
+		if out.err != nil {
+			t.Fatalf("Run: %v", out.err)
+		}
+		if out.res.Status != "error" {
+			t.Fatalf("status = %q, want error (cancellation during a validator must not read as failed)", out.res.Status)
+		}
+		row, err := f.st.GetRun(context.Background(), out.res.RunID)
+		if err != nil {
+			t.Fatalf("cancelled run was not persisted: %v", err)
+		}
+		if row.Status != "error" {
+			t.Fatalf("persisted status = %q, want error", row.Status)
+		}
+		if len(out.res.Validations) != 1 {
+			t.Fatalf("validations = %d, want 1 recorded for the started validator", len(out.res.Validations))
+		}
+		if got := out.res.Validations[0].Status; got != "error" && got != "timeout" {
+			t.Fatalf("validation status = %q, want error or timeout", got)
+		}
+		if n := countValidationRows(t, f, out.res.RunID); n != 1 {
+			t.Fatalf("validation rows = %d, want 1", n)
+		}
+		if _, err := os.Stat(filepath.Join(out.res.ArtifactsDir, "worktree")); !os.IsNotExist(err) {
+			t.Fatalf("worktree still present after cancellation (err = %v)", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("Run did not return after cancellation")
+	}
+}
+
+// waitForFile polls until path exists or the timeout elapses.
+func waitForFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("file %s did not appear within %s", path, timeout)
+}
+
 // countValidationRows returns the number of persisted validation rows for a run.
 func countValidationRows(t *testing.T, f *runnerFixture, runID string) int {
 	t.Helper()

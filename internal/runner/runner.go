@@ -104,17 +104,21 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if err := CreateWorktree(ctx, baseline, worktree); err != nil {
 		return Result{}, err
 	}
-	// Cleanup uses a background context so a cancelled run still releases the
-	// worktree.
+	env := BuildEnv(os.Environ(), req.EnvPolicy)
+	timeout := req.Task.EffectiveTimeout(req.Suite)
+
+	// Cleanup must still release the worktree after a cancelled run, so it uses
+	// a cancellation-free context. The bounded context is created here, at
+	// deferred-cleanup execution time, so a long model run cannot consume the
+	// budget before cleanup starts.
 	defer func() {
 		if req.KeepWorktree {
 			return
 		}
-		_ = RemoveWorktree(context.Background(), baseline, worktree)
+		cleanupCtx, cleanupCancel := postRunContext(ctx, timeout)
+		defer cleanupCancel()
+		_ = RemoveWorktree(cleanupCtx, baseline, worktree)
 	}()
-
-	env := BuildEnv(os.Environ(), req.EnvPolicy)
-	timeout := req.Task.EffectiveTimeout(req.Suite)
 
 	res := Result{RunID: runID, TaskID: req.Task.ID, ArtifactsDir: runDir}
 
@@ -280,6 +284,15 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		}
 	}
 	res.Validations = validations
+
+	// A cancellation can also land while a validator is already running. The
+	// validators that started are still recorded, but cancellation is the
+	// authoritative outcome: re-check the request context so a validator
+	// error/timeout cannot downgrade the run to failed. Deadline timeout still
+	// wins in the switch below.
+	if ctx.Err() != nil {
+		cancelledRun = true
+	}
 
 	switch {
 	case timedOut.Load() || errors.Is(waitErr, context.DeadlineExceeded):
