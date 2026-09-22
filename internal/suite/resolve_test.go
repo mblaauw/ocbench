@@ -3,14 +3,19 @@ package suite
 import (
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	"mbl/ocbench/internal/config"
 	"mbl/ocbench/suites"
 )
+
+// onDiskCoreDir is the authored core suite, relative to this package dir.
+var onDiskCoreDir = filepath.Join("..", "..", "suites", "core")
 
 func embeddedCore(t *testing.T) *Suite {
 	t.Helper()
@@ -72,6 +77,61 @@ func TestEmbeddedCoreSuiteListsThreeTasks(t *testing.T) {
 			t.Errorf("%s fixture is empty", task.ID)
 		}
 	}
+}
+
+// TestEmbeddedCoreMatchesOnDisk guards the embed directive: the embedded suite
+// must be byte-identical to the authored suites/core tree, including
+// underscore-prefixed files such as package __init__.py. A hash mismatch or a
+// missing fixture file means //go:embed silently dropped content.
+func TestEmbeddedCoreMatchesOnDisk(t *testing.T) {
+	embedded := embeddedCore(t)
+	onDisk, err := LoadDir(onDiskCoreDir)
+	if err != nil {
+		t.Fatalf("load on-disk core: %v", err)
+	}
+	t.Logf("embedded hash = %s", embedded.Hash)
+	t.Logf("on-disk  hash = %s", onDisk.Hash)
+	if embedded.Hash != onDisk.Hash {
+		t.Fatalf("embedded hash %s != on-disk hash %s", embedded.Hash, onDisk.Hash)
+	}
+	if len(embedded.Tasks) != len(onDisk.Tasks) {
+		t.Fatalf("embedded has %d tasks, on-disk has %d", len(embedded.Tasks), len(onDisk.Tasks))
+	}
+	for _, et := range embedded.Tasks {
+		ot, err := onDisk.Task(et.ID)
+		if err != nil {
+			t.Fatalf("on-disk suite is missing task %s: %v", et.ID, err)
+		}
+		got := regularFiles(t, et.Fixture)
+		want := regularFiles(t, ot.Fixture)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("task %s fixture files differ:\n embedded = %v\n on-disk  = %v", et.ID, got, want)
+		}
+		if len(got) == 0 {
+			t.Fatalf("task %s fixture has no files", et.ID)
+		}
+	}
+}
+
+// regularFiles returns the sorted relative paths of every regular file in fsys.
+func regularFiles(t *testing.T, fsys fs.FS) []string {
+	t.Helper()
+	files := []string{}
+	err := fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		files = append(files, path.Clean(p))
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk fixture: %v", err)
+	}
+	sort.Strings(files)
+	return files
 }
 
 func TestListSources(t *testing.T) {

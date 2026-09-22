@@ -7,7 +7,7 @@ import (
 	"io/fs"
 )
 
-//go:embed core
+//go:embed all:core
 var embedded embed.FS
 
 // FS returns the embedded suite tree. Suite directories such as "core" are
