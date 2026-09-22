@@ -98,6 +98,12 @@ func TestDiscoverScopesAndAgents(t *testing.T) {
 	if got := string(s.Instructions["project:AGENTS.md"]); got != "project rules\n" {
 		t.Fatalf("project instructions = %q", got)
 	}
+	if got := s.InstructionPaths["global:AGENTS.md"]; got != filepath.Join(globalDir, "AGENTS.md") {
+		t.Fatalf("global instruction path = %q", got)
+	}
+	if got := s.InstructionPaths["project:AGENTS.md"]; got != filepath.Join(project, "AGENTS.md") {
+		t.Fatalf("project instruction path = %q", got)
+	}
 	gotCalls := append([]string(nil), fa.agentCalls...)
 	sort.Strings(gotCalls)
 	if !reflect.DeepEqual(gotCalls, []string{"build", "plan"}) {

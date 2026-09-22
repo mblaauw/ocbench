@@ -10,31 +10,38 @@ const instructionsFile = "AGENTS.md"
 // readInstructions collects the global OpenCode AGENTS.md and the nearest
 // project AGENTS.md at or above dir. Missing files are skipped; any other read
 // error is returned. The result is keyed by scope, e.g. "global:AGENTS.md" and
-// "project:AGENTS.md".
-func readInstructions(home, dir string) (map[string][]byte, error) {
+// "project:AGENTS.md"; the parallel paths map holds the absolute source path of
+// each scope for the canonical `path` field.
+func readInstructions(home, dir string) (map[string][]byte, map[string]string, error) {
 	out := map[string][]byte{}
+	paths := map[string]string{}
 	if home != "" {
 		global := filepath.Join(home, ".config", "opencode", instructionsFile)
 		b, ok, err := readOptional(global)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if ok {
-			out["global:"+instructionsFile] = b
+			scope := "global:" + instructionsFile
+			out[scope] = b
+			paths[scope] = global
 		}
 	}
 	if dir != "" {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for d := abs; ; {
-			b, ok, err := readOptional(filepath.Join(d, instructionsFile))
+			candidate := filepath.Join(d, instructionsFile)
+			b, ok, err := readOptional(candidate)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if ok {
-				out["project:"+instructionsFile] = b
+				scope := "project:" + instructionsFile
+				out[scope] = b
+				paths[scope] = candidate
 				break
 			}
 			parent := filepath.Dir(d)
@@ -44,7 +51,7 @@ func readInstructions(home, dir string) (map[string][]byte, error) {
 			d = parent
 		}
 	}
-	return out, nil
+	return out, paths, nil
 }
 
 // readOptional returns (bytes, true, nil) when path exists, (nil, false, nil)

@@ -22,13 +22,14 @@ import (
 // Discover and is deliberately decoupled from any IO so tests can construct it
 // directly.
 type Sources struct {
-	OpenCodeVersion string
-	ResolvedConfig  []byte
-	Skills          []opencode.SkillInfo
-	Agents          []opencode.AgentInfo
-	Instructions    map[string][]byte // scope → content, key like "global:AGENTS.md"
-	Dir             string
-	Home            string // used for path normalisation; tests set it explicitly
+	OpenCodeVersion  string
+	ResolvedConfig   []byte
+	Skills           []opencode.SkillInfo
+	Agents           []opencode.AgentInfo
+	Instructions     map[string][]byte // scope → content, key like "global:AGENTS.md"
+	InstructionPaths map[string]string // scope → absolute path, parallel to Instructions
+	Dir              string
+	Home             string // used for path normalisation; tests set it explicitly
 }
 
 // Options captures the run-time selections that are not part of the resolved
@@ -52,13 +53,14 @@ type Component struct {
 	CanonicalJSON []byte
 }
 
-// Captures carries the redacted raw material for the per-profile capture files
-// that Persist writes. Fingerprint fills it; it is intentionally excluded from
-// the profile hash and from the database.
+// Captures carries the raw material for the per-profile capture files that
+// Persist writes. Fingerprint fills it; it is intentionally excluded from the
+// profile hash and from the database.
 type Captures struct {
-	ResolvedConfig []byte // resolved-config.json
-	Skills         []byte // skills.json (metadata + hashes, never full content)
-	Agents         []byte // agents.json
+	ResolvedConfig []byte // resolved-config.json (redacted, normalised)
+	Skills         []byte // skills.json (metadata, normalised location, raw content, hashes)
+	Agents         []byte // agents.json (redacted, normalised)
+	Instructions   []byte // instructions.json (scope → raw text)
 }
 
 // Profile is the immutable, content-addressed result of fingerprinting.
@@ -116,18 +118,19 @@ func Discover(ctx context.Context, a opencode.Adapter, dir string) (*Sources, er
 	if err != nil {
 		return nil, fmt.Errorf("resolve home directory: %w", err)
 	}
-	instructions, err := readInstructions(home, dir)
+	instructions, instructionPaths, err := readInstructions(home, dir)
 	if err != nil {
 		return nil, err
 	}
 	return &Sources{
-		OpenCodeVersion: version,
-		ResolvedConfig:  raw,
-		Skills:          skills,
-		Agents:          agents,
-		Instructions:    instructions,
-		Dir:             dir,
-		Home:            home,
+		OpenCodeVersion:  version,
+		ResolvedConfig:   raw,
+		Skills:           skills,
+		Agents:           agents,
+		Instructions:     instructions,
+		InstructionPaths: instructionPaths,
+		Dir:              dir,
+		Home:             home,
 	}, nil
 }
 

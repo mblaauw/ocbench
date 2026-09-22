@@ -111,24 +111,41 @@ func profileFromRows(row *store.ProfileRow, comps []store.ComponentRow) (*Profil
 	return p, nil
 }
 
-// writeCaptures writes the four content-addressed capture files. All payloads
-// were redacted and path-normalised by Fingerprint before reaching here.
+// writeCaptures writes the content-addressed capture files. All payloads were
+// produced by Fingerprint (redacted and path-normalised where applicable).
+// A profile loaded from the database (Latest/GetProfileByHash) has no captures;
+// in that case existing capture files are left untouched rather than
+// overwritten with empty placeholders.
 func writeCaptures(paths config.Paths, p *Profile) error {
 	if paths.Profiles == "" {
 		return errors.New("persist: empty profiles path")
 	}
+	type captureFile struct {
+		name string
+		data []byte
+	}
+	var files []captureFile
+	if len(p.Captures.ResolvedConfig) > 0 {
+		files = append(files, captureFile{"resolved-config.json", p.Captures.ResolvedConfig})
+	}
+	if len(p.Captures.Skills) > 0 {
+		files = append(files, captureFile{"skills.json", p.Captures.Skills})
+	}
+	if len(p.Captures.Agents) > 0 {
+		files = append(files, captureFile{"agents.json", p.Captures.Agents})
+	}
+	if len(p.Captures.Instructions) > 0 {
+		files = append(files, captureFile{"instructions.json", p.Captures.Instructions})
+	}
+	if len(p.CanonicalJSON) > 0 {
+		files = append(files, captureFile{"snapshot.json", p.CanonicalJSON})
+	}
+	if len(files) == 0 {
+		return nil
+	}
 	dir := filepath.Join(paths.Profiles, p.Hash)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create profile dir %s: %w", dir, err)
-	}
-	files := []struct {
-		name string
-		data []byte
-	}{
-		{"resolved-config.json", defaultBytes(p.Captures.ResolvedConfig, []byte("{}"))},
-		{"skills.json", defaultBytes(p.Captures.Skills, []byte("[]"))},
-		{"agents.json", defaultBytes(p.Captures.Agents, []byte("[]"))},
-		{"snapshot.json", defaultBytes(p.CanonicalJSON, []byte("{}"))},
 	}
 	for _, f := range files {
 		if err := os.WriteFile(filepath.Join(dir, f.name), f.data, 0o644); err != nil {
@@ -136,13 +153,6 @@ func writeCaptures(paths config.Paths, p *Profile) error {
 		}
 	}
 	return nil
-}
-
-func defaultBytes(b, fallback []byte) []byte {
-	if len(b) == 0 {
-		return fallback
-	}
-	return b
 }
 
 // newUUID returns a random RFC 4122 version 4 shaped identifier formatted as

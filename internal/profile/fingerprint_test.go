@@ -71,6 +71,10 @@ func loadTestSources(t *testing.T) *Sources {
 		Instructions: map[string][]byte{
 			"global:AGENTS.md": []byte("# global instructions\n"),
 		},
+		InstructionPaths: map[string]string{
+			"global:AGENTS.md":  "/home/u/.config/opencode/AGENTS.md",
+			"project:AGENTS.md": "/home/u/project/AGENTS.md",
+		},
 		Dir:  "/home/u/project",
 		Home: "/home/u",
 	}
@@ -123,6 +127,13 @@ func TestFingerprintDeterministic(t *testing.T) {
 	}
 	if p1.Hash != p2.Hash {
 		t.Fatalf("hash not deterministic:\n %s\n %s\n%s\n%s", p1.Hash, p2.Hash, p1.CanonicalJSON, p2.CanonicalJSON)
+	}
+	// Captures are deterministic too (object keys sorted by canon.JSON).
+	if string(p1.Captures.Instructions) != string(p2.Captures.Instructions) {
+		t.Fatalf("instructions capture not deterministic:\n %s\n %s", p1.Captures.Instructions, p2.Captures.Instructions)
+	}
+	if string(p1.Captures.Skills) != string(p2.Captures.Skills) {
+		t.Fatalf("skills capture not deterministic:\n %s\n %s", p1.Captures.Skills, p2.Captures.Skills)
 	}
 	// Fingerprinting the same Sources repeatedly must also be stable.
 	for i := 0; i < 3; i++ {
@@ -239,6 +250,33 @@ func TestFingerprintNormalizesHomePaths(t *testing.T) {
 	}
 	if strings.Contains(j, "/home/u") {
 		t.Fatalf("absolute home path leaked: %s", j)
+	}
+}
+
+func TestFingerprintInstructionPath(t *testing.T) {
+	s := loadTestSources(t)
+	s.Instructions["project:AGENTS.md"] = []byte("project\n")
+	p, err := Fingerprint(s, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var global, project map[string]any
+	if err := json.Unmarshal(componentByKey(t, p, "instructions/global:AGENTS.md").CanonicalJSON, &global); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(componentByKey(t, p, "instructions/project:AGENTS.md").CanonicalJSON, &project); err != nil {
+		t.Fatal(err)
+	}
+	if global["path"] != "~/.config/opencode/AGENTS.md" {
+		t.Fatalf("global path = %v", global["path"])
+	}
+	if project["path"] != "~/project/AGENTS.md" {
+		t.Fatalf("project path = %v", project["path"])
+	}
+	for _, c := range []map[string]any{global, project} {
+		if sha, _ := c["sha256"].(string); sha == "" {
+			t.Fatalf("missing sha256 in %v", c)
+		}
 	}
 }
 

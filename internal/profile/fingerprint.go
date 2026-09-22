@@ -101,7 +101,14 @@ func Fingerprint(s *Sources, opts Options) (*Profile, error) {
 	}
 
 	for scope, content := range s.Instructions {
-		components["instructions/"+scope] = map[string]any{"sha256": canon.HashBytes(content)}
+		path := s.InstructionPaths[scope]
+		if path == "" {
+			path = defaultInstructionPath(scope, s.Home, s.Dir)
+		}
+		components["instructions/"+scope] = map[string]any{
+			"path":   normalizePath(path, s.Home),
+			"sha256": canon.HashBytes(content),
+		}
 	}
 
 	components["config"] = configCatchAll(cfg)
@@ -135,6 +142,10 @@ func Fingerprint(s *Sources, opts Options) (*Profile, error) {
 	if err != nil {
 		return nil, err
 	}
+	instructionsCapture, err := buildInstructionsCapture(s.Instructions)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Profile{
 		Hash:            hash,
@@ -146,6 +157,7 @@ func Fingerprint(s *Sources, opts Options) (*Profile, error) {
 			ResolvedConfig: resolvedCapture,
 			Skills:         skillsCapture,
 			Agents:         agentsCapture,
+			Instructions:   instructionsCapture,
 		},
 	}, nil
 }
@@ -331,7 +343,8 @@ func buildSkill(sk opencode.SkillInfo, home string) (map[string]any, map[string]
 	capture := map[string]any{
 		"name":           sk.Name,
 		"description":    sk.Description,
-		"source":         source,
+		"location":       source,
+		"content":        sk.Content,
 		"content_sha256": contentHash,
 		"files_sha256":   filesHash,
 	}
@@ -475,6 +488,38 @@ func buildAgentsCapture(agents []opencode.AgentInfo, home string) ([]byte, error
 		out[i] = items[i].v
 	}
 	return canon.JSON(out)
+}
+
+// buildInstructionsCapture serialises the raw instruction text keyed by scope
+// (canon.JSON sorts the object keys).
+func buildInstructionsCapture(contents map[string][]byte) ([]byte, error) {
+	out := make(map[string]any, len(contents))
+	for scope, content := range contents {
+		out[scope] = string(content)
+	}
+	return canon.JSON(out)
+}
+
+// defaultInstructionPath reconstructs the source path of an instruction scope
+// when Sources did not carry one (for example a hand-built test Sources). The
+// global scope resolves under the config dir; the project scope falls back to
+// the run directory.
+func defaultInstructionPath(scope, home, dir string) string {
+	name := scope
+	if i := strings.Index(scope, ":"); i >= 0 {
+		name = scope[i+1:]
+	}
+	switch {
+	case strings.HasPrefix(scope, "global:"):
+		if home != "" {
+			return filepath.Join(home, ".config", "opencode", name)
+		}
+	case strings.HasPrefix(scope, "project:"):
+		if dir != "" {
+			return filepath.Join(dir, name)
+		}
+	}
+	return ""
 }
 
 // canonicalize applies redaction then home path normalisation to a value.
