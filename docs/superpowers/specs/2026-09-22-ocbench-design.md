@@ -40,8 +40,20 @@ These were established by direct inspection and are load-bearing for the design:
   command/URL. It may attempt connections; only `doctor` may call it.
 - `opencode export <sessionID>` prints the full session JSON:
   `{info:{...,tokens:{input,output,reasoning,cache:{read,write}},cost,model,agent,version,...},messages:[{info,parts}]}`.
-- Event stream schema (from the locally installed `@opencode-ai/sdk` types):
-  each event is `{"type": "...", "properties": {...}}`; the `Event` union is
+- **`opencode run --format json` emits a JSONL stream, one object per line, with
+  the envelope `{"type": "<snake_case>", "timestamp": <unix-ms>,
+  "sessionID": "ses_…", "part": {…}}`** (observed live on 1.18.32; this differs
+  from the server API's `{type, properties}` union below). Observed `type`
+  values: `step_start`, `tool_use`, `step_finish`, `text`; `part.type` uses the
+  SDK's kebab-case names (`step-start`, `tool`, `step-finish`, `text`).
+  `step_finish.part` carries `reason`, `tokens{total,input,output,reasoning,cache{read,write}}`
+  and `cost`; `tool_use.part` carries `tool`, `callID`, `state{status,input,output,error}`.
+  There is **no idle/terminal event**: run completion is signalled by process
+  exit, and the session ID is read from any event's `sessionID`.
+  Parsers must tolerate unknown `type`/`part.type` values and skip malformed
+  lines without aborting the run.
+- Event stream schema of the server API (from the locally installed
+  `@opencode-ai/sdk` types): each event is `{"type": "...", "properties": {...}}`; the `Event` union is
   `server.instance.disposed`, `installation.updated`,
   `installation.update-available`, `lsp.client.diagnostics`, `lsp.updated`,
   `message.updated`, `message.removed`, `message.part.updated`,
