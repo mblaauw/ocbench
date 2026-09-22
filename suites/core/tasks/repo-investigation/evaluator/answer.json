@@ -1,0 +1,8 @@
+{
+  "patterns": [
+    "(?i)\\bmaximum\\b",
+    "(?i)\\blargest\\b",
+    "(?i)(v\\s*>\\s*result|>\\s*result|greater[ -]?than|should use >)"
+  ],
+  "mode": "all"
+}

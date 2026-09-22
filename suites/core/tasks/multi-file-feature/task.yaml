@@ -1,0 +1,14 @@
+id: multi-file-feature
+version: 1
+name: Implement the summarize feature
+tags: [python, feature, multi-file]
+timeout: 300
+requires: [python3]
+allow_changes: ["src/**", "tests/**", "cli.py"]
+validators:
+  - kind: command
+    name: unit tests
+    command: ["python3", "-m", "unittest", "discover", "-s", "tests"]
+  - kind: command
+    name: cli smoke
+    command: ["python3", "smoke.py"]

@@ -1,0 +1,5 @@
+name: core
+version: "1"
+description: Core fixture-only benchmark tasks (Python 3 stdlib, no network).
+defaults:
+  timeout: 300

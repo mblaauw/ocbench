@@ -1,0 +1,11 @@
+id: py-bugfix
+version: 1
+name: Fix the divide operator
+tags: [python, debugging, bugfix]
+timeout: 300
+requires: [python3]
+allow_changes: ["calc.py"]
+validators:
+  - kind: command
+    name: unit tests
+    command: ["python3", "-m", "unittest", "discover", "-s", "tests"]

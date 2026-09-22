@@ -2,10 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"io/fs"
 	"reflect"
 
 	"mbl/ocbench/internal/config"
 	"mbl/ocbench/internal/opencode"
+	"mbl/ocbench/suites"
 )
 
 // Deps carries the injectable dependencies shared by every command. Command
@@ -13,6 +15,7 @@ import (
 // and call resolve before use, which makes each command testable in isolation.
 type Deps struct {
 	Adapter opencode.Adapter // nil → real adapter built from config
+	SuiteFS fs.FS            // nil → suites.FS() (embedded core suite)
 	Paths   config.Paths     // zero → config.ResolveOS()
 	Config  config.Config    // zero → config.Load(paths)
 }
@@ -33,6 +36,9 @@ func (d Deps) resolve() (Deps, error) {
 	}
 	if out.Adapter == nil {
 		out.Adapter = opencode.NewReal(opencode.Options{Bin: out.Config.OpenCodeBin})
+	}
+	if out.SuiteFS == nil {
+		out.SuiteFS = suites.FS()
 	}
 	return out, nil
 }
