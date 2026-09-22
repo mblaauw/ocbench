@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -33,9 +34,16 @@ func execute(ctx context.Context, args []string, d Deps) error {
 	root.SetArgs(args)
 	// Resolve the target before executing so an unknown subcommand is reported
 	// as a usage error (exit 2) instead of silently falling through to cobra's
-	// help output. The default help command must be registered first so the
-	// pre-resolution does not reject `ocbench help`.
+	// help output. The default help and completion commands must be registered
+	// first so the pre-resolution does not reject `ocbench help` or
+	// `ocbench completion ...`.
 	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	// The hidden completion protocol is registered by ExecuteC, so it cannot be
+	// resolved here; let cobra handle it during execution.
+	if len(args) > 0 && strings.HasPrefix(args[0], "__complete") {
+		return root.ExecuteContext(ctx)
+	}
 	if _, _, err := root.Find(args); err != nil {
 		return &UsageError{Err: err}
 	}
