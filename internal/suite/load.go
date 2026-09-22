@@ -1,6 +1,7 @@
 package suite
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,7 +34,7 @@ type rawSuite struct {
 	Version     scalarString `yaml:"version"`
 	Description string       `yaml:"description"`
 	Defaults    struct {
-		TimeoutSeconds int `yaml:"timeout_seconds"`
+		TimeoutSeconds int `yaml:"timeout"`
 	} `yaml:"defaults"`
 }
 
@@ -130,7 +131,7 @@ func LoadDir(dir string) (*Suite, error) {
 }
 
 // loadTask loads tasks/<id>/ as a Task. suiteDefault is the suite's
-// defaults.timeout_seconds (0 when unset).
+// defaults.timeout (0 when unset).
 func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 	base := path.Join("tasks", id)
 
@@ -312,14 +313,17 @@ func readEvaluator(fsys fs.FS, dir string) (map[string][]byte, error) {
 	return files, nil
 }
 
-// readYAML decodes a YAML file into T.
+// readYAML decodes a YAML file into T with strict field checking, so a
+// misspelled or unknown key is a load error instead of a silent default.
 func readYAML[T any](fsys fs.FS, name string) (*T, error) {
 	b, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", name, err)
 	}
 	var v T
-	if err := yaml.Unmarshal(b, &v); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", name, err)
 	}
 	return &v, nil

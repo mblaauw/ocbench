@@ -2,4 +2,4 @@ name: mini
 version: "1.0.0"
 description: Minimal suite used by loader tests.
 defaults:
-  timeout_seconds: 120
+  timeout: 120

@@ -449,3 +449,41 @@ func TestSuiteYAMLRequiresNameAndVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestUnknownSuiteKeyIsError(t *testing.T) {
+	// spec §7 spells the key defaults.timeout; a suite written with the
+	// wrong key must fail loudly instead of silently defaulting to 900s.
+	dir := tempMini(t, func(dir string) {
+		writeFile(t, filepath.Join(dir, "suite.yaml"),
+			"name: mini\nversion: \"1.0.0\"\ndefaults:\n  timeout_seconds: 5\n")
+	})
+	_, err := LoadDir(dir)
+	if err == nil {
+		t.Fatal("LoadDir succeeded, want error for unknown suite key")
+	}
+	for _, want := range []string{"suite.yaml", "timeout_seconds"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q must name %s", err, want)
+		}
+	}
+}
+
+func TestUnknownTaskKeyIsError(t *testing.T) {
+	dir := tempMini(t, func(dir string) {
+		p := filepath.Join(dir, "tasks", "t1", "task.yaml")
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, p, string(b)+"timeout_secnds: 5\n")
+	})
+	_, err := LoadDir(dir)
+	if err == nil {
+		t.Fatal("LoadDir succeeded, want error for unknown task key")
+	}
+	for _, want := range []string{"task.yaml", "timeout_secnds"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q must name %s", err, want)
+		}
+	}
+}
