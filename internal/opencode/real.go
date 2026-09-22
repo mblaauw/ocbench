@@ -1,7 +1,6 @@
 package opencode
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -47,23 +46,49 @@ func (r *Real) Run(ctx context.Context, args ...string) (stdout, stderr []byte, 
 }
 
 // run is Run with an optional working directory.
+//
+// Output is captured to temporary files rather than pipes. OpenCode is a Bun
+// binary and drops a single stdout write larger than the pipe buffer (64 KiB)
+// when it exits before the write drains: `opencode debug skill` produces
+// ~320 KiB of JSON and arrived truncated at exactly 64 KiB through a pipe,
+// while file redirection returned the whole document. Regular files make those
+// writes synchronous and lossless.
 func (r *Real) run(ctx context.Context, dir string, args ...string) (stdout, stderr []byte, err error) {
 	argv := append(append([]string{}, r.opts.TestPrefix...), args...)
 
 	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout)
 	defer cancel()
 
+	outFile, err := os.CreateTemp("", "ocbench-stdout-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("opencode %s: create stdout capture: %w", strings.Join(args, " "), err)
+	}
+	defer os.Remove(outFile.Name())
+	defer outFile.Close()
+	errFile, err := os.CreateTemp("", "ocbench-stderr-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("opencode %s: create stderr capture: %w", strings.Join(args, " "), err)
+	}
+	defer os.Remove(errFile.Name())
+	defer errFile.Close()
+
 	cmd := exec.CommandContext(ctx, r.opts.Bin, argv...)
 	cmd.Env = r.opts.Env
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	var outBuf, errBuf bytes.Buffer
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
+	cmd.Stdout = outFile
+	cmd.Stderr = errFile
 
 	runErr := cmd.Run()
-	stdout, stderr = outBuf.Bytes(), errBuf.Bytes()
+	stdout, readErr := os.ReadFile(outFile.Name())
+	if readErr != nil {
+		return nil, nil, fmt.Errorf("opencode %s: read stdout capture: %w", strings.Join(args, " "), readErr)
+	}
+	stderr, readErr = os.ReadFile(errFile.Name())
+	if readErr != nil {
+		return nil, nil, fmt.Errorf("opencode %s: read stderr capture: %w", strings.Join(args, " "), readErr)
+	}
 	if runErr == nil {
 		return stdout, stderr, nil
 	}

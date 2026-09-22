@@ -1,6 +1,39 @@
 package opencode
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestAgentInfoUnmarshalModelObject(t *testing.T) {
+	raw := `{"name":"architect","mode":"subagent","model":{"providerID":"openai","modelID":"gpt-5.6-sol"},"variant":"high","steps":25,"temperature":0.2,"tools":{"read":true}}`
+	var info AgentInfo
+	if err := json.Unmarshal([]byte(raw), &info); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if info.Model != "openai/gpt-5.6-sol" {
+		t.Fatalf("Model = %q, want openai/gpt-5.6-sol", info.Model)
+	}
+	if info.Mode != "subagent" || info.Variant != "high" {
+		t.Fatalf("info = %+v", info)
+	}
+	if info.Steps == nil || *info.Steps != 25 {
+		t.Fatalf("Steps = %v", info.Steps)
+	}
+	if info.Temperature == nil || *info.Temperature != 0.2 {
+		t.Fatalf("Temperature = %v", info.Temperature)
+	}
+}
+
+func TestAgentInfoUnmarshalModelString(t *testing.T) {
+	var info AgentInfo
+	if err := json.Unmarshal([]byte(`{"name":"build","model":"p/m"}`), &info); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if info.Model != "p/m" {
+		t.Fatalf("Model = %q, want p/m", info.Model)
+	}
+}
 
 func TestParseVersionTrimsNoise(t *testing.T) {
 	got, err := parseVersion([]byte("1.18.32\n"))
