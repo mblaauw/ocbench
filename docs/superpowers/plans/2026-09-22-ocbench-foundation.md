@@ -461,6 +461,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -469,7 +470,7 @@ func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg != DefaultsConfig() {
+	if !reflect.DeepEqual(cfg, DefaultsConfig()) {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	if cfg.OpenCodeBin != "opencode" || cfg.Defaults.TimeoutSeconds != 900 || cfg.Defaults.Repeat != 1 {
@@ -1394,10 +1395,8 @@ func (r *Real) Run(ctx context.Context, args ...string) (stdout []byte, stderr [
 package opencode
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"testing"
 )
 
@@ -1443,25 +1442,8 @@ func TestHelperProcess(t *testing.T) {
 	os.Exit(42)
 }
 
-func fakeBin(t *testing.T) string {
-	t.Helper()
-	return helperCommand(t)
-}
-
-func helperCommand(t *testing.T) string {
-	t.Helper()
-	return os.Args[0]
-}
-
 func helperEnv() []string {
 	return append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
-}
-
-func runHelper(t *testing.T, args ...string) ([]byte, error) {
-	t.Helper()
-	cmd := exec.Command(os.Args[0], append([]string{"-test.run=TestHelperProcess", "--"}, args...)...)
-	cmd.Env = helperEnv()
-	return cmd.Output()
 }
 ```
 
@@ -1590,6 +1572,7 @@ type Sources struct {
 	Agents          []opencode.AgentInfo
 	Instructions    map[string][]byte // scope → content, key like "global:AGENTS.md"
 	Dir             string
+	Home            string // used for path normalisation; tests set it explicitly
 }
 
 type Options struct {
@@ -1712,7 +1695,8 @@ git commit -m "feat: resolve, fingerprint, persist and diff OpenCode execution p
 ### Task 7: `ocbench doctor`
 
 **Files:**
-- Create: `internal/doctor/doctor.go`, `internal/doctor/doctor_test.go`, `internal/cli/doctor.go`
+- Create: `internal/doctor/doctor.go`, `internal/doctor/doctor_test.go`, `internal/cli/doctor.go`, `internal/cli/deps.go`
+- Modify: `internal/cli/root.go` (register `doctor`, introduce injectable deps)
 
 **Interfaces:**
 - Consumes: `config`, `store`, `opencode`, `profile`, `version`.
@@ -1746,9 +1730,22 @@ func Run(ctx context.Context, a opencode.Adapter, paths config.Paths, cfg config
 Checks: `opencode` binary resolvable and version parseable (fail if not); `git` present (warn if missing — Plan 2 needs it); data dirs creatable and DB openable + `Migrate` (fail on error); config file parse (fail); profile discovery + fingerprint (fail on adapter error); skills/agents/MCP counts (warn when zero); sandbox mode summary (ok, informational). `Run` returns the report and a non-nil error only for programming errors; check failures are reported in `Report`.
 
 - [ ] **Step 1: Write failing tests** using the helper adapter and temp `Paths`; assert: all-ok report against the fake; fail entry when `Bin` points at a missing file; DB migration applied; counts match canned data.
-- [ ] **Step 2: Implement `doctor.go` and the CLI command** (`ocbench doctor [--json]`, human output is an aligned table `NAME  STATUS  DETAIL`, exit code `1` when `!Healthy()`, `0` otherwise).
-- [ ] **Step 3: Run tests + manual smoke**: `go run ./cmd/ocbench doctor --json` against the real environment; it must report ok for opencode/git/db/config and non-zero counts. This is the first real-OpenCode execution; if the adapter fails against the real binary, fix the adapter (not the test) and record what was learned.
-- [ ] **Step 4: Commit** `feat: add doctor command`
+- [ ] **Step 2: Introduce injectable CLI dependencies** in `internal/cli/deps.go`:
+
+```go
+type Deps struct {
+	Adapter opencode.Adapter // nil → real adapter built from config
+	Paths   config.Paths     // zero → config.ResolveOS()
+	Config  config.Config    // zero → config.DefaultsConfig()
+}
+
+func NewRootWithDeps(d Deps) *cobra.Command
+```
+
+`NewRoot()` becomes `NewRootWithDeps(Deps{})`. `NewRootWithDeps` resolves zero fields lazily: paths via `config.ResolveOS()`, config via `config.Load(paths)` (returning an error from `RunE` validation), adapter via `opencode.NewReal(opencode.Options{Bin: cfg.OpenCodeBin})`. Every subsequent command (doctor, snapshot, and later run/history/compare/serve) receives `Deps` and never reaches for the environment directly. `execute()` must return an error rather than calling `os.Exit` so command-level tests can assert on it; `Execute()` in `root.go` maps non-nil errors to exit code 1.
+- [ ] **Step 3: Implement `doctor.go` and the CLI command** (`ocbench doctor [--json]`, human output is an aligned table `NAME  STATUS  DETAIL`, exit code `1` when `!Healthy()`, `0` otherwise). `doctor_test.go` covers `doctor.Run`; `doctor.go` in `internal/cli` builds a `doctor.Report` from `Deps` and renders it.
+- [ ] **Step 4: Run tests + manual smoke**: `go run ./cmd/ocbench doctor --json` against the real environment; it must report ok for opencode/git/db/config and non-zero counts. This is the first real-OpenCode execution; if the adapter fails against the real binary, fix the adapter (not the test) and record what was learned.
+- [ ] **Step 5: Commit** `feat: add doctor command`
 
 ---
 
@@ -1792,7 +1789,7 @@ changes vs 4e921fcc
 
 - [ ] **Step 1: Write failing render tests** (golden strings for a fixture profile with two components and one change).
 - [ ] **Step 2: Implement `render.go`; run tests.**
-- [ ] **Step 3: Write the CLI command wired to a `cliDeps` struct** so tests can inject a fake adapter + temp paths (add `NewRootWithDeps(deps Deps) *cobra.Command` in `internal/cli`, where `Deps{Adapter opencode.Adapter; Paths config.Paths; Config config.Config}` is resolved lazily from the environment when zero). Refactor `NewRoot` to build default deps. This is the mechanism every later command uses in tests.
+- [ ] **Step 3: Wire the snapshot command through the `Deps`/`NewRootWithDeps` mechanism introduced in Task 7.** No new injection mechanism: `snapshot.go` reads `d.Adapter`, `d.Paths`, `d.Config` and uses a package-level `newSnapshotCmd(d Deps)` constructor registered by `NewRootWithDeps`.
 - [ ] **Step 4: Command-level tests** with fake adapter + temp paths: two snapshots → one profile row, no changes; mutate a fake skill content between runs → second snapshot reports exactly that one change and creates a second profile; `--json` shape parses.
 - [ ] **Step 5: Real smoke (manual, by the implementer on the dev machine):**
 
