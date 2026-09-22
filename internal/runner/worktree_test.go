@@ -16,7 +16,7 @@ import (
 func materializeWorktree(t *testing.T) (Baseline, string) {
 	t.Helper()
 	ctx := context.Background()
-	b, err := MaterializeFixture(ctx, t.TempDir(), testFixture(), "worktree-fixture")
+	b, err := MaterializeFixture(ctx, t.TempDir(), testFixture(), testFixtureHash)
 	if err != nil {
 		t.Fatalf("MaterializeFixture: %v", err)
 	}

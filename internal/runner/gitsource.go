@@ -48,11 +48,16 @@ var commitIdentity = []string{
 	"GIT_COMMITTER_DATE=2000-01-01T00:00:00Z",
 }
 
-// deterministicGitFlags disables signing and CRLF rewriting for the commands
-// that create the baseline commit.
-var deterministicGitFlags = []string{
-	"-c", "commit.gpgsign=false",
-	"-c", "core.autocrlf=false",
+// baselineGitConfig returns the -c flags shared by every command that creates
+// the baseline repo: signing and CRLF rewriting are disabled, and hooks are
+// pointed at a path that never exists so a global or system core.hooksPath
+// cannot alter the commit.
+func baselineGitConfig(repoDir string) []string {
+	return []string{
+		"-c", "commit.gpgsign=false",
+		"-c", "core.autocrlf=false",
+		"-c", "core.hooksPath=" + filepath.Join(repoDir, ".git", "no-hooks"),
+	}
 }
 
 // MaterializeFixture writes an embedded fixture into the cache as a real git
@@ -67,8 +72,8 @@ func MaterializeFixture(ctx context.Context, cacheDir string, fixture fs.FS, fix
 	if cacheDir == "" {
 		return Baseline{}, errors.New("materialize fixture: empty cache dir")
 	}
-	if fixtureHash == "" || strings.ContainsAny(fixtureHash, `/\`) {
-		return Baseline{}, fmt.Errorf("materialize fixture: invalid fixture hash %q", fixtureHash)
+	if !isLowerHex64(fixtureHash) {
+		return Baseline{}, fmt.Errorf("materialize fixture: invalid fixture hash %q (want 64 lowercase hex characters)", fixtureHash)
 	}
 
 	repoDir := filepath.Join(cacheDir, "fixtures", fixtureHash)
@@ -97,16 +102,19 @@ func MaterializeFixture(ctx context.Context, cacheDir string, fixture fs.FS, fix
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		return Baseline{}, fmt.Errorf("materialize fixture %s: %w", fixtureHash, err)
 	}
-	if _, err := runGit(ctx, repoDir, nil, "init", "-q", "-b", "main"); err != nil {
+	gitConfig := baselineGitConfig(repoDir)
+	initArgs := append(append([]string{}, gitConfig...), "init", "-q", "-b", "main", "--object-format=sha1")
+	if _, err := runGit(ctx, repoDir, nil, initArgs...); err != nil {
 		return Baseline{}, fmt.Errorf("materialize fixture %s: %w", fixtureHash, err)
 	}
 	if err := writeFixture(fixture, repoDir); err != nil {
 		return Baseline{}, fmt.Errorf("materialize fixture %s: write fixture: %w", fixtureHash, err)
 	}
-	if _, err := runGit(ctx, repoDir, nil, append(append([]string{}, deterministicGitFlags...), "add", "-A", "--")...); err != nil {
+	addArgs := append(append([]string{}, gitConfig...), "add", "-A", "--")
+	if _, err := runGit(ctx, repoDir, nil, addArgs...); err != nil {
 		return Baseline{}, fmt.Errorf("materialize fixture %s: %w", fixtureHash, err)
 	}
-	commitArgs := append(append([]string{}, deterministicGitFlags...), "commit", "-q", "-m", fixtureCommitMessage)
+	commitArgs := append(append([]string{}, gitConfig...), "commit", "-q", "-m", fixtureCommitMessage)
 	if _, err := runGit(ctx, repoDir, gitEnv(commitIdentity...), commitArgs...); err != nil {
 		return Baseline{}, fmt.Errorf("materialize fixture %s: %w", fixtureHash, err)
 	}
@@ -331,6 +339,21 @@ func isHexSHA(s string) bool {
 		switch {
 		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
 		default:
+			return false
+		}
+	}
+	return true
+}
+
+// isLowerHex64 reports whether s is exactly 64 lowercase hex characters, the
+// only safe shape for a fixtureHash: it is used as a single path element under
+// the cache, and os.RemoveAll is called on its repo directory.
+func isLowerHex64(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
 			return false
 		}
 	}

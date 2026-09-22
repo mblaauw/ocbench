@@ -32,6 +32,9 @@ func testGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// testFixtureHash is a valid content hash: exactly 64 lowercase hex chars.
+const testFixtureHash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
 // testFixture is a small nested fixture tree built in-test.
 func testFixture() fstest.MapFS {
 	return fstest.MapFS{
@@ -43,7 +46,7 @@ func testFixture() fstest.MapFS {
 
 func TestMaterializeFixtureDeterministicAcrossRoots(t *testing.T) {
 	ctx := context.Background()
-	const hash = "fixture-abc123"
+	const hash = testFixtureHash
 	rootA, rootB := t.TempDir(), t.TempDir()
 
 	a, err := MaterializeFixture(ctx, rootA, testFixture(), hash)
@@ -63,6 +66,9 @@ func TestMaterializeFixtureDeterministicAcrossRoots(t *testing.T) {
 	}
 	if !isHexSHA(a.SHA) {
 		t.Errorf("SHA %q is not a hex commit id", a.SHA)
+	}
+	if got := testGit(t, a.RepoDir, "rev-parse", "--show-object-format"); got != "sha1" {
+		t.Errorf("baseline object format = %q, want sha1 (host object format must not leak in)", got)
 	}
 
 	// Determinism proof: both SHAs and the fixed commit metadata.
@@ -84,15 +90,49 @@ func TestMaterializeFixtureDeterministicAcrossRoots(t *testing.T) {
 	}
 }
 
+func TestMaterializeFixtureRejectsInvalidHash(t *testing.T) {
+	ctx := context.Background()
+	invalid := []string{
+		".",
+		"..",
+		"abc",
+		"",
+		"..%2f..",
+		"0123456789abcdef0123456789abcdef/0123456789abcdef0123456789abcdef",
+		strings.ToUpper(testFixtureHash),
+	}
+	for _, hash := range invalid {
+		cache := t.TempDir()
+		if _, err := MaterializeFixture(ctx, cache, testFixture(), hash); err == nil {
+			t.Errorf("MaterializeFixture accepted invalid hash %q", hash)
+			continue
+		}
+		if entries, err := os.ReadDir(cache); err != nil {
+			t.Fatalf("read cache %s: %v", cache, err)
+		} else if len(entries) != 0 {
+			t.Errorf("invalid hash %q modified the cache: %v", hash, entries)
+		}
+	}
+
+	// The valid shape must still be accepted and materialise a repo.
+	valid, err := MaterializeFixture(ctx, t.TempDir(), testFixture(), testFixtureHash)
+	if err != nil {
+		t.Fatalf("MaterializeFixture(valid hash): %v", err)
+	}
+	if !isHexSHA(valid.SHA) {
+		t.Errorf("valid hash produced non-hex SHA %q", valid.SHA)
+	}
+}
+
 func TestMaterializeFixtureReusesExistingRepo(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 
-	first, err := MaterializeFixture(ctx, root, testFixture(), "reuse-fixture")
+	first, err := MaterializeFixture(ctx, root, testFixture(), testFixtureHash)
 	if err != nil {
 		t.Fatalf("first MaterializeFixture: %v", err)
 	}
-	second, err := MaterializeFixture(ctx, root, testFixture(), "reuse-fixture")
+	second, err := MaterializeFixture(ctx, root, testFixture(), testFixtureHash)
 	if err != nil {
 		t.Fatalf("second MaterializeFixture: %v", err)
 	}
@@ -115,7 +155,7 @@ func TestMaterializeFixtureConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			results[i], errs[i] = MaterializeFixture(context.Background(), root, testFixture(), "concurrent-fixture")
+			results[i], errs[i] = MaterializeFixture(context.Background(), root, testFixture(), testFixtureHash)
 		}(i)
 	}
 	wg.Wait()
