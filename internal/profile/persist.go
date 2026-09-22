@@ -85,10 +85,13 @@ func Latest(ctx context.Context, st *store.Store) (*Profile, error) {
 	if err != nil {
 		return nil, err
 	}
-	return profileFromRows(row, comps)
+	return FromRows(row, comps)
 }
 
-func profileFromRows(row *store.ProfileRow, comps []store.ComponentRow) (*Profile, error) {
+// FromRows rebuilds a Profile from persisted rows for comparison and display.
+// Snapshot is decoded from the stored canonical JSON; Captures are empty
+// because captures are content-addressed files, not database rows.
+func FromRows(row *store.ProfileRow, comps []store.ComponentRow) (*Profile, error) {
 	var snapshot map[string]any
 	if err := json.Unmarshal([]byte(row.CanonicalJSON), &snapshot); err != nil {
 		return nil, fmt.Errorf("decode profile %s: %w", row.ID, err)

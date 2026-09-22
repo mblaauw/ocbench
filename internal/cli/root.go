@@ -39,5 +39,6 @@ func NewRootWithDeps(d Deps) *cobra.Command {
 	}
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newDoctorCmd(d))
+	root.AddCommand(newSnapshotCmd(d))
 	return root
 }

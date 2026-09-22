@@ -122,6 +122,30 @@ func (s *Store) LatestProfile(ctx context.Context) (*ProfileRow, []ComponentRow,
 	return row, comps, nil
 }
 
+// PreviousProfile returns the most recently created profile whose hash is not
+// excludeHash, breaking ties by id. It is how a repeat snapshot finds the last
+// genuinely different profile to diff against. It returns a wrapped
+// sql.ErrNoRows when no other profile exists.
+func (s *Store) PreviousProfile(ctx context.Context, excludeHash string) (*ProfileRow, []ComponentRow, error) {
+	row := &ProfileRow{}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, profile_hash, opencode_version, ocbench_version, canonical_json, created_at
+		FROM profiles WHERE profile_hash != ?
+		ORDER BY created_at DESC, id DESC LIMIT 1`, excludeHash).
+		Scan(&row.ID, &row.ProfileHash, &row.OpenCodeVersion, &row.OCBenchVersion, &row.CanonicalJSON, &row.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, fmt.Errorf("previous profile: %w", sql.ErrNoRows)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("previous profile: %w", err)
+	}
+	comps, err := s.componentsFor(ctx, row.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return row, comps, nil
+}
+
 // InsertProfileChanges records the differences from fromID to toID in one
 // transaction.
 func (s *Store) InsertProfileChanges(ctx context.Context, fromID, toID string, changes []ChangeRow) error {

@@ -132,6 +132,57 @@ func TestLatestProfileOrdering(t *testing.T) {
 	}
 }
 
+func TestPreviousProfileExcludesHash(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	older, comps := sampleProfile("a", "hash-a")
+	older.CreatedAt = "2026-01-01T00:00:00Z"
+	if err := st.InsertProfile(ctx, older, comps); err != nil {
+		t.Fatal(err)
+	}
+	newer, comps := sampleProfile("b", "hash-b")
+	newer.CreatedAt = "2026-02-01T00:00:00Z"
+	if err := st.InsertProfile(ctx, newer, comps); err != nil {
+		t.Fatal(err)
+	}
+
+	// Excluding the newest returns the older profile and its components.
+	got, gotComps, err := st.PreviousProfile(ctx, "hash-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "a" {
+		t.Fatalf("previous of hash-b = %s, want a", got.ID)
+	}
+	if len(gotComps) != 2 {
+		t.Fatalf("components = %d, want 2", len(gotComps))
+	}
+
+	// Excluding the older returns the newest.
+	got, _, err = st.PreviousProfile(ctx, "hash-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "b" {
+		t.Fatalf("previous of hash-a = %s, want b", got.ID)
+	}
+
+	// A store holding only the excluded profile has no previous.
+	single := profileStore(t)
+	only, onlyComps := sampleProfile("only", "hash-only")
+	if err := single.InsertProfile(ctx, only, onlyComps); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := single.PreviousProfile(ctx, "hash-only"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("previous err = %v, want sql.ErrNoRows", err)
+	}
+
+	// An empty store has no previous.
+	if _, _, err := profileStore(t).PreviousProfile(ctx, "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("empty previous err = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestProfileComponentsCascadeOnDelete(t *testing.T) {
 	st := profileStore(t)
 	ctx := context.Background()
