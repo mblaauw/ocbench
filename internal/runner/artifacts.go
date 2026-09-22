@@ -231,8 +231,7 @@ func captureUntracked(ctx context.Context, runDir, worktree string) ([]string, e
 	}
 	var captured []string
 	for _, rel := range splitNul(out) {
-		if rel == "" || rel == ".." || filepath.IsAbs(rel) ||
-			strings.HasPrefix(rel, "../") || strings.Contains(rel, "/../") {
+		if !safeUntrackedRel(rel) {
 			continue
 		}
 		src := filepath.Join(worktree, filepath.FromSlash(rel))
@@ -255,6 +254,14 @@ func captureUntracked(ctx context.Context, runDir, worktree string) ([]string, e
 	}
 	sort.Strings(captured)
 	return captured, nil
+}
+
+// safeUntrackedRel reports whether a git-reported untracked path is safe to
+// join under the artifacts directory: it must be non-empty, relative, and free
+// of ".." segments that would escape the destination.
+func safeUntrackedRel(rel string) bool {
+	return rel != "" && rel != ".." && !filepath.IsAbs(rel) &&
+		!strings.HasPrefix(rel, "../") && !strings.Contains(rel, "/../")
 }
 
 // validationRelPath is the artifact-relative log path of a validator.
@@ -331,11 +338,13 @@ func changeCounts(ctx context.Context, worktree, baselineSHA string) (created, d
 }
 
 // diffLineCounts counts added and removed lines in a unified diff, excluding
-// the +++/--- file headers.
+// only the "+++ "/"--- " file header lines. A genuine content line beginning
+// "+++" or "---" is prefixed by git with another sign ("++++ ..."/"---- ..."),
+// so it must still count.
 func diffLineCounts(diff []byte) (added, removed int) {
 	for _, line := range bytes.Split(diff, []byte{'\n'}) {
 		switch {
-		case bytes.HasPrefix(line, []byte("+++")), bytes.HasPrefix(line, []byte("---")):
+		case bytes.HasPrefix(line, []byte("+++ ")), bytes.HasPrefix(line, []byte("--- ")):
 		case bytes.HasPrefix(line, []byte("+")):
 			added++
 		case bytes.HasPrefix(line, []byte("-")):
