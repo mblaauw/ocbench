@@ -47,6 +47,16 @@ func (f *snapshotFakeAdapter) MCPStatus(context.Context, string) ([]opencode.MCP
 	return nil, nil
 }
 
+// Start and Export satisfy the opencode.Adapter interface; snapshot tests never
+// stream a run or export a session.
+func (f *snapshotFakeAdapter) Start(context.Context, opencode.RunRequest) (*opencode.Session, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (f *snapshotFakeAdapter) Export(context.Context, string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
 func newSnapshotFake(t *testing.T) *snapshotFakeAdapter {
 	t.Helper()
 	skillDir := t.TempDir()

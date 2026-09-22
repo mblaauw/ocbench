@@ -10,14 +10,34 @@ import (
 	"time"
 )
 
-// Adapter is the read-only observation surface over the OpenCode CLI. It is an
-// interface so tests and CI never touch inference.
+// Adapter is the observation surface over the OpenCode CLI. It is an interface
+// so tests and CI never touch inference.
 type Adapter interface {
 	Version(ctx context.Context) (string, error)
 	ResolvedConfig(ctx context.Context, dir string) ([]byte, error)
 	Skills(ctx context.Context, dir string) ([]SkillInfo, error)
 	Agent(ctx context.Context, dir, name string) (AgentInfo, error)
 	MCPStatus(ctx context.Context, dir string) ([]MCPStatus, error)
+
+	// Start streams one `opencode run` invocation as a Session.
+	Start(ctx context.Context, req RunRequest) (*Session, error)
+	// Export returns the raw `opencode export <sessionID>` JSON document.
+	Export(ctx context.Context, sessionID string) ([]byte, error)
+}
+
+// RunRequest describes one `opencode run` invocation. The zero value runs the
+// default agent in Dir with the default model. Timeout bounds the whole
+// session; when zero the adapter's configured timeout applies.
+type RunRequest struct {
+	Dir     string
+	Prompt  string
+	Agent   string
+	Model   string
+	Variant string
+	Auto    bool
+	Pure    bool
+	Env     []string // nil means the adapter's configured environment
+	Timeout time.Duration
 }
 
 // SkillInfo is one entry of `opencode debug skill`.

@@ -36,6 +36,16 @@ func (f *cliFakeAdapter) MCPStatus(context.Context, string) ([]opencode.MCPStatu
 	return []opencode.MCPStatus{{Name: "gitlab", Enabled: true}}, nil
 }
 
+// Start and Export satisfy the opencode.Adapter interface; CLI tests never
+// stream a run or export a session.
+func (f *cliFakeAdapter) Start(context.Context, opencode.RunRequest) (*opencode.Session, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (f *cliFakeAdapter) Export(context.Context, string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
 func cliTestExec(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "opencode")

@@ -49,6 +49,16 @@ func (f *fakeAdapter) MCPStatus(context.Context, string) ([]opencode.MCPStatus, 
 	return nil, nil
 }
 
+// Start and Export satisfy the opencode.Adapter interface; profile discovery
+// never streams a run or exports a session.
+func (f *fakeAdapter) Start(context.Context, opencode.RunRequest) (*opencode.Session, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (f *fakeAdapter) Export(context.Context, string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
 func newFakeAdapter() *fakeAdapter {
 	return &fakeAdapter{
 		version: "1.18.32",

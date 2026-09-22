@@ -64,6 +64,16 @@ func (f *fakeAdapter) MCPStatus(context.Context, string) ([]opencode.MCPStatus, 
 	return f.mcp, nil
 }
 
+// Start and Export satisfy the opencode.Adapter interface; doctor tests never
+// stream a run or export a session.
+func (f *fakeAdapter) Start(context.Context, opencode.RunRequest) (*opencode.Session, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (f *fakeAdapter) Export(context.Context, string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
 // newFakeAdapter returns a fake that describes a healthy environment: two
 // agents, two skills and one enabled MCP server.
 func newFakeAdapter() *fakeAdapter {

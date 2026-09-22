@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -43,6 +44,110 @@ func NewReal(opts Options) *Real {
 // is exported for testing and doctor diagnostics.
 func (r *Real) Run(ctx context.Context, args ...string) (stdout, stderr []byte, err error) {
 	return r.run(ctx, "", args...)
+}
+
+// Start begins one streaming `opencode run` invocation. The child's stdout and
+// stderr are redirected to temp files (never pipes; Bun truncates piped output
+// at 64 KiB) and a tailer goroutine emits stdout JSONL lines on the returned
+// session. The caller must consume Events and call Wait exactly once.
+func (r *Real) Start(ctx context.Context, req RunRequest) (*Session, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	timeout := req.Timeout
+	if timeout <= 0 {
+		timeout = r.opts.Timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+
+	argv := append([]string{}, r.opts.TestPrefix...)
+	argv = append(argv, "run", "--format", "json", "--dir", req.Dir)
+	if req.Agent != "" {
+		argv = append(argv, "--agent", req.Agent)
+	}
+	if req.Model != "" {
+		argv = append(argv, "--model", req.Model)
+	}
+	if req.Variant != "" {
+		argv = append(argv, "--variant", req.Variant)
+	}
+	if req.Auto {
+		argv = append(argv, "--auto")
+	}
+	if req.Pure {
+		argv = append(argv, "--pure")
+	}
+	// The prompt goes last, after "--", so prompts starting with "-" are safe.
+	argv = append(argv, "--", req.Prompt)
+
+	tmpDir, err := os.MkdirTemp("", "ocbench-run-*")
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("opencode run: create temp dir: %w", err)
+	}
+	outPath := filepath.Join(tmpDir, "stdout.jsonl")
+	errPath := filepath.Join(tmpDir, "stderr.log")
+	outFile, err := os.Create(outPath)
+	if err != nil {
+		cancel()
+		os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("opencode run: create stdout capture: %w", err)
+	}
+	errFile, err := os.Create(errPath)
+	if err != nil {
+		cancel()
+		outFile.Close()
+		os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("opencode run: create stderr capture: %w", err)
+	}
+
+	cmd := exec.Command(r.opts.Bin, argv...)
+	cmd.Dir = req.Dir
+	if req.Env != nil {
+		cmd.Env = req.Env
+	} else {
+		cmd.Env = r.opts.Env
+	}
+	cmd.Stdout = outFile
+	cmd.Stderr = errFile
+	configureProcessGroup(cmd)
+	// WaitDelay mirrors the validator engine's process hygiene; with regular
+	// files it is a backstop for inherited output descriptors.
+	cmd.WaitDelay = 2 * time.Second
+
+	s := &Session{
+		cmd:      cmd,
+		ctx:      ctx,
+		cancel:   cancel,
+		tmpDir:   tmpDir,
+		outPath:  outPath,
+		errPath:  errPath,
+		outFile:  outFile,
+		errFile:  errFile,
+		events:   make(chan []byte, eventBuffer),
+		procDone: make(chan struct{}),
+		tailDone: make(chan struct{}),
+	}
+
+	if err := cmd.Start(); err != nil {
+		cancel()
+		outFile.Close()
+		errFile.Close()
+		os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("opencode %s: %w", strings.Join(argv, " "), err)
+	}
+	go s.reap()
+	go s.tail()
+	return s, nil
+}
+
+// Export returns the raw JSON printed by `opencode export <sessionID>`.
+func (r *Real) Export(ctx context.Context, sessionID string) ([]byte, error) {
+	stdout, _, err := r.run(ctx, "", "export", sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return stdout, nil
 }
 
 // run is Run with an optional working directory.
