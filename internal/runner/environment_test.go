@@ -185,6 +185,54 @@ func TestBuildEnvSafeOnEmptyBaseAndNilPassEnv(t *testing.T) {
 	}
 }
 
+func TestApplyExtraEnvOverridesSameKey(t *testing.T) {
+	env := []string{"HOME=/home/tester", "OPENCODE_CONFIG=/old/config.json"}
+
+	got := ApplyExtraEnv(env, []string{"OPENCODE_CONFIG=/new/config.json"})
+	m := envMap(t, got)
+
+	if m["OPENCODE_CONFIG"] != "/new/config.json" {
+		t.Errorf("OPENCODE_CONFIG = %q, want /new/config.json (env=%v)", m["OPENCODE_CONFIG"], got)
+	}
+	if m["HOME"] != "/home/tester" {
+		t.Errorf("HOME = %q, want /home/tester (env=%v)", m["HOME"], got)
+	}
+	if len(m) != len(env) {
+		t.Errorf("key count = %d, want %d: %v", len(m), len(env), got)
+	}
+}
+
+func TestApplyExtraEnvAppendsNewKeys(t *testing.T) {
+	env := []string{"HOME=/home/tester"}
+
+	got := ApplyExtraEnv(env, []string{"OPENCODE_CONFIG_DIR=/cfg"})
+	m := envMap(t, got)
+
+	if m["HOME"] != "/home/tester" {
+		t.Errorf("HOME = %q, want /home/tester (env=%v)", m["HOME"], got)
+	}
+	if m["OPENCODE_CONFIG_DIR"] != "/cfg" {
+		t.Errorf("OPENCODE_CONFIG_DIR = %q, want /cfg (env=%v)", m["OPENCODE_CONFIG_DIR"], got)
+	}
+}
+
+func TestApplyExtraEnvKeepsOutputSorted(t *testing.T) {
+	got := ApplyExtraEnv([]string{"Z=1", "M=2"}, []string{"A=3"})
+
+	if !sort.StringsAreSorted(got) {
+		t.Errorf("ApplyExtraEnv output not sorted: %v", got)
+	}
+}
+
+func TestApplyExtraEnvNilReturnsInputUnchanged(t *testing.T) {
+	env := []string{"B=2", "A=1"}
+
+	got := ApplyExtraEnv(env, nil)
+	if !reflect.DeepEqual(got, env) {
+		t.Errorf("ApplyExtraEnv(env, nil) = %v, want %v", got, env)
+	}
+}
+
 func TestEnvNamesSortedAndValueFree(t *testing.T) {
 	base := []string{
 		"PATH=/usr/bin:/bin",

@@ -78,3 +78,39 @@ func EnvNames(env []string) []string {
 	sort.Strings(names)
 	return dedupeSorted(names)
 }
+
+// ApplyExtraEnv overlays extra KEY=VALUE entries onto env, last-write-wins by
+// key, and returns the result sorted. It is how a config overlay survives the
+// sandbox allowlist (which drops OPENCODE_*): the overlay entries are applied
+// after BuildEnv. A nil or empty extra returns env unchanged.
+func ApplyExtraEnv(env, extra []string) []string {
+	if len(extra) == 0 {
+		return env
+	}
+
+	overlaid := make(map[string]string, len(extra))
+	for _, entry := range extra {
+		if entry == "" {
+			continue
+		}
+		name, _, _ := strings.Cut(entry, "=")
+		overlaid[name] = entry
+	}
+
+	out := make([]string, 0, len(env)+len(overlaid))
+	for _, entry := range env {
+		if entry == "" {
+			continue
+		}
+		name, _, _ := strings.Cut(entry, "=")
+		if _, ok := overlaid[name]; ok {
+			continue // the extra entry replaces it
+		}
+		out = append(out, entry)
+	}
+	for _, entry := range overlaid {
+		out = append(out, entry)
+	}
+	sort.Strings(out)
+	return dedupeSorted(out)
+}

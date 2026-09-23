@@ -44,6 +44,11 @@ type Request struct {
 	// MCPTools lists configured MCP server names used to classify
 	// `<server>_<tool>` tool calls in the metrics.
 	MCPTools []string
+	// ExtraEnv is overlaid onto the sandboxed child environment after BuildEnv,
+	// last-write-wins by key. It is how an experiment arm's config overlay
+	// (OPENCODE_CONFIG / OPENCODE_CONFIG_DIR) reaches both the child process and
+	// the validators.
+	ExtraEnv []string
 }
 
 // Result is the outcome of one Run.
@@ -105,6 +110,7 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		return Result{}, err
 	}
 	env := BuildEnv(os.Environ(), req.EnvPolicy)
+	env = ApplyExtraEnv(env, req.ExtraEnv)
 	timeout := req.Task.EffectiveTimeout(req.Suite)
 
 	// Cleanup must still release the worktree after a cancelled run, so it uses

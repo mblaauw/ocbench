@@ -570,6 +570,34 @@ func TestRunNonZeroExitBeatsValidatorFailure(t *testing.T) {
 	}
 }
 
+func TestRunExtraEnvReachesChildAndValidators(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	overlay := "OPENCODE_CONFIG=/tmp/ocbench-overlay.json"
+	// The validator only passes when the overlay variable survived the sandbox
+	// and reached the validator process, proving the same env feeds both.
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "overlay env", Command: []string{"sh", "-c", `test "$OPENCODE_CONFIG" = "/tmp/ocbench-overlay.json"`}},
+	}
+	req := runnerRequest(f)
+	req.ExtraEnv = []string{overlay}
+	a := newScriptedAdapter(t)
+
+	res, err := Run(context.Background(), a, f.st, req)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != "passed" {
+		t.Fatalf("status = %q, want passed (error=%q)", res.Status, res.Error)
+	}
+	if len(res.Validations) != 1 || res.Validations[0].Status != "passed" {
+		t.Fatalf("validations = %+v, want one passed (overlay env must reach validators)", res.Validations)
+	}
+	if got := a.firstStart(t).Env; !contains(got, overlay) {
+		t.Errorf("adapter Start env missing %q: %v", overlay, got)
+	}
+}
+
 func TestRunCompletionBeforeDeadlinePasses(t *testing.T) {
 	useMode(t, "near")
 	f := setupRunner(t)
