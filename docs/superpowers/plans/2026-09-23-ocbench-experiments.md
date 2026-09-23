@@ -140,11 +140,11 @@ type Request struct {
     EnvPolicy runner.EnvPolicy; Repeat int; KeepWorktree bool
 }
 type Outcome struct { ExperimentID string; RunIDs []string }
-func ParseArm(spec string) (ArmSpec, error)          // "label=path"
+func ParseArm(spec string) (ArmSpec, error)          // "label=path"; "label=" or bare "label" means no overlay
 func BuildPlan(tasks []*suite.Task, arms []ArmSpec, repeat int) []Step
 func Run(ctx context.Context, st *store.Store, req Request) (Outcome, error)
 ```
-- `ParseArm` rejects an empty label, an empty path, and a duplicate label is rejected by the caller.
+- `ParseArm` rejects an empty label; `label=` and a bare `label` both mean "no overlay" (`OverlayKindNone`), because comparing the current config against a modified one is the primary use case and spec §12.1 defines a `none` kind. Duplicate labels are rejected by the caller. `Run` requires at least two arms (spec §12.1) and rejects a baseline that names none of them.
 - `BuildPlan` is task-major with arms alternating inside each repeat: `t1/A/0, t1/B/0, t1/A/1, t1/B/1, t2/A/0, …`.
 - `Run` per arm: `profile.Discover` + `Fingerprint` (with the arm's overlay env) + `Persist`, then insert the arm row with `profile_id`, `profile_hash`, `overlay_kind`, `overlay_path`, `overlay_sha256`; then execute the plan with `runner.Request{ExperimentID, ArmID, RepeatIndex, ExtraEnv: arm.Overlay.Env}`. Each arm uses an adapter built from `opencode.Options{Env: append(os.Environ(), arm.Overlay.Env...)}` so discovery sees the overlay.
 
