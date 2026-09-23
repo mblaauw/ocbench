@@ -452,6 +452,39 @@ func (s *Store) ListRuns(ctx context.Context, limit int, taskID string) ([]RunRo
 	return out, nil
 }
 
+// ListExperiments returns experiments ordered newest first (created_at, then
+// id). A limit <= 0 returns every experiment; a positive limit is applied as
+// SQL LIMIT.
+func (s *Store) ListExperiments(ctx context.Context, limit int) ([]ExperimentRow, error) {
+	query := `
+		SELECT id, name, spec_json, created_at
+		FROM experiments
+		ORDER BY created_at DESC, id DESC`
+	args := []any{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list experiments: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ExperimentRow
+	for rows.Next() {
+		var row ExperimentRow
+		if err := rows.Scan(&row.ID, &row.Name, &row.SpecJSON, &row.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan experiment: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list experiments: %w", err)
+	}
+	return out, nil
+}
+
 // GetRunMetrics returns a run's metrics ordered lexically by name. A run with
 // no metrics yields an empty slice, not an error.
 func (s *Store) GetRunMetrics(ctx context.Context, runID string) ([]MetricRow, error) {

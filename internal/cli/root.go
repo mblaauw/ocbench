@@ -72,7 +72,7 @@ func exitCode(err error) int {
 	if errors.As(err, &usage) {
 		return 2
 	}
-	if errors.Is(err, ErrTaskFailure) {
+	if errors.Is(err, ErrTaskFailure) || errors.Is(err, ErrRegression) {
 		return 3
 	}
 	return 1
@@ -97,6 +97,7 @@ func NewRootWithDeps(d Deps) *cobra.Command {
 	root.AddCommand(newDoctorCmd(d))
 	root.AddCommand(newSnapshotCmd(d))
 	root.AddCommand(newRunCmd(d))
+	root.AddCommand(newExperimentCmd(d))
 	root.AddCommand(newHistoryCmd(d))
 	root.AddCommand(newCompareCmd(d))
 	root.AddCommand(newServeCmd(d))

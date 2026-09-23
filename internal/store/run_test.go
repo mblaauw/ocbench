@@ -879,3 +879,54 @@ func TestRunsForExperiment(t *testing.T) {
 		t.Fatalf("missing runs = %+v, %v, want empty", empty, err)
 	}
 }
+
+func TestListExperimentsOrderingAndLimit(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+
+	rows := []ExperimentRow{
+		{ID: "exp-a", Name: "a", SpecJSON: `{}`, CreatedAt: "2026-03-01T10:00:00Z"},
+		{ID: "exp-b", Name: "b", SpecJSON: `{}`, CreatedAt: "2026-03-02T10:00:00Z"},
+		{ID: "exp-c", Name: "c", SpecJSON: `{}`, CreatedAt: "2026-03-03T10:00:00Z"},
+	}
+	for _, r := range rows {
+		if err := st.InsertExperiment(ctx, r); err != nil {
+			t.Fatalf("InsertExperiment %s: %v", r.ID, err)
+		}
+	}
+
+	all, err := st.ListExperiments(ctx, 0)
+	if err != nil {
+		t.Fatalf("ListExperiments: %v", err)
+	}
+	if len(all) != 3 || all[0].ID != "exp-c" || all[2].ID != "exp-a" {
+		t.Fatalf("ordering = %v, want c,b,a", experimentIDs(all))
+	}
+
+	limited, err := st.ListExperiments(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 2 || limited[0].ID != "exp-c" || limited[1].ID != "exp-b" {
+		t.Fatalf("limit = %v, want c,b", experimentIDs(limited))
+	}
+}
+
+func TestListExperimentsEmpty(t *testing.T) {
+	st := profileStore(t)
+	got, err := st.ListExperiments(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("ListExperiments: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("empty = %v, want no rows", experimentIDs(got))
+	}
+}
+
+func experimentIDs(exps []ExperimentRow) []string {
+	out := make([]string, len(exps))
+	for i, e := range exps {
+		out[i] = e.ID
+	}
+	return out
+}
