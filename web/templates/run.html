@@ -1,0 +1,44 @@
+{{define "content"}}
+<h1>Run {{.Run.ID}}</h1>
+<dl class="meta">
+  <dt>Task</dt><dd>{{.Run.TaskID}}</dd>
+  <dt>Status</dt><dd>{{.Run.Status}}</dd>
+  <dt>Started</dt><dd>{{.Run.StartedAt}}</dd>
+  <dt>Finished</dt><dd>{{.Run.FinishedAt}}</dd>
+  <dt>Duration</dt><dd>{{.Run.DurationMS}} ms</dd>
+  <dt>Suite</dt><dd>{{.Run.SuiteName}} {{.Run.SuiteVersion}}</dd>
+  <dt>Model</dt><dd>{{.Run.Model}}</dd>
+  <dt>Agent</dt><dd>{{.Run.Agent}}</dd>
+  <dt>Profile</dt><dd class="hash">{{.Run.ProfileHash}}</dd>
+</dl>
+
+<h2>Metrics</h2>
+{{if .Metrics}}
+<table class="metrics">
+  <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+  <tbody>{{range .Metrics}}<tr><td>{{.Name}}</td><td>{{.Value}}</td></tr>{{end}}</tbody>
+</table>
+{{else}}
+<p>No metrics recorded.</p>
+{{end}}
+
+<h2>Validations</h2>
+{{if .Validations}}
+<table class="validations">
+  <thead><tr><th>Kind</th><th>Name</th><th>Status</th><th>Duration</th><th>Excerpt</th></tr></thead>
+  <tbody>{{range .Validations}}<tr><td>{{.Kind}}</td><td>{{.Name}}</td><td>{{.Status}}</td><td>{{.DurationMS}} ms</td><td><pre>{{.OutputExcerpt}}</pre></td></tr>{{end}}</tbody>
+</table>
+{{else}}
+<p>No validations recorded.</p>
+{{end}}
+
+<h2>Profile components</h2>
+{{if .Profile}}
+<table class="profile">
+  <thead><tr><th>Component</th><th>Hash</th></tr></thead>
+  <tbody>{{range .Profile}}<tr><td>{{.Kind}}/{{.Name}}</td><td class="hash">{{.Hash}}</td></tr>{{end}}</tbody>
+</table>
+{{else}}
+<p>No profile recorded.</p>
+{{end}}
+{{end}}

@@ -1,0 +1,54 @@
+{{define "content"}}
+<h1>Compare runs</h1>
+<table class="compare">
+  <thead><tr><th>Side</th><th>Run</th><th>Task</th><th>Status</th><th>Profile</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>before</td>
+      <td><a href="/runs/{{.Before.ID}}">{{.Before.ID}}</a></td>
+      <td>{{.Before.TaskID}}</td>
+      <td>{{.Before.Status}}</td>
+      <td class="hash">{{.Before.ProfileHash}}</td>
+    </tr>
+    <tr>
+      <td>after</td>
+      <td><a href="/runs/{{.After.ID}}">{{.After.ID}}</a></td>
+      <td>{{.After.TaskID}}</td>
+      <td>{{.After.Status}}</td>
+      <td class="hash">{{.After.ProfileHash}}</td>
+    </tr>
+  </tbody>
+</table>
+
+{{if .Warning}}<p class="warning">{{.Warning}}</p>{{end}}
+
+<h2>Metrics</h2>
+{{if .Metrics}}
+<table class="metrics">
+  <thead><tr><th>Metric</th><th>Before</th><th>After</th><th>Delta</th><th>Percent</th></tr></thead>
+  <tbody>{{range .Metrics}}<tr><td>{{.Name}}</td><td>{{.Before}}</td><td>{{.After}}</td><td>{{.Delta}}</td><td>{{if .Percent}}{{.Percent}}{{else}}n/a{{end}}</td></tr>{{end}}</tbody>
+</table>
+{{else}}
+<p>No metrics recorded.</p>
+{{end}}
+
+<h2>Validation changes</h2>
+{{if .Validations}}
+<table class="validations">
+  <thead><tr><th>Kind</th><th>Name</th><th>Before</th><th>After</th></tr></thead>
+  <tbody>{{range .Validations}}<tr><td>{{.Kind}}</td><td>{{.Name}}</td><td>{{.Before}}</td><td>{{.After}}</td></tr>{{end}}</tbody>
+</table>
+{{else}}
+<p>No validation changes.</p>
+{{end}}
+
+<h2>Profile changes</h2>
+{{if .ProfileChanges}}
+<table class="profile">
+  <thead><tr><th>Component</th><th>Change</th><th>From</th><th>To</th></tr></thead>
+  <tbody>{{range .ProfileChanges}}<tr><td>{{.Kind}}/{{.Name}}</td><td>{{.Change}}</td><td class="hash">{{.From}}</td><td class="hash">{{.To}}</td></tr>{{end}}</tbody>
+</table>
+{{else}}
+<p>No profile changes.</p>
+{{end}}
+{{end}}

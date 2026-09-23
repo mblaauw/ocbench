@@ -1,0 +1,31 @@
+{{define "content"}}
+<h1>Runs</h1>
+{{if .Runs}}
+<table class="runs">
+  <thead>
+    <tr>
+      <th>Run</th><th>Task</th><th>Status</th><th>Started</th><th>Duration</th>
+      <th>Tokens</th><th>Tools</th><th>Files</th><th>Diff</th><th>Profile</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Runs}}
+    <tr>
+      <td><a href="/runs/{{.ID}}">{{.ID}}</a></td>
+      <td>{{.TaskID}}</td>
+      <td>{{.Status}}</td>
+      <td>{{.StartedAt}}</td>
+      <td>{{.DurationMS}} ms</td>
+      <td>{{.TokensTotal}}</td>
+      <td>{{.ToolCalls}}</td>
+      <td>{{.FilesChanged}}</td>
+      <td>+{{.DiffAdded}} / -{{.DiffRemoved}}</td>
+      <td class="hash">{{.ProfileHash}}</td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{else}}
+<p>No runs recorded.</p>
+{{end}}
+{{end}}
