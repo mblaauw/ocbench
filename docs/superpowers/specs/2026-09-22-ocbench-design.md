@@ -291,6 +291,7 @@ CREATE TABLE tasks (
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
   experiment_id TEXT REFERENCES experiments(id),
+  arm_id TEXT REFERENCES experiment_arms(id),
   repeat_index INTEGER NOT NULL DEFAULT 0,
   profile_id TEXT NOT NULL REFERENCES profiles(id),
   profile_hash TEXT NOT NULL,
@@ -356,7 +357,24 @@ CREATE TABLE experiments (
   spec_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE experiment_arms (
+  id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+  label TEXT NOT NULL,
+  profile_id TEXT REFERENCES profiles(id),
+  profile_hash TEXT NOT NULL,
+  overlay_kind TEXT NOT NULL,          -- file | dir | content | none
+  overlay_path TEXT,                   -- absolute path for file/dir overlays
+  overlay_sha256 TEXT,                 -- hash of the overlay bytes (file/dir tree)
+  created_at TEXT NOT NULL,
+  UNIQUE (experiment_id, label)
+);
 ```
+
+Schema v1 plus the v2 experiment tables. Migrations are append-only: the
+`experiment_arms` table and `runs.arm_id` arrive in `0002_experiments.sql`,
+so v1 databases upgrade in place without rewriting existing rows.
 
 Migrations are embedded `.sql` files applied in order inside a transaction,
 tracked by `schema_migrations`. Every `run` carries UUIDs and canonical hashes
@@ -454,8 +472,10 @@ materialisation and worktree creation, prints the resolved plan (profile hash,
 tasks, validators, env names), and exits without invoking a model.
 
 Exit codes: `0` pipeline completed (regardless of task pass/fail), `1`
-infrastructure error, `2` usage/config error, `3` reserved for
-`--exit-on-task-failure`.
+infrastructure error, `2` usage/config error, `3` the opted-in-failure family:
+`--exit-on-task-failure` (a task validator failed) and
+`--exit-on-regression` (an experiment measured a regression against its
+baseline arm). Both are explicit opt-ins; neither fires by default.
 
 ## 9. Metrics
 
@@ -477,6 +497,12 @@ Raw JSONL events are canonical and retained per run; normalisation is
 re-runnable so a parser fix can reprocess historical runs without schema
 changes.
 
+Metrics are either run-scoped or agent-scoped. Agent-scoped metric names use
+the reserved form `agent.<agent-name>.<metric>` so per-agent roll-ups (tokens,
+cost, tool calls) can be added without a schema change; a plain name is always
+run-scoped. Experiment-level statistics are derived at read time and never
+stored, so a statistics fix re-reads history without a migration.
+
 ## 10. Commands (v0.1)
 
 ```
@@ -488,6 +514,10 @@ ocbench run <suite> [task] [--repeat N] [--dry-run] [--suite-dir P]
                      [--inherit-environment] [--keep-worktree] [--json]
 ocbench history [--task T] [--limit N] [--json]
 ocbench compare <a> <b> [--json]        # ids, hashes, "latest", "previous"
+ocbench experiment run [suite] [task...] --profile A=<path> --profile B=<path>
+                       [--repeat N] [--baseline A] [--exit-on-regression] [--json]
+ocbench experiment list [--json]
+ocbench experiment show <id> [--json|--format jsonl]
 ocbench suite list|export|add
 ocbench serve [--listen 127.0.0.1:8787]
 ```
@@ -510,3 +540,100 @@ states the count and recommends a controlled run; it never claims causation.
   `opencode-go/deepseek-v4.1-flash`, confirming event parsing, profile capture,
   git isolation, validators, SQLite persistence and repeat comparison.
 - Cross-compilation: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64` and `arm64`.
+- Live A/B smoke after experiments exist: two arms over the same task set with
+  `--repeat 3` on the isolated OpenCode data dir, confirming interleaving,
+  per-arm profile hashes, statistics and the versioned JSONL export.
+
+## 12. Experiments
+
+An experiment compares two or more resolved OpenCode profiles over the same
+tasks and repeats. It answers "did this config change help?" without editing
+the live configuration: each arm is defined by an overlay, and each arm's
+resolved profile is fingerprinted and persisted like any other profile.
+
+### 12.1 Arms and overlays
+
+An arm is `--profile <label>=<path>`; at least two are required, and exactly
+one may be named by `--baseline <label>` (default: the first arm). The overlay
+is applied to both profile discovery and the benchmarked child process:
+
+| Overlay | Environment variable | Semantics |
+|---|---|---|
+| file | `OPENCODE_CONFIG` | custom config file, merged above the global config |
+| directory | `OPENCODE_CONFIG_DIR` | agents/commands/modes/plugins directory, merged above `.opencode` |
+| none | — | the unmodified resolved profile |
+
+Config layers merge; only conflicting keys override. `OPENCODE_CONFIG` sits
+below project config in OpenCode's precedence order, so arms rely on fixtures
+being self-contained (they are). Overlay variables are ocbench-controlled:
+they are appended after the sandbox allowlist is applied, because the
+allowlist deliberately drops `OPENCODE_*`. This is the one place a benchmark
+may influence the child environment, and it is opt-in per arm.
+
+Each arm records its resolved `profile_id`/`profile_hash` and the overlay's
+`overlay_sha256`, so a comparison can name exactly which profiles ran.
+
+### 12.2 Execution order
+
+Execution is task-major and interleaved within each repeat:
+
+```
+for task in suite order:
+  for repeat in 0..N-1:
+    for arm in declared order:   # A, B, A, B, ... across repeats
+      runner.Run(experiment_id, arm_id, repeat_index)
+```
+
+Arms alternate inside a repeat so provider drift and time-of-day effects hit
+every arm as evenly as a sequential harness can manage. Every run keeps its
+own artifacts, metrics and validations exactly as a standalone run does.
+
+### 12.3 Statistics
+
+Per arm, per task, from the persisted runs:
+
+- weighted pass rate with a Wilson 95% score interval, where each task's
+  weight defaults to 1;
+- `pass^k` (every repeat passed) alongside `pass@k` (at least one passed);
+- median and interquartile range for `tokens_total`, `cost` and `duration_ms`;
+- median cost and tokens per solved task across the suite;
+- a seeded permutation test comparing arms on the metric of interest.
+
+Statistics are derived at read time. With fewer than three repeats per arm per
+task the report says "insufficient data" and makes no significance claim. When
+more than one benchmark-relevant variable differs between arms (model, agent,
+variant, OpenCode version, suite hash, task version, fixture SHA), the report
+names every difference, refuses to attribute any difference to the config
+overlay, and repeats the spec's standing rule: it never claims causation.
+
+### 12.4 Regression rule
+
+`--exit-on-regression` exits `3` when the seeded permutation test (p < 0.05,
+two-sided) shows the arm is worse than the baseline on either of:
+
+- weighted pass rate (observed difference negative), or
+- efficiency at equal quality: pass rates are statistically
+  indistinguishable and the arm's median cost per solved task is higher by
+  more than 25%.
+
+Everything else exits `0`, including "insufficient data", and the report
+states which rule was evaluated and what it found.
+
+### 12.5 Export
+
+`experiment show <id> --format jsonl` writes one JSON object per run with a
+stable envelope, so later tooling (a hub, a notebook, a public leaderboard)
+can ingest results without re-reading SQLite:
+
+```json
+{"schema_version":1,"experiment":{"id":"…","name":"…"},
+ "arm":{"label":"A","profile_hash":"…","overlay_kind":"file","overlay_sha256":"…"},
+ "run":{"id":"…","task_id":"…","task_version":"…","repeat_index":0,"status":"passed",
+        "suite_name":"core","suite_hash":"…","fixture_sha":"…","model":"…",
+        "opencode_version":"…","ocbench_version":"…"},
+ "metrics":{"tokens_total":123,"cost":0.001,"duration_ms":9000},
+ "validations":[{"seq":1,"kind":"command","name":"unit tests","status":"passed"}]}
+```
+
+`schema_version` is the contract: additive changes keep the version, breaking
+changes bump it.
