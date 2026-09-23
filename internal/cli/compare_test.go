@@ -55,6 +55,57 @@ func TestCompareLatestPrevious(t *testing.T) {
 	}
 }
 
+// TestComparePreviousIsAlwaysBefore asserts that "previous" is the Before side
+// regardless of argument order, so deltas are always latest-minus-previous.
+func TestComparePreviousIsAlwaysBefore(t *testing.T) {
+	d, _ := compareFixture(t)
+	for _, args := range [][]string{
+		{"latest", "previous", "--json"},
+		{"previous", "latest", "--json"},
+	} {
+		out, err := runCompareCmd(t, d, args...)
+		if err != nil {
+			t.Fatalf("compare %v: %v\n%s", args, err, out)
+		}
+		var doc struct {
+			Before struct {
+				RunID string `json:"run_id"`
+			} `json:"before"`
+			After struct {
+				RunID string `json:"run_id"`
+			} `json:"after"`
+		}
+		if err := json.Unmarshal([]byte(out), &doc); err != nil {
+			t.Fatalf("decode compare JSON %v: %v\n%s", args, err, out)
+		}
+		if doc.Before.RunID != "run-before" || doc.After.RunID != "run-after" {
+			t.Fatalf("compare %v = before %q after %q, want run-before/run-after",
+				args, doc.Before.RunID, doc.After.RunID)
+		}
+	}
+}
+
+func TestCompareExplicitDryRunIsUsageError(t *testing.T) {
+	d, st := compareFixture(t)
+	dry := historyBaseRun("run-dry", "2026-01-03T00:00:00Z", cliTaskID, "p1", "hash-1")
+	dry.DryRun = true
+	seedHistoryRun(t, st, dry)
+
+	for _, args := range [][]string{
+		{"run-dry", "previous"},
+		{"previous", "run-dry"},
+		{"run-dry", "run-after"},
+	} {
+		out, err := runCompareCmd(t, d, args...)
+		if err == nil {
+			t.Fatalf("compare %v: expected error\n%s", args, out)
+		}
+		if !isUsageError(err) {
+			t.Fatalf("compare %v error = %v, want UsageError", args, err)
+		}
+	}
+}
+
 func TestCompareFullUUID(t *testing.T) {
 	d, _ := compareFixture(t)
 	out, err := runCompareCmd(t, d, "run-before", "run-after")

@@ -35,12 +35,15 @@ type Comparison struct {
 }
 
 // Compare resolves left and right (a full UUID, "latest" or "previous") and
-// returns the comparison. left maps to Before and right to After. "previous"
-// is resolved relative to the other selector; using it for both selectors is a
-// usage error. Explicit runs that are not mutually compatible (different
-// suite name/version/hash, task id/version or fixture) are also usage errors
-// and are never presented as benchmark deltas. A missing run surfaces the
-// store's wrapped sql.ErrNoRows.
+// returns the comparison. "previous" always selects the Before side and the
+// selector it is relative to selects After, so "latest previous" and
+// "previous latest" resolve to the same ordered pair and deltas are always
+// After-minus-Before. Otherwise left maps to Before and right to After. Using
+// "previous" for both selectors is a usage error. A dry run on either resolved
+// side is rejected as a usage error, as are explicit runs that are not
+// mutually compatible (different suite name/version/hash, task id/version or
+// fixture); such pairs are never presented as benchmark deltas. A missing run
+// surfaces the store's wrapped sql.ErrNoRows.
 func Compare(ctx context.Context, st *store.Store, left, right string) (Comparison, error) {
 	if st == nil {
 		return Comparison{}, errors.New("history: nil store")
@@ -52,6 +55,11 @@ func Compare(ctx context.Context, st *store.Store, left, right string) (Comparis
 	leftRun, rightRun, err := resolvePair(ctx, st, left, right)
 	if err != nil {
 		return Comparison{}, err
+	}
+	// A dry run is never a benchmark result. The latest/previous selectors
+	// already exclude dry runs, but an explicit UUID can still name one.
+	if leftRun.DryRun || rightRun.DryRun {
+		return Comparison{}, fmt.Errorf("%w: dry runs cannot be compared", ErrSelector)
 	}
 	// "previous" is compatible by construction; only explicit/independent
 	// selections need the mutual-compatibility check.
@@ -83,7 +91,9 @@ func Compare(ctx context.Context, st *store.Store, left, right string) (Comparis
 }
 
 // resolvePair resolves both selectors. When one side is "previous", the other
-// side is resolved first and "previous" is resolved relative to it.
+// side is resolved first as the anchor and "previous" is resolved relative to
+// it. "previous" is always returned as the first (Before) run, so the pair is
+// the same regardless of argument order.
 func resolvePair(ctx context.Context, st *store.Store, left, right string) (*store.RunRow, *store.RunRow, error) {
 	switch {
 	case left == SelectorPrevious:
@@ -105,7 +115,7 @@ func resolvePair(ctx context.Context, st *store.Store, left, right string) (*sto
 		if err != nil {
 			return nil, nil, err
 		}
-		return anchor, prev, nil
+		return prev, anchor, nil
 	default:
 		l, err := resolveOne(ctx, st, left)
 		if err != nil {

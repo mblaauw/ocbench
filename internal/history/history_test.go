@@ -213,12 +213,15 @@ func TestCompareLatestPreviousResolvesRelativeAndSkipsDryRuns(t *testing.T) {
 	dry.DryRun = true
 	seedRun(t, st, dry)
 
+	// "previous" is always Before and the run it is relative to is always
+	// After, so the argument order does not change the resolved pair and the
+	// metric deltas are always latest-minus-previous.
 	cmp, err := history.Compare(context.Background(), st, "latest", "previous")
 	if err != nil {
 		t.Fatalf("Compare(latest, previous): %v", err)
 	}
-	if cmp.Before.Run.ID != "run-new" || cmp.After.Run.ID != "run-old" {
-		t.Fatalf("latest/previous = before %q after %q, want run-new/run-old", cmp.Before.Run.ID, cmp.After.Run.ID)
+	if cmp.Before.Run.ID != "run-old" || cmp.After.Run.ID != "run-new" {
+		t.Fatalf("latest/previous = before %q after %q, want run-old/run-new", cmp.Before.Run.ID, cmp.After.Run.ID)
 	}
 
 	cmp, err = history.Compare(context.Background(), st, "previous", "latest")
@@ -227,6 +230,38 @@ func TestCompareLatestPreviousResolvesRelativeAndSkipsDryRuns(t *testing.T) {
 	}
 	if cmp.Before.Run.ID != "run-old" || cmp.After.Run.ID != "run-new" {
 		t.Fatalf("previous/latest = before %q after %q, want run-old/run-new", cmp.Before.Run.ID, cmp.After.Run.ID)
+	}
+}
+
+func TestCompareExplicitDryRunIsUsageError(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-1", components("h-build-1"))
+	seedProfile(t, st, "p2", "hash-2", components("h-build-2"))
+	seedRun(t, st, baseRun("run-before", "2026-01-01T00:00:00Z", "p1", "hash-1"))
+	seedRun(t, st, baseRun("run-after", "2026-01-02T00:00:00Z", "p2", "hash-2"))
+	dry := baseRun("run-dry", "2026-01-03T00:00:00Z", "p1", "hash-1")
+	dry.DryRun = true
+	seedRun(t, st, dry)
+
+	cases := []struct {
+		name        string
+		left, right string
+	}{
+		{"dry explicit with explicit", "run-dry", "run-after"},
+		{"explicit with dry explicit", "run-after", "run-dry"},
+		{"dry explicit with previous", "run-dry", "previous"},
+		{"previous with dry explicit", "previous", "run-dry"},
+		{"dry explicit with latest", "run-dry", "latest"},
+		{"latest with dry explicit", "latest", "run-dry"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := history.Compare(ctx, st, tc.left, tc.right); !errors.Is(err, history.ErrSelector) {
+				t.Fatalf("Compare(%q, %q) err = %v, want ErrSelector", tc.left, tc.right, err)
+			}
+		})
 	}
 }
 
