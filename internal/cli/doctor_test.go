@@ -85,8 +85,10 @@ func TestNewRootWithDepsRegistersCommands(t *testing.T) {
 	for _, c := range root.Commands() {
 		names[c.Name()] = true
 	}
-	if !names["doctor"] || !names["version"] {
-		t.Fatalf("commands = %v, want doctor and version", names)
+	for _, want := range []string{"doctor", "version", "snapshot", "run", "history", "compare"} {
+		if !names[want] {
+			t.Fatalf("commands = %v, want %q registered", names, want)
+		}
 	}
 }
 

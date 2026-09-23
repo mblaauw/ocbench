@@ -97,6 +97,8 @@ func NewRootWithDeps(d Deps) *cobra.Command {
 	root.AddCommand(newDoctorCmd(d))
 	root.AddCommand(newSnapshotCmd(d))
 	root.AddCommand(newRunCmd(d))
+	root.AddCommand(newHistoryCmd(d))
+	root.AddCommand(newCompareCmd(d))
 	return root
 }
 
