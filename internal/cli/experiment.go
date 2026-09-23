@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -45,6 +48,8 @@ func newExperimentCmd(d Deps) *cobra.Command {
 		Short: "Run A/B config-overlay experiments",
 	}
 	cmd.AddCommand(newExperimentRunCmd(d))
+	cmd.AddCommand(newExperimentListCmd(d))
+	cmd.AddCommand(newExperimentShowCmd(d))
 	return cmd
 }
 
@@ -90,6 +95,341 @@ func newExperimentRunCmd(d Deps) *cobra.Command {
 	f.BoolVar(&opts.inheritEnv, "inherit-environment", false, "inherit the full process environment (deny-list mode)")
 	f.BoolVar(&opts.keepWorktree, "keep-worktree", false, "keep the disposable worktree after each run")
 	return cmd
+}
+
+// renderExperimentSummary dispatches the shared experiment summary renderer:
+// the JSON report with --json, the human report otherwise. Both `experiment
+// run` and `experiment show` render through it so their output stays identical.
+func renderExperimentSummary(w io.Writer, s experiment.ExperimentSummary, asJSON bool) error {
+	if asJSON {
+		return renderExperimentJSON(w, s)
+	}
+	return renderExperimentHuman(w, s)
+}
+
+func newExperimentListCmd(d Deps) *cobra.Command {
+	var (
+		limit  = defaultHistoryLimit
+		asJSON bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List persisted experiments, newest first",
+		Long: "List persisted experiments newest first with their arm counts. Bound the " +
+			"result with --limit. This command is read-only and never invokes OpenCode.",
+		Args: usageArgs(cobra.NoArgs),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if limit < 1 {
+				return &UsageError{Err: fmt.Errorf("--limit must be at least 1, got %d", limit)}
+			}
+			resolved, err := d.resolve()
+			if err != nil {
+				return err
+			}
+			st, err := openHistoryStore(cmd.Context(), resolved)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			rows, err := st.ListExperiments(cmd.Context(), limit)
+			if err != nil {
+				return err
+			}
+			items := make([]experimentListItem, 0, len(rows))
+			for _, row := range rows {
+				arms, err := st.ListExperimentArms(cmd.Context(), row.ID)
+				if err != nil {
+					return err
+				}
+				items = append(items, experimentListItem{
+					ID:        row.ID,
+					CreatedAt: row.CreatedAt,
+					Name:      row.Name,
+					Arms:      len(arms),
+				})
+			}
+			return renderExperimentList(cmd.OutOrStdout(), items, asJSON)
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", defaultHistoryLimit, "maximum number of experiments to show")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON")
+	return cmd
+}
+
+// experimentListItem is one row of `experiment list`: the experiment metadata
+// plus its arm count.
+type experimentListItem struct {
+	ID        string
+	CreatedAt string
+	Name      string
+	Arms      int
+}
+
+// renderExperimentList writes the human or JSON list report.
+func renderExperimentList(w io.Writer, items []experimentListItem, asJSON bool) error {
+	if asJSON {
+		return renderExperimentListJSON(w, items)
+	}
+	return renderExperimentListHuman(w, items)
+}
+
+// renderExperimentListHuman prints the aligned ID/CREATED/NAME/ARMS table.
+func renderExperimentListHuman(w io.Writer, items []experimentListItem) error {
+	if len(items) == 0 {
+		_, err := fmt.Fprintln(w, "no experiments")
+		return err
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "ID\tCREATED\tNAME\tARMS"); err != nil {
+		return err
+	}
+	for _, it := range items {
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%d\n", it.ID, it.CreatedAt, it.Name, it.Arms); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
+}
+
+// experimentListJSON is the stable machine-readable list report. Experiments is
+// always emitted, as `[]` when empty, never null.
+type experimentListJSON struct {
+	Experiments []experimentListItemJSON `json:"experiments"`
+}
+
+// experimentListItemJSON mirrors the human table's columns.
+type experimentListItemJSON struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"created_at"`
+	Name      string `json:"name"`
+	Arms      int    `json:"arms"`
+}
+
+// renderExperimentListJSON prints the stable list report.
+func renderExperimentListJSON(w io.Writer, items []experimentListItem) error {
+	out := experimentListJSON{Experiments: make([]experimentListItemJSON, 0, len(items))}
+	for _, it := range items {
+		out.Experiments = append(out.Experiments, experimentListItemJSON{
+			ID:        it.ID,
+			CreatedAt: it.CreatedAt,
+			Name:      it.Name,
+			Arms:      it.Arms,
+		})
+	}
+	b, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, string(b))
+	return err
+}
+
+func newExperimentShowCmd(d Deps) *cobra.Command {
+	var (
+		asJSON bool
+		format string
+	)
+	cmd := &cobra.Command{
+		Use:   "show <id>",
+		Short: "Show one experiment's summary or export it as JSONL",
+		Long: "Show one persisted experiment's per-arm summary, or export one JSON " +
+			"object per run with --format jsonl (spec section 12.5). This command is " +
+			"read-only and never invokes OpenCode.",
+		Args: usageArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if format != "" && format != "jsonl" {
+				return &UsageError{Err: fmt.Errorf("--format must be jsonl, got %q", format)}
+			}
+			if asJSON && format != "" {
+				return &UsageError{Err: errors.New("--json and --format are mutually exclusive")}
+			}
+			resolved, err := d.resolve()
+			if err != nil {
+				return err
+			}
+			st, err := openHistoryStore(cmd.Context(), resolved)
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+
+			if format == "jsonl" {
+				return renderExperimentJSONL(cmd.Context(), cmd.OutOrStdout(), st, args[0])
+			}
+			summary, err := experiment.Summarize(cmd.Context(), st, args[0], "", stats.DefaultAlpha)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return &UsageError{Err: err}
+				}
+				return err
+			}
+			decision := experiment.DecideRegression(summary, stats.DefaultAlpha)
+			summary.Regression = &decision
+			return renderExperimentSummary(cmd.OutOrStdout(), summary, asJSON)
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON")
+	cmd.Flags().StringVar(&format, "format", "", "output format: jsonl (one JSON object per run)")
+	return cmd
+}
+
+// experimentJSONLEnvelope is one line of the `experiment show --format jsonl`
+// export (spec section 12.5). SchemaVersion is the contract: additive changes
+// keep the version, breaking changes bump it.
+type experimentJSONLEnvelope struct {
+	SchemaVersion int                         `json:"schema_version"`
+	Experiment    experimentJSONLRef          `json:"experiment"`
+	Arm           experimentJSONLArm          `json:"arm"`
+	Run           experimentJSONLRun          `json:"run"`
+	Metrics       map[string]any              `json:"metrics"`
+	Validations   []experimentJSONLValidation `json:"validations"`
+}
+
+// experimentJSONLRef names the exported experiment.
+type experimentJSONLRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// experimentJSONLArm describes the run's arm. OverlaySHA256 is "" when the arm
+// has no overlay, keeping the field a stable string rather than null.
+type experimentJSONLArm struct {
+	Label         string `json:"label"`
+	ProfileHash   string `json:"profile_hash"`
+	OverlayKind   string `json:"overlay_kind"`
+	OverlaySHA256 string `json:"overlay_sha256"`
+}
+
+// experimentJSONLRun is the run metadata carried on each line.
+type experimentJSONLRun struct {
+	ID              string `json:"id"`
+	TaskID          string `json:"task_id"`
+	TaskVersion     string `json:"task_version"`
+	RepeatIndex     int    `json:"repeat_index"`
+	Status          string `json:"status"`
+	SuiteName       string `json:"suite_name"`
+	SuiteHash       string `json:"suite_hash"`
+	FixtureSHA      string `json:"fixture_sha"`
+	Model           string `json:"model"`
+	OpenCodeVersion string `json:"opencode_version"`
+	OCBenchVersion  string `json:"ocbench_version"`
+}
+
+// experimentJSONLValidation is one validator outcome on a line.
+type experimentJSONLValidation struct {
+	Seq    int    `json:"seq"`
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// renderExperimentJSONL writes the versioned JSONL export: one compact line per
+// run, in RunsForExperiment order. Runs whose ArmID is nil (or names no arm of
+// this experiment) are skipped, since they are not part of its arms. A run with
+// no metrics or validations emits {} or [], never null.
+func renderExperimentJSONL(ctx context.Context, w io.Writer, st *store.Store, id string) error {
+	exp, err := st.GetExperiment(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return &UsageError{Err: err}
+		}
+		return err
+	}
+	arms, err := st.ListExperimentArms(ctx, id)
+	if err != nil {
+		return err
+	}
+	armByID := make(map[string]store.ExperimentArmRow, len(arms))
+	for _, a := range arms {
+		armByID[a.ID] = a
+	}
+	runs, err := st.RunsForExperiment(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.ArmID == nil {
+			continue
+		}
+		arm, ok := armByID[*run.ArmID]
+		if !ok {
+			continue
+		}
+		metricRows, err := st.GetRunMetrics(ctx, run.ID)
+		if err != nil {
+			return err
+		}
+		valRows, err := st.ListRunValidations(ctx, run.ID)
+		if err != nil {
+			return err
+		}
+		line := experimentJSONLEnvelope{
+			SchemaVersion: 1,
+			Experiment:    experimentJSONLRef{ID: exp.ID, Name: exp.Name},
+			Arm: experimentJSONLArm{
+				Label:         arm.Label,
+				ProfileHash:   arm.ProfileHash,
+				OverlayKind:   arm.OverlayKind,
+				OverlaySHA256: derefString(arm.OverlaySHA256),
+			},
+			Run: experimentJSONLRun{
+				ID:              run.ID,
+				TaskID:          run.TaskID,
+				TaskVersion:     run.TaskVersion,
+				RepeatIndex:     run.RepeatIndex,
+				Status:          run.Status,
+				SuiteName:       run.SuiteName,
+				SuiteHash:       run.SuiteHash,
+				FixtureSHA:      run.FixtureSHA,
+				Model:           run.Model,
+				OpenCodeVersion: run.OpenCodeVersion,
+				OCBenchVersion:  run.OCBenchVersion,
+			},
+			Metrics:     experimentMetricMap(metricRows),
+			Validations: experimentValidationList(valRows),
+		}
+		b, err := json.Marshal(line)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(w, string(b)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// derefString returns the pointed-to string, or "" for a nil pointer.
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// experimentMetricMap flattens a run's metrics to a JSON object keyed by name;
+// a numeric metric uses its number, a text-only metric its text.
+func experimentMetricMap(rows []store.MetricRow) map[string]any {
+	out := make(map[string]any, len(rows))
+	for _, m := range rows {
+		if m.ValueNum != nil {
+			out[m.Name] = *m.ValueNum
+		} else {
+			out[m.Name] = m.ValueText
+		}
+	}
+	return out
+}
+
+// experimentValidationList maps a run's validations to the export shape. It is
+// never nil so an empty result marshals as [] rather than null.
+func experimentValidationList(rows []store.ValidationRow) []experimentJSONLValidation {
+	out := make([]experimentJSONLValidation, 0, len(rows))
+	for _, v := range rows {
+		out = append(out, experimentJSONLValidation{Seq: v.Seq, Kind: v.Kind, Name: v.Name, Status: v.Status})
+	}
+	return out
 }
 
 // runExperiment is the `experiment run` pipeline: parse and validate the arms,
@@ -181,11 +521,7 @@ func runExperiment(cmd *cobra.Command, d Deps, adapterFor func(experiment.ArmSpe
 	decision := experiment.DecideRegression(summary, stats.DefaultAlpha)
 	summary.Regression = &decision
 
-	if opts.asJSON {
-		if err := renderExperimentJSON(cmd.OutOrStdout(), summary); err != nil {
-			return err
-		}
-	} else if err := renderExperimentHuman(cmd.OutOrStdout(), summary); err != nil {
+	if err := renderExperimentSummary(cmd.OutOrStdout(), summary, opts.asJSON); err != nil {
 		return err
 	}
 
