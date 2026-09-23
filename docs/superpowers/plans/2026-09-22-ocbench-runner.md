@@ -265,7 +265,7 @@ type Metrics struct {
 	TokensInput, TokensOutput, TokensReasoning, TokensCacheRead, TokensCacheWrite, TokensTotal int64
 	Cost float64
 	Texts []string
-	FinalAnswer string // concatenation of text parts joined by "\n"
+	FinalAnswer string // final (most recent) text event; Texts retains the transcript
 }
 
 func NewMetrics(mcpServers []string) *Metrics
