@@ -38,5 +38,19 @@ func IsBusy(err error) bool {
 	if !errors.As(err, &se) {
 		return false
 	}
-	return se.Code() == sqlite3.SQLITE_BUSY || se.Code() == sqlite3.SQLITE_LOCKED
+	return isBusyCode(se.Code())
+}
+
+// isBusyCode reports whether a SQLite result code denotes lock contention.
+// SQLite encodes extended result codes by OR-ing a subtype into the high bits
+// of the primary code, so masking with 0xff isolates the primary code and lets
+// variants such as SQLITE_BUSY_SNAPSHOT, SQLITE_BUSY_RECOVERY, and
+// SQLITE_LOCKED_SHAREDCACHE be recognized as retryable.
+func isBusyCode(code int) bool {
+	switch code & 0xff {
+	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED:
+		return true
+	default:
+		return false
+	}
 }
