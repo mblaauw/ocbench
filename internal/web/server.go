@@ -6,10 +6,15 @@ package web
 
 import (
 	"bytes"
+	"database/sql"
+	"errors"
 	"html/template"
 	"net/http"
+	"sort"
+	"strings"
 
 	"mbl/ocbench/internal/history"
+	"mbl/ocbench/internal/profile"
 	"mbl/ocbench/internal/store"
 )
 
@@ -27,16 +32,63 @@ type handler struct {
 }
 
 // NewHandler returns the read-only dashboard handler backed by st. It exposes
-// only `GET /`, the embedded `/static/` assets and a 404 for everything else.
+// `GET /`, `GET /runs/{id}`, `GET /compare`, `GET /profiles/{hash}`, the
+// embedded `/static/` assets and a 404 for everything else. It never serves
+// raw artifacts or arbitrary filesystem paths.
 func NewHandler(st *store.Store) http.Handler {
 	h := &handler{store: st}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", h.handleList)
+	mux.HandleFunc("GET /runs/{id}", h.handleRun)
+	mux.HandleFunc("GET /compare", h.handleCompare)
+	mux.HandleFunc("GET /profiles/{hash}", h.handleProfile)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
 	mux.HandleFunc("/", http.NotFound)
 
-	return securityHeaders(mux)
+	return securityHeaders(dirtyPathGuard(mux))
+}
+
+// dirtyPathGuard rejects any request whose path contains a "." or ".." segment
+// before ServeMux can redirect it to a cleaned path. Without this, requests like
+// /runs/../ocbench.db would be answered with a 307 to /ocbench.db instead of a
+// 404, leaking the existence of routes and never matching a handler.
+func dirtyPathGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hasDirtySegment(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// hasDirtySegment reports whether any slash-separated segment of p is "." or
+// "..". Run ids and profile hashes never contain those segments.
+func hasDirtySegment(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// writeStoreError maps a service error to the dashboard's status: a missing
+// row is 404, an invalid/incompatible selector is 400, a SQLite lock is a
+// retryable 503, and anything else is a generic 500. No error detail is echoed
+// to the client.
+func writeStoreError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		http.Error(w, "not found", http.StatusNotFound)
+	case errors.Is(err, history.ErrSelector):
+		http.Error(w, "invalid comparison selector", http.StatusBadRequest)
+	case store.IsBusy(err):
+		http.Error(w, "store busy, try again", http.StatusServiceUnavailable)
+	default:
+		http.Error(w, "failed to read history", http.StatusInternalServerError)
+	}
 }
 
 // securityHeaders applies the response hardening required for every dashboard
@@ -58,7 +110,7 @@ func (h *handler) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	runs, err := history.List(r.Context(), h.store, "", defaultListLimit)
 	if err != nil {
-		http.Error(w, "failed to list runs", http.StatusInternalServerError)
+		writeStoreError(w, err)
 		return
 	}
 
@@ -67,6 +119,82 @@ func (h *handler) handleList(w http.ResponseWriter, r *http.Request) {
 		page.Runs = append(page.Runs, newRunSummary(detail))
 	}
 	render(w, listTmpl, page)
+}
+
+// handleRun renders one run's safe result summary: metadata, numeric metrics,
+// validation excerpts and redacted profile component hashes. It never serves
+// artifacts_dir, session ids or raw file content.
+func (h *handler) handleRun(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		http.Error(w, "store unavailable", http.StatusInternalServerError)
+		return
+	}
+	detail, err := history.Get(r.Context(), h.store, r.PathValue("id"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	render(w, runTmpl, runPage{
+		Title:       "Run " + detail.Run.ID,
+		Run:         newRunSummary(detail),
+		Metrics:     metricViews(detail.Metrics),
+		Validations: validationViews(detail.Validations),
+		Profile:     componentViews(detail.Profile),
+	})
+}
+
+// handleCompare mirrors the CLI comparison: both selectors are required, and
+// the shared service rejects missing runs (404) and invalid or incompatible
+// selectors (400).
+func (h *handler) handleCompare(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		http.Error(w, "store unavailable", http.StatusInternalServerError)
+		return
+	}
+	a := r.URL.Query().Get("a")
+	b := r.URL.Query().Get("b")
+	if a == "" || b == "" {
+		http.Error(w, "both a and b selectors are required", http.StatusBadRequest)
+		return
+	}
+
+	cmp, err := history.Compare(r.Context(), h.store, a, b)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	render(w, compareTmpl, comparePage{
+		Title:          "Compare " + cmp.Before.Run.ID + " and " + cmp.After.Run.ID,
+		Before:         newRunSummary(cmp.Before),
+		After:          newRunSummary(cmp.After),
+		Metrics:        metricDeltaViews(cmp.Metrics),
+		Validations:    validationDeltaViews(cmp.Before.Validations, cmp.After.Validations),
+		ProfileChanges: changeViews(cmp.ProfileChanges),
+		Warning:        cmp.ControlledRunWarning,
+	})
+}
+
+// handleProfile renders a redacted profile view: hash, version and the kind,
+// name and hash of each component, never the canonical JSON.
+func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
+	if h.store == nil {
+		http.Error(w, "store unavailable", http.StatusInternalServerError)
+		return
+	}
+	row, comps, err := h.store.GetProfileByHash(r.Context(), r.PathValue("hash"))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	render(w, profileTmpl, profilePage{
+		Title:           "Profile " + row.ProfileHash,
+		ProfileHash:     row.ProfileHash,
+		OpenCodeVersion: row.OpenCodeVersion,
+		Components:      componentRowViews(comps),
+	})
 }
 
 // render executes a page template into a buffer first, so a template error
@@ -221,4 +349,123 @@ func runDurationMS(r store.RunRow) int64 {
 		return 0
 	}
 	return *r.DurationMS
+}
+
+// metricViews flattens a run's numeric metrics into a name-sorted slice so the
+// rendered table is deterministic.
+func metricViews(metrics map[string]float64) []metricView {
+	names := make([]string, 0, len(metrics))
+	for name := range metrics {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make([]metricView, 0, len(names))
+	for _, name := range names {
+		out = append(out, metricView{Name: name, Value: metrics[name]})
+	}
+	return out
+}
+
+// validationViews projects validations onto the excerpt-only view.
+func validationViews(vals []store.ValidationRow) []validationView {
+	out := make([]validationView, 0, len(vals))
+	for _, v := range vals {
+		out = append(out, validationView{
+			Kind:          v.Kind,
+			Name:          v.Name,
+			Status:        v.Status,
+			ExitCode:      v.ExitCode,
+			DurationMS:    v.DurationMS,
+			OutputExcerpt: v.OutputExcerpt,
+		})
+	}
+	return out
+}
+
+// componentViews projects a profile's components onto their redacted summary.
+func componentViews(p *profile.Profile) []componentView {
+	if p == nil {
+		return nil
+	}
+	out := make([]componentView, 0, len(p.Components))
+	for _, c := range p.Components {
+		out = append(out, componentView{Kind: c.Kind, Name: c.Name, Hash: c.Hash})
+	}
+	return out
+}
+
+// componentRowViews projects store component rows onto their redacted summary.
+func componentRowViews(comps []store.ComponentRow) []componentView {
+	out := make([]componentView, 0, len(comps))
+	for _, c := range comps {
+		out = append(out, componentView{Kind: c.Kind, Name: c.Name, Hash: c.Hash})
+	}
+	return out
+}
+
+// changeViews projects profile changes onto the hash-only view.
+func changeViews(changes []profile.Change) []changeView {
+	out := make([]changeView, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, changeView{
+			Kind:   c.Kind,
+			Name:   c.Name,
+			Change: c.Change,
+			From:   c.FromHash,
+			To:     c.ToHash,
+		})
+	}
+	return out
+}
+
+// metricDeltaViews projects service metric deltas onto the view model.
+func metricDeltaViews(deltas []history.MetricDelta) []metricDeltaView {
+	out := make([]metricDeltaView, 0, len(deltas))
+	for _, d := range deltas {
+		out = append(out, metricDeltaView{
+			Name:    d.Name,
+			Before:  d.Before,
+			After:   d.After,
+			Delta:   d.Delta,
+			Percent: d.Percent,
+		})
+	}
+	return out
+}
+
+// validationDeltaViews lists validators whose status changed, keyed by
+// (kind, name) and sorted by kind then name. A validator absent from one side
+// is shown with an empty status.
+func validationDeltaViews(before, after []store.ValidationRow) []validationDeltaView {
+	type key struct{ kind, name string }
+	beforeStatus := make(map[key]string, len(before))
+	afterStatus := make(map[key]string, len(after))
+	keys := make(map[key]struct{}, len(before)+len(after))
+	for _, v := range before {
+		k := key{v.Kind, v.Name}
+		beforeStatus[k] = v.Status
+		keys[k] = struct{}{}
+	}
+	for _, v := range after {
+		k := key{v.Kind, v.Name}
+		afterStatus[k] = v.Status
+		keys[k] = struct{}{}
+	}
+
+	out := make([]validationDeltaView, 0, len(keys))
+	for k := range keys {
+		b, a := beforeStatus[k], afterStatus[k]
+		if b == a {
+			continue
+		}
+		out = append(out, validationDeltaView{Kind: k.kind, Name: k.name, Before: b, After: a})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
 }

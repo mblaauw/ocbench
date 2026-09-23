@@ -2,11 +2,14 @@ package web_test
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 
 	"mbl/ocbench/internal/store"
 	"mbl/ocbench/internal/web"
@@ -146,5 +149,237 @@ func TestServesEmbeddedCSS(t *testing.T) {
 	}
 	if rec.Body.Len() == 0 {
 		t.Fatal("embedded CSS is empty")
+	}
+}
+
+// seedProfile inserts a profile with the given components.
+func seedProfile(t *testing.T, st *store.Store, id, hash string, comps []store.ComponentRow) {
+	t.Helper()
+	if err := st.InsertProfile(context.Background(), store.ProfileRow{
+		ID: id, ProfileHash: hash, OpenCodeVersion: "1.18.32", OCBenchVersion: "dev",
+		CanonicalJSON: `{"schema":1}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}, comps); err != nil {
+		t.Fatalf("insert profile %s: %v", id, err)
+	}
+}
+
+// runRow builds a compatible run row for the dashboard fixtures.
+func runRow(id, taskID, profileID, profileHash, started string) store.RunRow {
+	exit := 0
+	dur := int64(1000)
+	return store.RunRow{
+		ID: id, ProfileID: profileID, ProfileHash: profileHash,
+		SuiteName: "core", SuiteVersion: "1", SuiteHash: "suite-hash",
+		TaskID: taskID, TaskVersion: "1", FixtureSHA: "fixture",
+		OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", Model: "p/m", Agent: "build",
+		Status: "passed", ExitCode: &exit, StartedAt: started, FinishedAt: started,
+		DurationMS: &dur, ArtifactsDir: "/runs/" + id,
+	}
+}
+
+func seedRunRow(t *testing.T, st *store.Store, r store.RunRow) {
+	t.Helper()
+	if err := st.InsertRun(context.Background(), r); err != nil {
+		t.Fatalf("insert run %s: %v", r.ID, err)
+	}
+}
+
+func TestRunPageShowsSafeSummaryAndEscapesExcerpt(t *testing.T) {
+	st := testStore(t)
+	seedRun(t, st, "run-1", "py-bugfix")
+	if err := st.InsertRunMetrics(context.Background(), "run-1",
+		map[string]float64{"tokens_total": 120, "tool_calls_total": 4}); err != nil {
+		t.Fatalf("insert metrics: %v", err)
+	}
+	const payload = `<script>alert(1)</script>`
+	if err := st.InsertRunValidations(context.Background(), "run-1", []store.ValidationRow{
+		{Seq: 1, Kind: "test", Name: "unit", Status: "passed", ExitCode: 0,
+			DurationMS: 12, OutputPath: "/runs/run-1/events.jsonl", OutputExcerpt: payload},
+	}); err != nil {
+		t.Fatalf("insert validations: %v", err)
+	}
+
+	rec := get(t, web.NewHandler(st), "/runs/run-1")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html", ct)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"run-1", "tokens_total", "120"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, payload) {
+		t.Errorf("unescaped validation excerpt present:\n%s", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;") {
+		t.Errorf("escaped excerpt missing:\n%s", body)
+	}
+	for _, forbidden := range []string{"events.jsonl", "session.json", `{"schema":1}`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("body leaks %q:\n%s", forbidden, body)
+		}
+	}
+}
+
+func TestRunPageMissingReturns404(t *testing.T) {
+	st := testStore(t)
+
+	for _, target := range []string{"/runs/nope", "/runs/..", "/runs/%2e%2e"} {
+		if rec := get(t, web.NewHandler(st), target); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", target, rec.Code)
+		}
+	}
+}
+
+func TestComparePageRendersDeltasAndProfileChanges(t *testing.T) {
+	st := testStore(t)
+	seedProfile(t, st, "p1", "hash-1", []store.ComponentRow{
+		{Kind: "primary", Name: "primary", Hash: "h-primary", CanonicalJSON: `{}`},
+		{Kind: "agent", Name: "build", Hash: "h-build-1", CanonicalJSON: `{"mode":"primary"}`},
+	})
+	seedProfile(t, st, "p2", "hash-2", []store.ComponentRow{
+		{Kind: "primary", Name: "primary", Hash: "h-primary", CanonicalJSON: `{}`},
+		{Kind: "agent", Name: "build", Hash: "h-build-2", CanonicalJSON: `{"mode":"primary"}`},
+	})
+	seedRunRow(t, st, runRow("run-a", "py-bugfix", "p1", "hash-1", "2026-01-01T00:00:00Z"))
+	seedRunRow(t, st, runRow("run-b", "py-bugfix", "p2", "hash-2", "2026-01-02T00:00:00Z"))
+	ctx := context.Background()
+	if err := st.InsertRunMetrics(ctx, "run-a", map[string]float64{"tokens_total": 100}); err != nil {
+		t.Fatalf("insert run-a metrics: %v", err)
+	}
+	if err := st.InsertRunMetrics(ctx, "run-b", map[string]float64{"tokens_total": 150}); err != nil {
+		t.Fatalf("insert run-b metrics: %v", err)
+	}
+
+	rec := get(t, web.NewHandler(st), "/compare?a=run-a&b=run-b")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"run-a", "run-b", "tokens_total", "150", "50", "h-build-1", "h-build-2"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, `{"mode":"primary"}`) {
+		t.Errorf("body leaks canonical component JSON:\n%s", body)
+	}
+}
+
+func TestCompareBadRequests(t *testing.T) {
+	st := testStore(t)
+	seedProfile(t, st, "p-a", "hash-a", nil)
+	seedProfile(t, st, "p-b", "hash-b", nil)
+	seedRunRow(t, st, runRow("run-a", "py-bugfix", "p-a", "hash-a", "2026-01-01T00:00:00Z"))
+	seedRunRow(t, st, runRow("run-b", "other-task", "p-b", "hash-b", "2026-01-02T00:00:00Z"))
+
+	cases := []struct {
+		target string
+		want   int
+	}{
+		{"/compare", http.StatusBadRequest},
+		{"/compare?a=run-a", http.StatusBadRequest},
+		{"/compare?b=run-b", http.StatusBadRequest},
+		{"/compare?a=previous&b=previous", http.StatusBadRequest},
+		{"/compare?a=run-a&b=run-b", http.StatusBadRequest}, // incompatible task
+		{"/compare?a=run-a&b=nope", http.StatusNotFound},
+		{"/compare?a=nope&b=run-b", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		if rec := get(t, web.NewHandler(st), tc.target); rec.Code != tc.want {
+			t.Errorf("GET %s = %d, want %d; body=%s", tc.target, rec.Code, tc.want, rec.Body.String())
+		}
+	}
+}
+
+func TestProfilePageRedactsComponents(t *testing.T) {
+	st := testStore(t)
+	seedProfile(t, st, "p1", "hash-1", []store.ComponentRow{
+		{Kind: "agent", Name: "build", Hash: "h-build", CanonicalJSON: `{"mode":"primary","secret":"x"}`},
+	})
+
+	rec := get(t, web.NewHandler(st), "/profiles/hash-1")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"hash-1", "agent", "build", "h-build"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{`"secret"`, `{"mode":"primary","secret":"x"}`, `{"schema":1}`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("body leaks %q:\n%s", forbidden, body)
+		}
+	}
+}
+
+func TestProfilePageMissingReturns404(t *testing.T) {
+	st := testStore(t)
+
+	if rec := get(t, web.NewHandler(st), "/profiles/nope"); rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestForbiddenPathsReturn404(t *testing.T) {
+	st := testStore(t)
+
+	for _, target := range []string{
+		"/artifacts/run-1/events.jsonl",
+		"/events.jsonl",
+		"/../ocbench.db",
+		"/runs/../ocbench.db",
+		"/profiles/../../ocbench.db",
+		"/runs/run-1/events.jsonl",
+	} {
+		if rec := get(t, web.NewHandler(st), target); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", target, rec.Code)
+		}
+	}
+}
+
+func TestStoreBusyReturns503(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "busy.db")
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if _, err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	seedRun(t, st, "run-1", "py-bugfix")
+
+	// Force a rollback journal and no wait so the lock is reported immediately
+	// instead of blocking for the 5s busy timeout.
+	if _, err := st.DB().Exec("PRAGMA journal_mode=DELETE"); err != nil {
+		t.Fatalf("journal_mode: %v", err)
+	}
+	if _, err := st.DB().Exec("PRAGMA busy_timeout=0"); err != nil {
+		t.Fatalf("busy_timeout: %v", err)
+	}
+
+	locker, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatalf("open locker: %v", err)
+	}
+	defer locker.Close()
+	if _, err := locker.Exec("BEGIN EXCLUSIVE"); err != nil {
+		t.Fatalf("begin exclusive: %v", err)
+	}
+	defer locker.Exec("ROLLBACK")
+
+	rec := get(t, web.NewHandler(st), "/runs/run-1")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
 	}
 }

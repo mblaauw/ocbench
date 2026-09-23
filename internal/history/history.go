@@ -56,6 +56,19 @@ func List(ctx context.Context, st *store.Store, task string, limit int) ([]RunDe
 	return out, nil
 }
 
+// Get returns one run with its metrics, validations and profile. It returns
+// the store's wrapped sql.ErrNoRows when the run does not exist.
+func Get(ctx context.Context, st *store.Store, id string) (RunDetail, error) {
+	if st == nil {
+		return RunDetail{}, errors.New("history: nil store")
+	}
+	run, err := st.GetRun(ctx, id)
+	if err != nil {
+		return RunDetail{}, err
+	}
+	return loadDetail(ctx, st, *run)
+}
+
 // loadDetail hydrates one run, normalising nil slices and maps to empty ones so
 // every RunDetail is safe to serialise as `[]`/`{}` rather than `null`.
 func loadDetail(ctx context.Context, st *store.Store, run store.RunRow) (RunDetail, error) {
