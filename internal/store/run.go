@@ -180,6 +180,22 @@ func (s *Store) GetExperimentArm(ctx context.Context, id string) (*ExperimentArm
 	return &row, nil
 }
 
+// GetExperiment returns an experiment by id, or a wrapped sql.ErrNoRows when
+// absent.
+func (s *Store) GetExperiment(ctx context.Context, id string) (*ExperimentRow, error) {
+	var row ExperimentRow
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, name, spec_json, created_at FROM experiments WHERE id = ?`, id).
+		Scan(&row.ID, &row.Name, &row.SpecJSON, &row.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("experiment %s: %w", id, sql.ErrNoRows)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get experiment %s: %w", id, err)
+	}
+	return &row, nil
+}
+
 // ListExperimentArms returns an experiment's arms ordered by label. An
 // experiment with no arms yields an empty slice, not an error.
 func (s *Store) ListExperimentArms(ctx context.Context, experimentID string) ([]ExperimentArmRow, error) {

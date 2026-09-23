@@ -649,6 +649,33 @@ func TestInsertExperimentRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGetExperiment(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+
+	want := ExperimentRow{
+		ID:        "exp-get",
+		Name:      "experiment core@1 2026-03-01T10:00:00Z",
+		SpecJSON:  `{"repeat":3}`,
+		CreatedAt: "2026-03-01T10:00:00Z",
+	}
+	if err := st.InsertExperiment(ctx, want); err != nil {
+		t.Fatalf("InsertExperiment: %v", err)
+	}
+
+	got, err := st.GetExperiment(ctx, want.ID)
+	if err != nil {
+		t.Fatalf("GetExperiment: %v", err)
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("experiment round trip:\n got %+v\nwant %+v", *got, want)
+	}
+
+	if _, err := st.GetExperiment(ctx, "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetExperiment(missing) err = %v, want sql.ErrNoRows", err)
+	}
+}
+
 // sampleArm builds an experiment arm whose profile reference is p1.
 func sampleArm(id, experimentID, label string) ExperimentArmRow {
 	profileID := "p1"
