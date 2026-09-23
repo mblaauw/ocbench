@@ -158,10 +158,18 @@ func Run(ctx context.Context, st *store.Store, req Request) (Outcome, error)
 **Files:**
 - Create: `internal/experiment/aggregate.go`, `internal/experiment/aggregate_test.go`
 
-**Consumes:** `stats.*`, `store.RunsForExperiment`, `store.GetRunMetrics`, `store.ListRunValidations`.
+**Consumes:** `stats.*`, `store.RunsForExperiment`, `store.ListRunValidations`, `store.GetRunMetrics`, `store.ListExperimentArms`.
+
+**Supporting reader (add to `internal/store/run.go`, mirroring `GetExperimentArm`):**
+```go
+func (s *Store) GetExperiment(ctx context.Context, id string) (*ExperimentRow, error)
+```
 
 **Interfaces (Produces):**
 ```go
+// StatTest carries one computed comparison so the decision stays pure.
+// Observed is oriented so positive always means "the arm is worse".
+type StatTest struct { Observed, P, BaselineValue, ArmValue float64; N int; Applicable bool }
 type ArmTaskStats struct {
     Executions, Successes int
     PassRate, WilsonLo, WilsonHi float64
@@ -178,19 +186,24 @@ type ExperimentSummary struct {
     DriftWarnings []string
     SignificanceSuppressed bool
     InsufficientData bool
+    PassRateTests map[string]StatTest // keyed by arm label; pooled per-execution successes
+    CostTests map[string]StatTest     // keyed by arm label; per-task cost per solved task
     Regression *RegressionDecision
 }
-type RegressionDecision struct { Regressed bool; Reason string }
-func Summarize(ctx context.Context, st *store.Store, experimentID string, alpha float64) (ExperimentSummary, error)
-func DecideRegression(s ExperimentSummary, baseline string, alpha float64) RegressionDecision
+type RegressionDecision struct { Arm string; Regressed bool; Reason string } // Arm empty when none regressed
+func Summarize(ctx context.Context, st *store.Store, experimentID, baseline string, alpha float64) (ExperimentSummary, error)
+func DecideRegression(s ExperimentSummary, alpha float64) RegressionDecision
 ```
+The cost test uses a median-difference permutation (`stats.PermutationPMedian`), so add that helper to `internal/stats` in this task (pooled resample, two-sided, `(count+1)/(iters+1)`, seeded) with its own tests.
 - Drift guard: differing `model`, `agent`, `variant`, `opencode_version`, `suite_hash`, `task_version` or `fixture_sha` across arms adds a `DriftWarnings` entry and sets `SignificanceSuppressed`, in which case `DecideRegression` returns `{false, "significance suppressed: …"}`.
 - `InsufficientData` when any arm/task pair has fewer than three executions; `DecideRegression` then returns `{false, "insufficient data"}`.
-- Regression per spec §12.4: `PermutationP` on weighted pass rate (negative observed difference, p < alpha) **or** equal pass rates with median cost per solved task >25% higher and p < alpha.
+- Regression per spec §12.4, decided from the two `StatTest`s: pass-rate regression when `PassRateTest.Observed > 0` and `P < alpha`; cost regression when the pass-rate test is not significant, `CostTest.Applicable`, `CostTest.P < alpha`, and the arm's median cost per solved task exceeds the baseline's by more than 25%.
 
 - [ ] **Step 1: Failing tests** with synthetic run sets: identical arms → no regression; arm clearly worse → regression with the pass-rate reason; equal pass rates with a large cost gap → regression with the cost reason; two repeats → insufficient data; differing model strings → suppressed.
 - [ ] **Step 2: RED.** `go test ./internal/experiment -run 'Summarize|DecideRegression' -count=1`.
-- [ ] **Step 3: Implement**, reading metrics through the existing store readers and grouping by `(arm_id, task_id)`.
+- [ ] **Step 3: Implement**, reading metrics through the existing store readers and grouping by `(arm_id, task_id)`; runs with a nil `ArmID` are ignored.
+  - `Summarize` takes the baseline label (no re-derivation later) and computes one `StatTest` **per non-baseline arm**: the pass-rate test permutes pooled per-execution successes (1/0); the cost test permutes per-task cost-per-solved values over the tasks **both** arms solved, where a task's value is `sum(cost over repeats) / successes`. `Observed` is `baseline - arm` for pass rate and `arm - baseline` for cost; `BaselineValue`/`ArmValue` carry the underlying statistics the test permuted, so the 25% gate reads the same numbers as the p-value. The cost test permutes the median difference (`stats.PermutationPMedian`), matching the reported statistic. `Applicable` is false when there are no comparable samples.
+  - `DecideRegression` stays pure over the summary plus `alpha`: it never re-reads the store, evaluates **every** non-baseline arm, and returns the worst outcome with `Arm` set to the regressing arm (empty when none regressed).
 - [ ] **Step 4: GREEN + commit.** `go test ./internal/experiment -count=1`, then `git commit -m "feat: aggregate experiment results and decide regressions"`.
 
 ### Task 6: CLI commands and the versioned export

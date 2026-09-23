@@ -608,13 +608,15 @@ overlay, and repeats the spec's standing rule: it never claims causation.
 
 ### 12.4 Regression rule
 
-`--exit-on-regression` exits `3` when the seeded permutation test (p < 0.05,
-two-sided) shows the arm is worse than the baseline on either of:
+Every non-baseline arm is compared against the baseline independently, and the
+decision reports the worst outcome with the arm named. `--exit-on-regression`
+exits `3` when the seeded permutation test (p < 0.05, two-sided) shows an arm
+is worse than the baseline on either of:
 
 - weighted pass rate (observed difference negative), or
 - efficiency at equal quality: pass rates are statistically
   indistinguishable and the arm's median cost per solved task is higher by
-  more than 25%.
+  more than 25%, measured over the tasks both arms solved.
 
 Everything else exits `0`, including "insufficient data", and the report
 states which rule was evaluated and what it found.
