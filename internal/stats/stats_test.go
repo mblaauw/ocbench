@@ -124,6 +124,43 @@ func TestPermutationPDeterministic(t *testing.T) {
 	}
 }
 
+func TestPermutationPMedianIdentical(t *testing.T) {
+	s := []float64{1, 2, 3, 4, 5}
+	if got := PermutationPMedian(s, s, 1, 2000); got <= 0.9 {
+		t.Fatalf("PermutationPMedian identical = %v, want > 0.9", got)
+	}
+}
+
+func TestPermutationPMedianSeparated(t *testing.T) {
+	// More than half the candidate values shift, so the median (unlike a mean)
+	// separates while still leaving a non-degenerate null distribution.
+	a := []float64{1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
+	b := []float64{1, 1, 1, 1, 100, 100, 100, 100, 100, 100}
+	if got := PermutationPMedian(a, b, 1, 1000); got >= 0.05 {
+		t.Fatalf("PermutationPMedian separated = %v, want < 0.05", got)
+	}
+}
+
+func TestPermutationPMedianDeterministic(t *testing.T) {
+	a := []float64{1, 2, 3, 4, 5, 6, 7, 8}
+	b := []float64{1.1, 2.1, 3.1, 4.1, 5.1, 6.1, 7.1, 8.1}
+	first := PermutationPMedian(a, b, 42, 10000)
+	second := PermutationPMedian(a, b, 42, 10000)
+	if first != second {
+		t.Fatalf("same seed gave %v then %v", first, second)
+	}
+	other := PermutationPMedian(a, b, 43, 10000)
+	if other == first {
+		t.Fatalf("different seed gave same value %v", other)
+	}
+}
+
+func TestPermutationPMedianEmpty(t *testing.T) {
+	if got := PermutationPMedian(nil, []float64{1, 2}, 1, 1000); got != 1 {
+		t.Fatalf("PermutationPMedian empty = %v, want 1", got)
+	}
+}
+
 func TestDefaultAlpha(t *testing.T) {
 	if DefaultAlpha != 0.05 {
 		t.Fatalf("DefaultAlpha = %v, want 0.05", DefaultAlpha)

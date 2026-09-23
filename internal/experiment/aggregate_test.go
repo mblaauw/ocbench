@@ -167,7 +167,7 @@ func TestSummarizeIdenticalArmsNoRegression(t *testing.T) {
 	// A run with no arm id belongs to a single-profile run and is ignored.
 	aggInsertOrphan(t, st, "exp-1", "orphan")
 
-	s, err := Summarize(context.Background(), st, "exp-1", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -209,11 +209,11 @@ func TestSummarizeIdenticalArmsNoRegression(t *testing.T) {
 		t.Fatalf("baseline cost per solved = %v, want 0.5", s.CostPerSolved["baseline"])
 	}
 
-	if !s.PassRateTest.Applicable || s.PassRateTest.Observed != 0 || s.PassRateTest.P < stats.DefaultAlpha {
-		t.Fatalf("pass-rate test = %+v, want applicable, observed 0, not significant", s.PassRateTest)
+	if !s.PassRateTests["candidate"].Applicable || s.PassRateTests["candidate"].Observed != 0 || s.PassRateTests["candidate"].P < stats.DefaultAlpha {
+		t.Fatalf("pass-rate test = %+v, want applicable, observed 0, not significant", s.PassRateTests["candidate"])
 	}
 
-	d := DecideRegression(s, "baseline", stats.DefaultAlpha)
+	d := DecideRegression(s, stats.DefaultAlpha)
 	if d.Regressed {
 		t.Fatalf("DecideRegression = %+v, want no regression", d)
 	}
@@ -231,14 +231,14 @@ func TestSummarizeArmWorsePassRateRegression(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, false, 0.5, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
-	if s.PassRateTest.Observed <= 0 || s.PassRateTest.P >= stats.DefaultAlpha {
-		t.Fatalf("pass-rate test = %+v, want worse arm with p < %v", s.PassRateTest, stats.DefaultAlpha)
+	if s.PassRateTests["candidate"].Observed <= 0 || s.PassRateTests["candidate"].P >= stats.DefaultAlpha {
+		t.Fatalf("pass-rate test = %+v, want worse arm with p < %v", s.PassRateTests["candidate"], stats.DefaultAlpha)
 	}
-	d := DecideRegression(s, "baseline", stats.DefaultAlpha)
+	d := DecideRegression(s, stats.DefaultAlpha)
 	if !d.Regressed {
 		t.Fatalf("DecideRegression = %+v, want regression", d)
 	}
@@ -251,26 +251,36 @@ func TestSummarizeEqualPassRateCostRegression(t *testing.T) {
 	st := aggStore(t)
 	ids := aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "candidate")
 
-	tasks := []string{"t1", "t2", "t3", "t4", "t5"}
-	for _, task := range tasks {
+	// A majority of candidate tasks cost 3x; a minority cost the same, so the
+	// median-difference test has a non-degenerate null and separates.
+	tasks := []string{"t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10"}
+	for i, task := range tasks {
+		cost := 0.5
+		if i < 6 {
+			cost = 1.5
+		}
 		aggSeedRepeats(t, st, "exp-1", ids["baseline"], task, 3, true, 0.5, 100, 1000)
-		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, true, 1.5, 100, 1000)
+		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, true, cost, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
-	if s.PassRateTest.P < stats.DefaultAlpha {
-		t.Fatalf("pass-rate test = %+v, want indistinguishable pass rates", s.PassRateTest)
+	if s.PassRateTests["candidate"].P < stats.DefaultAlpha {
+		t.Fatalf("pass-rate test = %+v, want indistinguishable pass rates", s.PassRateTests["candidate"])
 	}
-	if !s.CostTest.Applicable || s.CostTest.P >= stats.DefaultAlpha || s.CostTest.Observed <= 0 {
-		t.Fatalf("cost test = %+v, want applicable, worse and significant", s.CostTest)
+	cost := s.CostTests["candidate"]
+	if !cost.Applicable || cost.P >= stats.DefaultAlpha || cost.Observed <= 0 {
+		t.Fatalf("cost test = %+v, want applicable, worse and significant", cost)
+	}
+	if cost.BaselineValue != 0.5 || cost.ArmValue != 1.5 {
+		t.Fatalf("cost gate values = %v/%v, want 0.5/1.5", cost.BaselineValue, cost.ArmValue)
 	}
 	if s.CostPerSolved["baseline"] != 0.5 || s.CostPerSolved["candidate"] != 1.5 {
 		t.Fatalf("cost per solved = %v, want baseline 0.5 candidate 1.5", s.CostPerSolved)
 	}
-	d := DecideRegression(s, "baseline", stats.DefaultAlpha)
+	d := DecideRegression(s, stats.DefaultAlpha)
 	if !d.Regressed {
 		t.Fatalf("DecideRegression = %+v, want regression", d)
 	}
@@ -288,14 +298,14 @@ func TestSummarizeInsufficientData(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 2, true, 0.5, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
 	if !s.InsufficientData {
 		t.Fatalf("InsufficientData = false, want true with two repeats")
 	}
-	d := DecideRegression(s, "baseline", stats.DefaultAlpha)
+	d := DecideRegression(s, stats.DefaultAlpha)
 	if d.Regressed || d.Reason != "insufficient data" {
 		t.Fatalf("DecideRegression = %+v, want insufficient data", d)
 	}
@@ -315,7 +325,7 @@ func TestSummarizeDriftSuppressesSignificance(t *testing.T) {
 		}
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -325,11 +335,135 @@ func TestSummarizeDriftSuppressesSignificance(t *testing.T) {
 	if len(s.DriftWarnings) == 0 || !strings.Contains(s.DriftWarnings[0], "model") {
 		t.Fatalf("DriftWarnings = %v, want a model warning", s.DriftWarnings)
 	}
-	d := DecideRegression(s, "baseline", stats.DefaultAlpha)
+	d := DecideRegression(s, stats.DefaultAlpha)
 	if d.Regressed {
 		t.Fatalf("DecideRegression = %+v, want suppressed, not regressed", d)
 	}
 	if !strings.HasPrefix(d.Reason, "significance suppressed:") {
 		t.Fatalf("reason = %q, want the suppression reason", d.Reason)
+	}
+}
+
+func TestSummarizeDriftOnNonModelField(t *testing.T) {
+	st := aggStore(t)
+	ids := aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "candidate")
+
+	for _, task := range []string{"t1", "t2", "t3"} {
+		aggSeedRepeats(t, st, "exp-1", ids["baseline"], task, 3, true, 0.5, 100, 1000)
+		for r := 0; r < 3; r++ {
+			aggInsert(t, st, "exp-1", ids["candidate"], aggRun{
+				task: task, repeat: r, success: true, cost: 0.5, tokens: 100, duration: 1000,
+				mutate: func(row *store.RunRow) { row.OpenCodeVersion = "9.9.9" },
+			})
+		}
+	}
+
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if !s.SignificanceSuppressed {
+		t.Fatalf("SignificanceSuppressed = false, want true")
+	}
+	found := false
+	for _, w := range s.DriftWarnings {
+		if strings.Contains(w, "opencode_version") && strings.Contains(w, "9.9.9") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("DriftWarnings = %v, want an opencode_version warning naming the value", s.DriftWarnings)
+	}
+	d := DecideRegression(s, stats.DefaultAlpha)
+	if d.Regressed || !strings.HasPrefix(d.Reason, "significance suppressed:") {
+		t.Fatalf("DecideRegression = %+v, want suppressed", d)
+	}
+}
+
+func TestSummarizeThreeArmsNamesRegressedArm(t *testing.T) {
+	st := aggStore(t)
+	ids := aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "b", "c")
+
+	for _, task := range []string{"t1", "t2", "t3"} {
+		aggSeedRepeats(t, st, "exp-1", ids["baseline"], task, 3, true, 0.5, 100, 1000)
+		aggSeedRepeats(t, st, "exp-1", ids["b"], task, 3, true, 0.5, 100, 1000)
+		aggSeedRepeats(t, st, "exp-1", ids["c"], task, 3, false, 0.5, 100, 1000)
+	}
+
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if len(s.PassRateTests) != 2 || len(s.CostTests) != 2 {
+		t.Fatalf("tests = %d/%d, want one pair per non-baseline arm", len(s.PassRateTests), len(s.CostTests))
+	}
+	if s.PassRateTests["b"].Observed != 0 || s.PassRateTests["b"].P < stats.DefaultAlpha {
+		t.Fatalf("arm b test = %+v, want no signal", s.PassRateTests["b"])
+	}
+	if s.PassRateTests["c"].Observed <= 0 || s.PassRateTests["c"].P >= stats.DefaultAlpha {
+		t.Fatalf("arm c test = %+v, want a worse signal", s.PassRateTests["c"])
+	}
+
+	d := DecideRegression(s, stats.DefaultAlpha)
+	if !d.Regressed || d.Arm != "c" {
+		t.Fatalf("DecideRegression = %+v, want the regressed arm c named", d)
+	}
+	if !strings.Contains(strings.ToLower(d.Reason), "pass rate") {
+		t.Fatalf("reason = %q, want the pass-rate rule named", d.Reason)
+	}
+}
+
+func TestSummarizeCandidateBetterNoRegression(t *testing.T) {
+	st := aggStore(t)
+	ids := aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "candidate")
+
+	for _, task := range []string{"t1", "t2", "t3"} {
+		aggSeedRepeats(t, st, "exp-1", ids["baseline"], task, 3, true, 0.5, 100, 1000)
+		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, true, 0.25, 100, 1000)
+	}
+
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	cost := s.CostTests["candidate"]
+	if !cost.Applicable || cost.Observed >= 0 {
+		t.Fatalf("cost test = %+v, want applicable with the arm cheaper", cost)
+	}
+	if cost.BaselineValue != 0.5 || cost.ArmValue != 0.25 {
+		t.Fatalf("cost gate values = %v/%v, want 0.5/0.25", cost.BaselineValue, cost.ArmValue)
+	}
+	d := DecideRegression(s, stats.DefaultAlpha)
+	if d.Regressed || d.Arm != "" {
+		t.Fatalf("DecideRegression = %+v, want no regression and no arm", d)
+	}
+	if !strings.Contains(d.Reason, "no regression") {
+		t.Fatalf("reason = %q, want a no-regression reason", d.Reason)
+	}
+}
+
+func TestSummarizeBorderlineAlpha(t *testing.T) {
+	st := aggStore(t)
+	ids := aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "candidate")
+
+	for _, task := range []string{"t1", "t2", "t3"} {
+		aggSeedRepeats(t, st, "exp-1", ids["baseline"], task, 3, true, 0.5, 100, 1000)
+		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, false, 0.5, 100, 1000)
+	}
+
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	p := s.PassRateTests["candidate"].P
+	if p <= 0 || p >= 1 {
+		t.Fatalf("candidate p = %v, want a usable borderline value", p)
+	}
+	if d := DecideRegression(s, p*0.5); d.Regressed {
+		t.Fatalf("alpha below p = %+v, want no regression", d)
+	}
+	d := DecideRegression(s, p+(1-p)*0.5)
+	if !d.Regressed || d.Arm != "candidate" {
+		t.Fatalf("alpha above p = %+v, want the candidate regressed", d)
 	}
 }

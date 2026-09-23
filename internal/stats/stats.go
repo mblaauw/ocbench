@@ -133,6 +133,41 @@ func PermutationP(a, b []float64, seed int64, iters int) float64 {
 	return float64(count+1) / float64(iters+1)
 }
 
+// PermutationPMedian returns the two-sided permutation-test p-value for the
+// difference in medians between a and b. It pools both samples, then for iters
+// iterations resamples two groups of the original sizes and counts how often
+// the absolute resampled median difference is at least the observed absolute
+// median difference. The result is (count+1)/(iters+1), so it is never exactly
+// zero.
+//
+// Randomness comes from math/rand.New(rand.NewSource(seed)), so identical
+// inputs and seed produce identical results across runs and machines.
+func PermutationPMedian(a, b []float64, seed int64, iters int) float64 {
+	if len(a) == 0 || len(b) == 0 || iters <= 0 {
+		return 1
+	}
+	observed := math.Abs(Median(a) - Median(b))
+	pooled := make([]float64, 0, len(a)+len(b))
+	pooled = append(pooled, a...)
+	pooled = append(pooled, b...)
+
+	rng := rand.New(rand.NewSource(seed))
+	scratch := make([]float64, len(pooled))
+	count := 0
+	for i := 0; i < iters; i++ {
+		copy(scratch, pooled)
+		rng.Shuffle(len(scratch), func(x, y int) {
+			scratch[x], scratch[y] = scratch[y], scratch[x]
+		})
+		groupA := scratch[:len(a)]
+		groupB := scratch[len(a):]
+		if math.Abs(Median(groupA)-Median(groupB)) >= observed {
+			count++
+		}
+	}
+	return float64(count+1) / float64(iters+1)
+}
+
 func mean(xs []float64) float64 {
 	if len(xs) == 0 {
 		return 0

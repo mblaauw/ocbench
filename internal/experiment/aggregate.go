@@ -24,13 +24,17 @@ const (
 
 // StatTest is one derived permutation test. Observed is signed so a positive
 // value always means "the comparison arm is worse"; P is the two-sided
-// permutation p-value. Applicable is false when there are no comparable
-// samples, in which case P and Observed are meaningless.
+// permutation p-value. BaselineValue and ArmValue are the statistics that were
+// permuted, so the regression gate is applied to the same values the test
+// measured. Applicable is false when there are no comparable samples, in which
+// case the other fields are meaningless.
 type StatTest struct {
-	Observed   float64
-	P          float64
-	N          int
-	Applicable bool
+	Observed      float64
+	P             float64
+	N             int
+	Applicable    bool
+	BaselineValue float64
+	ArmValue      float64
 }
 
 // ArmTaskStats is the derived statistics for one (arm, task) pair.
@@ -59,12 +63,16 @@ type ExperimentSummary struct {
 	SignificanceSuppressed bool
 	InsufficientData       bool
 	Regression             *RegressionDecision
-	PassRateTest           StatTest
-	CostTest               StatTest
+	// PassRateTests and CostTests are keyed by arm label and cover every
+	// non-baseline arm, so the decision never re-derives a comparison.
+	PassRateTests map[string]StatTest
+	CostTests     map[string]StatTest
 }
 
-// RegressionDecision is the outcome of applying spec §12.4 to a summary.
+// RegressionDecision is the outcome of applying spec §12.4 to a summary. Arm
+// names the worst regressed arm and is empty when nothing regressed.
 type RegressionDecision struct {
+	Arm       string
 	Regressed bool
 	Reason    string
 }
@@ -87,12 +95,14 @@ func taskWeight(string) float64 { return 1 }
 
 // Summarize reads an experiment's arms, runs, metrics and validations and
 // derives the per-task and per-arm statistics, the drift guard, the
-// insufficient-data flag and the two permutation tests. It performs no
-// regression decision; that is DecideRegression's pure interpretation.
+// insufficient-data flag and one pair of permutation tests per non-baseline
+// arm. It performs no regression decision; that is DecideRegression's pure
+// interpretation.
 //
-// The baseline used for the two tests is the one recorded in the experiment
-// spec, falling back to the first arm in label order, mirroring spec §12.1.
-func Summarize(ctx context.Context, st *store.Store, experimentID string, alpha float64) (ExperimentSummary, error) {
+// baseline names the reference arm. An empty baseline falls back to the one
+// recorded in the experiment spec, then to the first arm in label order,
+// mirroring spec §12.1.
+func Summarize(ctx context.Context, st *store.Store, experimentID, baseline string, alpha float64) (ExperimentSummary, error) {
 	exp, err := st.GetExperiment(ctx, experimentID)
 	if err != nil {
 		return ExperimentSummary{}, err
@@ -196,66 +206,121 @@ func Summarize(ctx context.Context, st *store.Store, experimentID string, alpha 
 		Arms:          arms,
 		Tasks:         tasks,
 		CostPerSolved: costPerSolved,
+		PassRateTests: map[string]StatTest{},
+		CostTests:     map[string]StatTest{},
 	}
 	summary.DriftWarnings, summary.SignificanceSuppressed = driftWarnings(taskIDs, taskRuns)
 	summary.InsufficientData = insufficientData(arms, tasks)
 
-	baseline := baselineLabel(exp, arms)
-	if candidate, ok := comparisonArmLabel(arms, baseline); ok {
-		summary.PassRateTest = statTest(
-			passRateSample(tasks, baseline),
-			passRateSample(tasks, candidate),
-			func(base, arm []float64) float64 { return sampleMean(base) - sampleMean(arm) },
-		)
-		baseCost := sharedCosts(taskIDs, costByTask, baseline, candidate, true)
-		armCost := sharedCosts(taskIDs, costByTask, baseline, candidate, false)
-		summary.CostTest = statTest(baseCost, armCost,
-			func(base, arm []float64) float64 { return stats.Median(arm) - stats.Median(base) })
+	baseline = baselineLabel(baseline, exp, arms)
+	basePass := passRateSample(tasks, baseline)
+	for _, a := range arms {
+		if a.Label == baseline {
+			continue
+		}
+		armPass := passRateSample(tasks, a.Label)
+		baseMean, armMean := sampleMean(basePass), sampleMean(armPass)
+		summary.PassRateTests[a.Label] = StatTest{
+			Observed:      baseMean - armMean,
+			P:             permutationP(basePass, armPass),
+			N:             len(basePass) + len(armPass),
+			Applicable:    len(basePass) > 0 && len(armPass) > 0,
+			BaselineValue: baseMean,
+			ArmValue:      armMean,
+		}
+		baseCost := sharedCosts(taskIDs, costByTask, baseline, a.Label, true)
+		armCost := sharedCosts(taskIDs, costByTask, baseline, a.Label, false)
+		baseMedian, armMedian := stats.Median(baseCost), stats.Median(armCost)
+		summary.CostTests[a.Label] = StatTest{
+			Observed:      armMedian - baseMedian,
+			P:             permutationPMedian(baseCost, armCost),
+			N:             len(baseCost) + len(armCost),
+			Applicable:    len(baseCost) > 0 && len(armCost) > 0,
+			BaselineValue: baseMedian,
+			ArmValue:      armMedian,
+		}
 	}
 	return summary, nil
 }
 
 // DecideRegression is a pure interpreter of a summary: it never reads the
 // store. It short-circuits on the drift and insufficient-data guards, then
-// applies spec §12.4 to the two pre-computed tests.
-func DecideRegression(s ExperimentSummary, baseline string, alpha float64) RegressionDecision {
+// applies spec §12.4 to every non-baseline arm and returns the worst outcome
+// (the regressed arm with the strongest evidence). Arm is empty when nothing
+// regressed, and Reason names the rules evaluated.
+func DecideRegression(s ExperimentSummary, alpha float64) RegressionDecision {
 	if s.InsufficientData {
-		return RegressionDecision{Regressed: false, Reason: "insufficient data"}
+		return RegressionDecision{Reason: "insufficient data"}
 	}
 	if s.SignificanceSuppressed {
-		return RegressionDecision{Regressed: false, Reason: "significance suppressed: " + strings.Join(s.DriftWarnings, "; ")}
+		return RegressionDecision{Reason: "significance suppressed: " + strings.Join(s.DriftWarnings, "; ")}
 	}
 
-	candidate, ok := comparisonArmLabel(s.Arms, baseline)
-	if !ok {
-		return RegressionDecision{Regressed: false, Reason: "no regression: no comparison arm"}
+	arms := sortedTestArms(s.PassRateTests)
+	if len(arms) == 0 {
+		return RegressionDecision{Reason: "no regression: no comparison arm"}
 	}
 
-	passSignificant := s.PassRateTest.Applicable && s.PassRateTest.P < alpha
-	if passSignificant && s.PassRateTest.Observed > 0 {
-		return RegressionDecision{Regressed: true, Reason: fmt.Sprintf(
-			"regression: arm %s pass rate below baseline %s (p=%.4f < %.4f)",
-			candidate, baseline, s.PassRateTest.P, alpha)}
+	var (
+		worst  *RegressionDecision
+		worstP = 1.0
+		reason []string
+	)
+	for _, arm := range arms {
+		d, p := decideArm(s, arm, alpha)
+		if d.Regressed {
+			if worst == nil || p < worstP {
+				candidate := d
+				worst, worstP = &candidate, p
+			}
+			continue
+		}
+		reason = append(reason, d.Reason)
 	}
-
-	if !passSignificant && s.CostTest.Applicable && s.CostTest.P < alpha &&
-		exceedsBy25(s.CostPerSolved[baseline], s.CostPerSolved[candidate]) {
-		return RegressionDecision{Regressed: true, Reason: fmt.Sprintf(
-			"regression: arm %s median cost per solved task %.4f exceeds baseline %s %.4f by more than 25%% (p=%.4f < %.4f)",
-			candidate, s.CostPerSolved[candidate], baseline, s.CostPerSolved[baseline], s.CostTest.P, alpha)}
+	if worst != nil {
+		return *worst
 	}
+	return RegressionDecision{Reason: "no regression: " + strings.Join(reason, "; ")}
+}
 
+// decideArm applies spec §12.4 to one non-baseline arm and returns the
+// decision together with the p-value that triggered it (1 when no regression),
+// so the caller can pick the worst outcome.
+func decideArm(s ExperimentSummary, arm string, alpha float64) (RegressionDecision, float64) {
+	pass := s.PassRateTests[arm]
+	passSignificant := pass.Applicable && pass.P < alpha
+	if passSignificant && pass.Observed > 0 {
+		return RegressionDecision{Arm: arm, Regressed: true, Reason: fmt.Sprintf(
+			"regression: arm %s pass rate %.4f below baseline %.4f (p=%.4f < %.4f)",
+			arm, pass.ArmValue, pass.BaselineValue, pass.P, alpha)}, pass.P
+	}
+	cost := s.CostTests[arm]
+	if !passSignificant && cost.Applicable && cost.P < alpha && exceedsBy25(cost.BaselineValue, cost.ArmValue) {
+		return RegressionDecision{Arm: arm, Regressed: true, Reason: fmt.Sprintf(
+			"regression: arm %s median cost per solved task %.4f exceeds baseline %.4f by more than 25%% (p=%.4f < %.4f)",
+			arm, cost.ArmValue, cost.BaselineValue, cost.P, alpha)}, cost.P
+	}
 	if passSignificant {
-		return RegressionDecision{Regressed: false, Reason: fmt.Sprintf(
-			"no regression: pass rate differs but arm %s is not worse (p=%.4f)", candidate, s.PassRateTest.P)}
+		return RegressionDecision{Arm: arm, Reason: fmt.Sprintf(
+			"arm %s: pass rate differs but arm is not worse (p=%.4f)", arm, pass.P)}, 1
 	}
-	if s.CostTest.Applicable {
-		return RegressionDecision{Regressed: false, Reason: fmt.Sprintf(
-			"no regression: pass rates indistinguishable (p=%.4f); cost per solved task rule evaluated (p=%.4f)",
-			s.PassRateTest.P, s.CostTest.P)}
+	if cost.Applicable {
+		return RegressionDecision{Arm: arm, Reason: fmt.Sprintf(
+			"arm %s: pass rates indistinguishable (p=%.4f); cost per solved task rule evaluated (p=%.4f)",
+			arm, pass.P, cost.P)}, 1
 	}
-	return RegressionDecision{Regressed: false, Reason: fmt.Sprintf(
-		"no regression: pass rate rule evaluated (p=%.4f); cost per solved task rule not applicable", s.PassRateTest.P)}
+	return RegressionDecision{Arm: arm, Reason: fmt.Sprintf(
+		"arm %s: pass rate rule evaluated (p=%.4f); cost per solved task rule not applicable", arm, pass.P)}, 1
+}
+
+// sortedTestArms returns the arm labels present in a test map in label order.
+func sortedTestArms(tests map[string]StatTest) []string {
+	arms := make([]string, 0, len(tests))
+	for arm := range tests {
+		arms = append(arms, arm)
+	}
+	sort.Strings(arms)
+	return arms
 }
 
 // runSucceeded reports whether a run counts as a solved task. A failing
@@ -348,19 +413,23 @@ func sharedCosts(taskIDs []string, costByTask map[string]map[string]float64, bas
 	return out
 }
 
-// statTest runs one permutation test, reporting Applicable=false when either
-// sample is empty.
-func statTest(base, arm []float64, observed func(base, arm []float64) float64) StatTest {
-	n := len(base) + len(arm)
+// permutationP runs the pooled mean-difference permutation test, returning 1
+// when either sample is empty.
+func permutationP(base, arm []float64) float64 {
 	if len(base) == 0 || len(arm) == 0 {
-		return StatTest{N: n, Applicable: false}
+		return 1
 	}
-	return StatTest{
-		Observed:   observed(base, arm),
-		P:          stats.PermutationP(base, arm, permutationSeed, permutationIters),
-		N:          n,
-		Applicable: true,
+	return stats.PermutationP(base, arm, permutationSeed, permutationIters)
+}
+
+// permutationPMedian runs the pooled median-difference permutation test,
+// returning 1 when either sample is empty. The median statistic matches the
+// cost test's Observed value.
+func permutationPMedian(base, arm []float64) float64 {
+	if len(base) == 0 || len(arm) == 0 {
+		return 1
 	}
+	return stats.PermutationPMedian(base, arm, permutationSeed, permutationIters)
 }
 
 // sampleMean returns the arithmetic mean of xs, or 0 for an empty slice.
@@ -384,9 +453,13 @@ func exceedsBy25(baseline, candidate float64) bool {
 	return candidate > 0
 }
 
-// baselineLabel returns the baseline arm label recorded in the experiment
-// spec, falling back to the first arm in label order (spec §12.1).
-func baselineLabel(exp *store.ExperimentRow, arms []store.ExperimentArmRow) string {
+// baselineLabel resolves the baseline arm label: an explicit request wins,
+// otherwise the experiment spec's baseline, otherwise the first arm in label
+// order (spec §12.1).
+func baselineLabel(requested string, exp *store.ExperimentRow, arms []store.ExperimentArmRow) string {
+	if requested != "" {
+		return requested
+	}
 	var spec struct {
 		Baseline string `json:"baseline"`
 	}
@@ -397,16 +470,6 @@ func baselineLabel(exp *store.ExperimentRow, arms []store.ExperimentArmRow) stri
 		return arms[0].Label
 	}
 	return ""
-}
-
-// comparisonArmLabel returns the first arm that is not the baseline.
-func comparisonArmLabel(arms []store.ExperimentArmRow, baseline string) (string, bool) {
-	for _, a := range arms {
-		if a.Label != baseline {
-			return a.Label, true
-		}
-	}
-	return "", false
 }
 
 // driftField is one benchmark-relevant variable checked across arms.
