@@ -971,3 +971,57 @@ func TestSafeLogName(t *testing.T) {
 		}
 	}
 }
+
+// TestRunPersistsArmID proves the runner writes a non-empty Request.ArmID into
+// runs.arm_id and stores an empty ArmID as SQL NULL.
+func TestRunPersistsArmID(t *testing.T) {
+	useMode(t, "ok")
+	ctx := context.Background()
+	f := setupRunner(t)
+	a := newScriptedAdapter(t)
+
+	if err := f.st.InsertExperiment(ctx, store.ExperimentRow{
+		ID: "exp-1", Name: "exp", SpecJSON: "{}", CreatedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("InsertExperiment: %v", err)
+	}
+	if err := f.st.InsertExperimentArm(ctx, store.ExperimentArmRow{
+		ID: "arm-1", ExperimentID: "exp-1", Label: "A",
+		ProfileHash: "hash-1", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("InsertExperimentArm: %v", err)
+	}
+
+	withArm := runnerRequest(f)
+	withArm.ExperimentID = "exp-1"
+	withArm.ArmID = "arm-1"
+	withArm.RepeatIndex = 2
+	res, err := Run(ctx, a, f.st, withArm)
+	if err != nil {
+		t.Fatalf("Run with arm: %v", err)
+	}
+	got, err := f.st.GetRun(ctx, res.RunID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got.ArmID == nil || *got.ArmID != "arm-1" {
+		t.Errorf("ArmID = %v, want arm-1", got.ArmID)
+	}
+	if got.RepeatIndex != 2 {
+		t.Errorf("RepeatIndex = %d, want 2", got.RepeatIndex)
+	}
+
+	noArm := runnerRequest(f)
+	noArm.ExperimentID = "exp-1"
+	res2, err := Run(ctx, a, f.st, noArm)
+	if err != nil {
+		t.Fatalf("Run without arm: %v", err)
+	}
+	got2, err := f.st.GetRun(ctx, res2.RunID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if got2.ArmID != nil {
+		t.Errorf("ArmID = %v, want nil (NULL)", *got2.ArmID)
+	}
+}
