@@ -42,7 +42,7 @@ version: 1
 name: Fix the divide operator
 tags: [python, debugging]
 timeout: 300                  # optional; falls back to suite default, then 900
-requires: [python3]           # optional; missing tools skip, never fail
+requires: [python3]           # optional task-level; missing tools skip every validator
 allow_changes: ["calc.py"]    # globs relative to the worktree root
 validators:
   - kind: command
@@ -65,7 +65,11 @@ Answer patterns may instead live in `evaluator/answer.json`:
 { "patterns": ["(?i)\\bmaximum\\b"], "mode": "all" }
 ```
 
-Patterns are Go regular expressions matched against the model's final message.
+Patterns are Go regular expressions matched against the model's final message:
+the most recent `text` event in the event stream (the last observable text in
+JSONL order), not the concatenation of every text event. Intermediate
+tool-progress chatter is therefore never matchable, so patterns must be
+satisfied by the terminal answer alone.
 
 ## Determinism
 
@@ -84,10 +88,12 @@ Patterns are Go regular expressions matched against the model's final message.
 - `kind: command` runs an argv array, never a shell string. The process starts
   in the fixture/worktree directory under the sandboxed environment. A
   non-zero exit is `failed`; a start error is `error`.
-- `kind: answer` matches `patterns` against the final message. With `mode: all`
-  (default) every pattern must match; with `mode: any` at least one must.
-- A validator whose `requires` are unavailable is `skipped`, never `failed`.
-  Keep `requires` accurate (`[python3]` for Python fixtures).
+- `kind: answer` matches `patterns` against the final message (the final `text`
+  event, as above). With `mode: all` (default) every pattern must match; with
+  `mode: any` at least one must.
+- `requires` is task-level, not per validator: when any required binary is
+  unavailable on `PATH`, every validator in that task is `skipped`, never
+  `failed`. Keep `requires` accurate (`[python3]` for Python fixtures).
 - Validator output is captured to `runs/<id>/validation/<seq>-<name>.log`.
 - `allow_changes` globs describe the changes a task expects. Paths changed
   outside those globs feed the `files_unexpected` metric; they do not by
@@ -106,13 +112,22 @@ Patterns are Go regular expressions matched against the model's final message.
 ## The untouched-fixture failure rule
 
 Every task's validators MUST fail on the untouched fixture and pass after the
-intended fix. This is the only proof that the task measures something. When
-authoring a task, copy the fixture to a scratch directory under `/tmp` (or use
-`t.TempDir()` in tests) and run each validator by hand before and after
-applying the intended change. `internal/suite/core_test.go` encodes this proof
-for the core suite: it materialises each fixture into a temp dir, runs the real
-validator engine, confirms `failed`, applies the fix, and confirms `passed`.
-New core tasks should extend those tests.
+intended fix. This is the mandatory authoring rule: it is the only proof that
+the task measures something. When authoring a task, copy the fixture to a
+scratch directory under `/tmp` (or use `t.TempDir()` in tests) and run each
+validator by hand before and after applying the intended change.
+
+Automated coverage is not uniform across the core suite, and the docs should
+not overstate it. Today `internal/suite/core_test.go` encodes an automated
+fail-before/pass-after proof only for `config-yaml-fix` (a command validator on
+a materialised fixture). `code-review` is answer-only: its test runs the real
+validator engine to prove the hidden patterns accept a complete review and
+reject both incomplete and keyword-stuffed reviews, but it has no
+fixture-level fail-before/pass-after step because its validators do not run
+against the fixture. The remaining core tasks (`py-bugfix`,
+`multi-file-feature`, `repo-investigation`) have no automated proof yet and
+rely on the manual authoring-time check. New core tasks should extend
+`internal/suite/core_test.go` with a real-engine fail-before/pass-after test.
 
 ## Adding an external suite
 

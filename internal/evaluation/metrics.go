@@ -15,7 +15,7 @@ type Metrics struct {
 	TokensCacheRead, TokensCacheWrite, TokensTotal               int64
 	Cost                                                         float64
 	Texts                                                        []string
-	FinalAnswer                                                  string // text parts joined by "\n"
+	FinalAnswer                                                  string // most recent text event, the model's final message
 
 	mcpServers []string
 }
@@ -119,7 +119,9 @@ func (m *Metrics) observeStepFinish(p Part) {
 
 func (m *Metrics) observeText(p Part) {
 	m.Texts = append(m.Texts, p.Text)
-	m.FinalAnswer = strings.Join(m.Texts, "\n")
+	// Texts is the full ordered transcript; FinalAnswer is only the last text
+	// event, so answer validators never see intermediate tool-progress chatter.
+	m.FinalAnswer = p.Text
 }
 
 // MetricsMap renders the metrics with the spec §9 names and float64 values.

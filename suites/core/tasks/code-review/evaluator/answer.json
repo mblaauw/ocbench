@@ -1,7 +1,8 @@
 {
   "patterns": [
     "(?i)\\bchunks?\\b",
-    "(?i)off[ -]?by[ -]?one|size\\s*-\\s*1|\\brange\\b",
+    "(?i)\\brange\\b[^\\n]{0,80}size\\s*-\\s*1|size\\s*-\\s*1[^\\n]{0,80}\\brange\\b",
+    "(?i)(?:should|instead|correct|expected|rather|not)[^\\n]{0,60}\\bsize\\b",
     "(?i)len\\s*\\(|\\bsize\\b",
     "(?i)\\bparse_ints\\b",
     "(?i)swallow|silently|except\\s+valueerror|\\bpass\\b",

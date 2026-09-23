@@ -193,4 +193,13 @@ func TestCodeReviewAnswerPatterns(t *testing.T) {
 	if res.Status != "failed" {
 		t.Fatalf("generic keyword-only review status = %q, want failed; output:\n%s", res.Status, res.Output)
 	}
+
+	// Keyword-stuffing that names chunks and range but never identifies the
+	// actual `range(..., size - 1)` step defect or its correction to size must
+	// not pass, even though every defect keyword appears.
+	keywordStuffed := "chunks range size parse_ints should propagate pass take default 10 should 3"
+	res = evaluation.RunValidator(ctx, 4, spec, "", nil, 0, keywordStuffed)
+	if res.Status != "failed" {
+		t.Fatalf("keyword-stuffed review status = %q, want failed; output:\n%s", res.Status, res.Output)
+	}
 }

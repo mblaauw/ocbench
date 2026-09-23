@@ -3,6 +3,7 @@ package evaluation
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"math"
 	"os"
 	"testing"
@@ -101,8 +102,33 @@ func TestObserveTextJoin(t *testing.T) {
 	if len(m.Texts) != 2 {
 		t.Fatalf("Texts = %v", m.Texts)
 	}
-	if m.FinalAnswer != "first\nsecond" {
-		t.Fatalf("FinalAnswer = %q", m.FinalAnswer)
+	if m.FinalAnswer != "second" {
+		t.Fatalf("FinalAnswer = %q, want the last text event only", m.FinalAnswer)
+	}
+}
+
+// TestObserveTextFinalAnswerIsLastEvent proves that Metrics.Texts keeps the full
+// ordered text transcript while Metrics.FinalAnswer is exactly the most recent
+// text event. An intermediate text event that happens to contain an evaluator
+// pattern must not let an answer validator pass when the terminal text omits it.
+func TestObserveTextFinalAnswerIsLastEvent(t *testing.T) {
+	m := NewMetrics(nil)
+	m.ObserveLine([]byte(`{"type":"text","part":{"type":"text","text":"the maximum is 5"}}`))
+	m.ObserveLine([]byte(`{"type":"text","part":{"type":"text","text":"done"}}`))
+
+	if len(m.Texts) != 2 || m.Texts[0] != "the maximum is 5" || m.Texts[1] != "done" {
+		t.Fatalf("Texts = %q, want both text events in order", m.Texts)
+	}
+	if m.FinalAnswer != "done" {
+		t.Fatalf("FinalAnswer = %q, want terminal text only", m.FinalAnswer)
+	}
+
+	// A real answer validator over FinalAnswer must reject the intermediate
+	// match: only the final text event is the model's answer.
+	spec := ValidatorSpec{Kind: "answer", Name: "mentions maximum", Patterns: []string{`(?i)\bmaximum\b`}, Mode: "all"}
+	res := RunValidator(context.Background(), 0, spec, "", nil, 0, m.FinalAnswer)
+	if res.Status != "failed" {
+		t.Fatalf("answer validator status = %q, want failed; intermediate text must not satisfy a terminal-answer validator; output:\n%s", res.Status, res.Output)
 	}
 }
 
