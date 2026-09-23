@@ -76,6 +76,16 @@ type ValidationRow struct {
 	OutputExcerpt string
 }
 
+// MetricRow is one run_metrics row. ValueNum is a pointer so a text-only metric
+// (NULL value_num) is distinct from a numeric zero; ValueText and Unit are
+// stored as SQL NULL and read back as "".
+type MetricRow struct {
+	Name      string
+	ValueNum  *float64
+	ValueText string
+	Unit      string
+}
+
 // ExperimentRow is one experiments row. The CLI creates exactly one per
 // `ocbench run` invocation; ID is a fresh UUID.
 type ExperimentRow struct {
@@ -242,30 +252,43 @@ func (s *Store) InsertRunValidations(ctx context.Context, runID string, vals []V
 	return nil
 }
 
-// GetRun returns a run by id, or a wrapped sql.ErrNoRows when absent.
-func (s *Store) GetRun(ctx context.Context, id string) (*RunRow, error) {
-	row := &RunRow{}
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, COALESCE(experiment_id, ''), repeat_index, profile_id, profile_hash,
+// runColumns is the shared runs projection; it must stay in sync with
+// scanRunRow.
+const runColumns = `id, COALESCE(experiment_id, ''), repeat_index, profile_id, profile_hash,
 		       COALESCE(suite_id, ''), suite_name, suite_version, suite_hash,
 		       task_id, task_version, fixture_sha, opencode_version, ocbench_version,
 		       COALESCE(model, ''), COALESCE(agent, ''), COALESCE(variant, ''),
 		       status, dry_run, exit_code, COALESCE(session_id, ''),
 		       started_at, COALESCE(finished_at, ''), duration_ms,
-		       artifacts_dir, COALESCE(error, '')
-		FROM runs WHERE id = ?`, id).
-		Scan(&row.ID, &row.ExperimentID, &row.RepeatIndex, &row.ProfileID, &row.ProfileHash,
-			&row.SuiteID, &row.SuiteName, &row.SuiteVersion, &row.SuiteHash,
-			&row.TaskID, &row.TaskVersion, &row.FixtureSHA, &row.OpenCodeVersion, &row.OCBenchVersion,
-			&row.Model, &row.Agent, &row.Variant, &row.Status, &row.DryRun, &row.ExitCode, &row.SessionID,
-			&row.StartedAt, &row.FinishedAt, &row.DurationMS, &row.ArtifactsDir, &row.Error)
+		       artifacts_dir, COALESCE(error, '')`
+
+// rowScanner is satisfied by both *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanRunRow scans one row in runColumns order, mapping SQL NULL to the same
+// zero values the insert helpers write.
+func scanRunRow(sc rowScanner) (RunRow, error) {
+	var row RunRow
+	err := sc.Scan(&row.ID, &row.ExperimentID, &row.RepeatIndex, &row.ProfileID, &row.ProfileHash,
+		&row.SuiteID, &row.SuiteName, &row.SuiteVersion, &row.SuiteHash,
+		&row.TaskID, &row.TaskVersion, &row.FixtureSHA, &row.OpenCodeVersion, &row.OCBenchVersion,
+		&row.Model, &row.Agent, &row.Variant, &row.Status, &row.DryRun, &row.ExitCode, &row.SessionID,
+		&row.StartedAt, &row.FinishedAt, &row.DurationMS, &row.ArtifactsDir, &row.Error)
+	return row, err
+}
+
+// GetRun returns a run by id, or a wrapped sql.ErrNoRows when absent.
+func (s *Store) GetRun(ctx context.Context, id string) (*RunRow, error) {
+	row, err := scanRunRow(s.db.QueryRowContext(ctx, `SELECT `+runColumns+` FROM runs WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("run %s: %w", id, sql.ErrNoRows)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get run %s: %w", id, err)
 	}
-	return row, nil
+	return &row, nil
 }
 
 // ListRuns returns runs ordered newest first (started_at, then id). taskID
@@ -275,13 +298,7 @@ func (s *Store) ListRuns(ctx context.Context, limit int, taskID string) ([]RunRo
 		limit = -1
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, COALESCE(experiment_id, ''), repeat_index, profile_id, profile_hash,
-		       COALESCE(suite_id, ''), suite_name, suite_version, suite_hash,
-		       task_id, task_version, fixture_sha, opencode_version, ocbench_version,
-		       COALESCE(model, ''), COALESCE(agent, ''), COALESCE(variant, ''),
-		       status, dry_run, exit_code, COALESCE(session_id, ''),
-		       started_at, COALESCE(finished_at, ''), duration_ms,
-		       artifacts_dir, COALESCE(error, '')
+		SELECT `+runColumns+`
 		FROM runs
 		WHERE (? = '' OR task_id = ?)
 		ORDER BY started_at DESC, id DESC
@@ -293,12 +310,8 @@ func (s *Store) ListRuns(ctx context.Context, limit int, taskID string) ([]RunRo
 
 	var out []RunRow
 	for rows.Next() {
-		var row RunRow
-		if err := rows.Scan(&row.ID, &row.ExperimentID, &row.RepeatIndex, &row.ProfileID, &row.ProfileHash,
-			&row.SuiteID, &row.SuiteName, &row.SuiteVersion, &row.SuiteHash,
-			&row.TaskID, &row.TaskVersion, &row.FixtureSHA, &row.OpenCodeVersion, &row.OCBenchVersion,
-			&row.Model, &row.Agent, &row.Variant, &row.Status, &row.DryRun, &row.ExitCode, &row.SessionID,
-			&row.StartedAt, &row.FinishedAt, &row.DurationMS, &row.ArtifactsDir, &row.Error); err != nil {
+		row, err := scanRunRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan run: %w", err)
 		}
 		out = append(out, row)
@@ -307,6 +320,108 @@ func (s *Store) ListRuns(ctx context.Context, limit int, taskID string) ([]RunRo
 		return nil, fmt.Errorf("list runs: %w", err)
 	}
 	return out, nil
+}
+
+// GetRunMetrics returns a run's metrics ordered lexically by name. A run with
+// no metrics yields an empty slice, not an error.
+func (s *Store) GetRunMetrics(ctx context.Context, runID string) ([]MetricRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name, value_num, COALESCE(value_text, ''), COALESCE(unit, '')
+		FROM run_metrics WHERE run_id = ?
+		ORDER BY name`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("get run metrics %s: %w", runID, err)
+	}
+	defer rows.Close()
+
+	var out []MetricRow
+	for rows.Next() {
+		var m MetricRow
+		if err := rows.Scan(&m.Name, &m.ValueNum, &m.ValueText, &m.Unit); err != nil {
+			return nil, fmt.Errorf("scan run metric: %w", err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get run metrics %s: %w", runID, err)
+	}
+	return out, nil
+}
+
+// ListRunValidations returns a run's validations ordered by sequence. A run
+// with no validations yields an empty slice, not an error.
+func (s *Store) ListRunValidations(ctx context.Context, runID string) ([]ValidationRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT seq, kind, name, COALESCE(command, ''), status,
+		       COALESCE(exit_code, 0), COALESCE(duration_ms, 0),
+		       COALESCE(output_path, ''), COALESCE(output_excerpt, '')
+		FROM run_validations WHERE run_id = ?
+		ORDER BY seq`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list run validations %s: %w", runID, err)
+	}
+	defer rows.Close()
+
+	var out []ValidationRow
+	for rows.Next() {
+		var v ValidationRow
+		if err := rows.Scan(&v.Seq, &v.Kind, &v.Name, &v.Command, &v.Status,
+			&v.ExitCode, &v.DurationMS, &v.OutputPath, &v.OutputExcerpt); err != nil {
+			return nil, fmt.Errorf("scan run validation: %w", err)
+		}
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list run validations %s: %w", runID, err)
+	}
+	return out, nil
+}
+
+// LatestRun returns the newest non-dry run, ordered by (started_at, id) so
+// same-second runs resolve deterministically. It returns a wrapped
+// sql.ErrNoRows when no non-dry run exists.
+func (s *Store) LatestRun(ctx context.Context) (*RunRow, error) {
+	row, err := scanRunRow(s.db.QueryRowContext(ctx, `
+		SELECT `+runColumns+`
+		FROM runs
+		WHERE dry_run = 0
+		ORDER BY started_at DESC, id DESC
+		LIMIT 1`))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("latest run: %w", sql.ErrNoRows)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("latest run: %w", err)
+	}
+	return &row, nil
+}
+
+// PreviousCompatibleRun returns the newest non-dry run strictly older than the
+// anchor, matching suite name/version, task id/version and fixture SHA. The
+// (started_at, id) ordering keeps same-second runs deterministic, and the
+// comparison is a strict row-value less-than. It returns a wrapped
+// sql.ErrNoRows when no compatible predecessor exists.
+func (s *Store) PreviousCompatibleRun(ctx context.Context, anchor RunRow) (*RunRow, error) {
+	row, err := scanRunRow(s.db.QueryRowContext(ctx, `
+		SELECT `+runColumns+`
+		FROM runs
+		WHERE dry_run = 0
+		  AND suite_name = ? AND suite_version = ?
+		  AND task_id = ? AND task_version = ?
+		  AND fixture_sha = ?
+		  AND (started_at, id) < (?, ?)
+		ORDER BY started_at DESC, id DESC
+		LIMIT 1`,
+		anchor.SuiteName, anchor.SuiteVersion,
+		anchor.TaskID, anchor.TaskVersion, anchor.FixtureSHA,
+		anchor.StartedAt, anchor.ID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("previous compatible run: %w", sql.ErrNoRows)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("previous compatible run: %w", err)
+	}
+	return &row, nil
 }
 
 // nullString maps "" to SQL NULL and any other value to itself.

@@ -101,6 +101,27 @@ func (s *Store) GetProfileByHash(ctx context.Context, hash string) (*ProfileRow,
 	return row, comps, nil
 }
 
+// GetProfileByID returns the profile and its components. It returns a wrapped
+// sql.ErrNoRows when no profile has the id.
+func (s *Store) GetProfileByID(ctx context.Context, id string) (*ProfileRow, []ComponentRow, error) {
+	row := &ProfileRow{}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, profile_hash, opencode_version, ocbench_version, canonical_json, created_at
+		FROM profiles WHERE id = ?`, id).
+		Scan(&row.ID, &row.ProfileHash, &row.OpenCodeVersion, &row.OCBenchVersion, &row.CanonicalJSON, &row.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, fmt.Errorf("profile %s: %w", id, sql.ErrNoRows)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get profile %s: %w", id, err)
+	}
+	comps, err := s.componentsFor(ctx, row.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return row, comps, nil
+}
+
 // LatestProfile returns the most recently created profile, breaking ties by id.
 // It returns a wrapped sql.ErrNoRows when the table is empty.
 func (s *Store) LatestProfile(ctx context.Context) (*ProfileRow, []ComponentRow, error) {

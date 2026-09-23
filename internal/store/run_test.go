@@ -372,6 +372,208 @@ func runIDs(runs []RunRow) []string {
 	return out
 }
 
+func TestGetRunMetricsSorted(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+	insertSampleRun(t, st, sampleRun("run-1", "py-bugfix", "2026-03-01T10:00:00Z"))
+
+	if err := st.InsertRunMetrics(ctx, "run-1", map[string]float64{"steps": 3, "cost": 0.25, "accuracy": 0.9}); err != nil {
+		t.Fatalf("InsertRunMetrics: %v", err)
+	}
+	// A text-only metric exercises the nullable value_num/value_text/unit columns.
+	if _, err := st.DB().ExecContext(ctx,
+		`INSERT INTO run_metrics (run_id, name, value_num, value_text, unit) VALUES ('run-1', 'notes', NULL, 'hello', 'count')`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.GetRunMetrics(ctx, "run-1")
+	if err != nil {
+		t.Fatalf("GetRunMetrics: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("metrics = %d, want 4: %+v", len(got), got)
+	}
+	names := []string{got[0].Name, got[1].Name, got[2].Name, got[3].Name}
+	if want := []string{"accuracy", "cost", "notes", "steps"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("metric order = %v, want %v", names, want)
+	}
+	if got[0].ValueNum == nil || *got[0].ValueNum != 0.9 {
+		t.Fatalf("accuracy value = %v, want 0.9", got[0].ValueNum)
+	}
+	notes := got[2]
+	if notes.ValueNum != nil || notes.ValueText != "hello" || notes.Unit != "count" {
+		t.Fatalf("notes metric = %+v", notes)
+	}
+
+	empty, err := st.GetRunMetrics(ctx, "missing")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("missing metrics = %+v, %v, want empty", empty, err)
+	}
+}
+
+func TestListRunValidationsSorted(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+	insertSampleRun(t, st, sampleRun("run-1", "py-bugfix", "2026-03-01T10:00:00Z"))
+
+	vals := []ValidationRow{
+		{Seq: 3, Kind: "answer", Name: "third", Status: "passed", ExitCode: 0, DurationMS: 5},
+		{Seq: 1, Kind: "command", Name: "first", Command: "go test", Status: "failed", ExitCode: 1, DurationMS: 7, OutputPath: "validation/1.log", OutputExcerpt: "boom"},
+		{Seq: 2, Kind: "answer", Name: "second", Status: "passed", ExitCode: 0, DurationMS: 0},
+	}
+	if err := st.InsertRunValidations(ctx, "run-1", vals); err != nil {
+		t.Fatalf("InsertRunValidations: %v", err)
+	}
+
+	got, err := st.ListRunValidations(ctx, "run-1")
+	if err != nil {
+		t.Fatalf("ListRunValidations: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("validations = %d, want 3", len(got))
+	}
+	for i, wantSeq := range []int{1, 2, 3} {
+		if got[i].Seq != wantSeq {
+			t.Fatalf("validation[%d].Seq = %d, want %d", i, got[i].Seq, wantSeq)
+		}
+	}
+	if got[0].Command != "go test" || got[0].OutputPath != "validation/1.log" || got[0].OutputExcerpt != "boom" {
+		t.Fatalf("validation[0] = %+v", got[0])
+	}
+	if got[2].Command != "" || got[2].OutputPath != "" || got[2].OutputExcerpt != "" {
+		t.Fatalf("nullable validation = %+v, want empty strings", got[2])
+	}
+
+	empty, err := st.ListRunValidations(ctx, "missing")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("missing validations = %+v, %v, want empty", empty, err)
+	}
+}
+
+func TestLatestRunSelectsNewestNonDry(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+
+	// The newest run overall is a dry run and must be excluded.
+	dry := sampleRun("run-dry", "py-bugfix", "2026-03-04T10:00:00Z")
+	dry.DryRun = true
+	older := sampleRun("run-old", "py-bugfix", "2026-03-01T10:00:00Z")
+	newer := sampleRun("run-new", "py-bugfix", "2026-03-03T10:00:00Z")
+	// Exercise nullable columns on the returned row.
+	newer.ExitCode = nil
+	newer.DurationMS = nil
+	newer.FinishedAt = ""
+	newer.Model = ""
+	newer.SessionID = ""
+	newer.Error = ""
+	for _, r := range []RunRow{older, dry, newer} {
+		insertSampleRun(t, st, r)
+	}
+
+	got, err := st.LatestRun(ctx)
+	if err != nil {
+		t.Fatalf("LatestRun: %v", err)
+	}
+	if got.ID != "run-new" {
+		t.Fatalf("latest = %s, want run-new", got.ID)
+	}
+	if got.ExitCode != nil || got.DurationMS != nil {
+		t.Fatalf("nullable ints = %v/%v, want nil", got.ExitCode, got.DurationMS)
+	}
+	if got.FinishedAt != "" || got.Model != "" || got.SessionID != "" || got.Error != "" {
+		t.Fatalf("nullable strings not empty: %+v", got)
+	}
+
+	// A store holding only dry runs has no latest.
+	dryOnly := profileStore(t)
+	insertSampleProfile(t, dryOnly, "p1", "hash-1")
+	insertSampleRun(t, dryOnly, dry)
+	if _, err := dryOnly.LatestRun(ctx); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("dry-only latest err = %v, want sql.ErrNoRows", err)
+	}
+
+	// An empty store has no latest.
+	if _, err := profileStore(t).LatestRun(ctx); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("empty latest err = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestLatestRunTieBreaksByID(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+	insertSampleRun(t, st, sampleRun("run-a", "py-bugfix", "2026-03-01T10:00:00Z"))
+	insertSampleRun(t, st, sampleRun("run-b", "py-bugfix", "2026-03-01T10:00:00Z"))
+
+	got, err := st.LatestRun(ctx)
+	if err != nil {
+		t.Fatalf("LatestRun: %v", err)
+	}
+	if got.ID != "run-b" {
+		t.Fatalf("latest tie = %s, want run-b", got.ID)
+	}
+}
+
+func TestPreviousCompatibleRun(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+
+	anchor := sampleRun("anchor", "py-bugfix", "2026-03-05T10:00:00Z")
+	prev := sampleRun("prev", "py-bugfix", "2026-03-03T10:00:00Z")
+	older := sampleRun("older", "py-bugfix", "2026-03-01T10:00:00Z")
+	newer := sampleRun("newer", "py-bugfix", "2026-03-06T10:00:00Z")
+	dry := sampleRun("dry", "py-bugfix", "2026-03-04T10:00:00Z")
+	dry.DryRun = true
+	badTask := sampleRun("bad-task", "other-task", "2026-03-04T09:00:00Z")
+	badFixture := sampleRun("bad-fixture", "py-bugfix", "2026-03-04T08:00:00Z")
+	badFixture.FixtureSHA = "other"
+	badSuite := sampleRun("bad-suite", "py-bugfix", "2026-03-04T07:00:00Z")
+	badSuite.SuiteName = "other"
+
+	for _, r := range []RunRow{anchor, prev, older, newer, dry, badTask, badFixture, badSuite} {
+		insertSampleRun(t, st, r)
+	}
+
+	got, err := st.PreviousCompatibleRun(ctx, anchor)
+	if err != nil {
+		t.Fatalf("PreviousCompatibleRun: %v", err)
+	}
+	if got.ID != "prev" {
+		t.Fatalf("previous = %s, want prev", got.ID)
+	}
+
+	// A first run has no compatible predecessor.
+	first := sampleRun("first", "py-bugfix", "2026-03-01T00:00:00Z")
+	noPrev := profileStore(t)
+	insertSampleProfile(t, noPrev, "p1", "hash-1")
+	insertSampleRun(t, noPrev, first)
+	if _, err := noPrev.PreviousCompatibleRun(ctx, first); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("no predecessor err = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestPreviousCompatibleRunTieBreaksByID(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+
+	anchor := sampleRun("anchor", "py-bugfix", "2026-03-02T10:00:00Z")
+	insertSampleRun(t, st, sampleRun("run-a", "py-bugfix", "2026-03-01T10:00:00Z"))
+	insertSampleRun(t, st, sampleRun("run-b", "py-bugfix", "2026-03-01T10:00:00Z"))
+
+	got, err := st.PreviousCompatibleRun(ctx, anchor)
+	if err != nil {
+		t.Fatalf("PreviousCompatibleRun: %v", err)
+	}
+	if got.ID != "run-b" {
+		t.Fatalf("previous tie = %s, want run-b", got.ID)
+	}
+}
+
 func TestInsertExperimentRoundTrip(t *testing.T) {
 	st := profileStore(t)
 	ctx := context.Background()

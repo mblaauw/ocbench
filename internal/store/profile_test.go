@@ -36,6 +36,34 @@ func sampleProfile(id, hash string) (ProfileRow, []ComponentRow) {
 	}
 }
 
+func TestGetProfileByIDRoundTrip(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	first, firstComps := sampleProfile("p1", "hash-1")
+	if err := st.InsertProfile(ctx, first, firstComps); err != nil {
+		t.Fatal(err)
+	}
+	second, secondComps := sampleProfile("p2", "hash-2")
+	if err := st.InsertProfile(ctx, second, secondComps); err != nil {
+		t.Fatal(err)
+	}
+
+	got, gotComps, err := st.GetProfileByID(ctx, "p2")
+	if err != nil {
+		t.Fatalf("GetProfileByID: %v", err)
+	}
+	if got.ID != "p2" || got.ProfileHash != "hash-2" || got.CanonicalJSON != `{"schema":1}` {
+		t.Fatalf("profile = %+v", got)
+	}
+	if len(gotComps) != 2 || gotComps[0].Kind != "agent" || gotComps[0].Name != "build" || gotComps[1].Kind != "primary" {
+		t.Fatalf("components = %+v", gotComps)
+	}
+
+	if _, _, err := st.GetProfileByID(ctx, "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing err = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestInsertProfileIsIdempotent(t *testing.T) {
 	st := profileStore(t)
 	ctx := context.Background()
