@@ -397,22 +397,24 @@ func (s *Store) LatestRun(ctx context.Context) (*RunRow, error) {
 }
 
 // PreviousCompatibleRun returns the newest non-dry run strictly older than the
-// anchor, matching suite name/version, task id/version and fixture SHA. The
-// (started_at, id) ordering keeps same-second runs deterministic, and the
-// comparison is a strict row-value less-than. It returns a wrapped
-// sql.ErrNoRows when no compatible predecessor exists.
+// anchor, matching suite name/version/hash, task id/version and fixture SHA.
+// Requiring the suite hash too means a changed suite body under the same
+// name/version is not treated as a controlled comparison. The (started_at, id)
+// ordering keeps same-second runs deterministic, and the comparison is a
+// strict row-value less-than. It returns a wrapped sql.ErrNoRows when no
+// compatible predecessor exists.
 func (s *Store) PreviousCompatibleRun(ctx context.Context, anchor RunRow) (*RunRow, error) {
 	row, err := scanRunRow(s.db.QueryRowContext(ctx, `
 		SELECT `+runColumns+`
 		FROM runs
 		WHERE dry_run = 0
-		  AND suite_name = ? AND suite_version = ?
+		  AND suite_name = ? AND suite_version = ? AND suite_hash = ?
 		  AND task_id = ? AND task_version = ?
 		  AND fixture_sha = ?
 		  AND (started_at, id) < (?, ?)
 		ORDER BY started_at DESC, id DESC
 		LIMIT 1`,
-		anchor.SuiteName, anchor.SuiteVersion,
+		anchor.SuiteName, anchor.SuiteVersion, anchor.SuiteHash,
 		anchor.TaskID, anchor.TaskVersion, anchor.FixtureSHA,
 		anchor.StartedAt, anchor.ID))
 	if errors.Is(err, sql.ErrNoRows) {

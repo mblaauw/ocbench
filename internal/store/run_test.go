@@ -556,6 +556,42 @@ func TestPreviousCompatibleRun(t *testing.T) {
 	}
 }
 
+func TestPreviousCompatibleRunSkipsChangedSuiteHash(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+
+	anchor := sampleRun("anchor", "py-bugfix", "2026-03-05T10:00:00Z")
+	match := sampleRun("match", "py-bugfix", "2026-03-03T10:00:00Z")
+	changed := sampleRun("changed", "py-bugfix", "2026-03-04T10:00:00Z")
+	changed.SuiteHash = "suite-hash-2"
+
+	for _, r := range []RunRow{anchor, match, changed} {
+		insertSampleRun(t, st, r)
+	}
+
+	got, err := st.PreviousCompatibleRun(ctx, anchor)
+	if err != nil {
+		t.Fatalf("PreviousCompatibleRun: %v", err)
+	}
+	if got.ID != "match" {
+		t.Fatalf("previous = %s, want match (changed suite hash must be skipped)", got.ID)
+	}
+
+	// When only a changed-suite-hash predecessor exists there is no controlled
+	// comparison, so the lookup must report no predecessor.
+	onlyAnchor := sampleRun("only-anchor", "py-bugfix", "2026-03-05T10:00:00Z")
+	onlyChanged := sampleRun("only-changed", "py-bugfix", "2026-03-04T10:00:00Z")
+	onlyChanged.SuiteHash = "suite-hash-2"
+	noMatch := profileStore(t)
+	insertSampleProfile(t, noMatch, "p1", "hash-1")
+	insertSampleRun(t, noMatch, onlyAnchor)
+	insertSampleRun(t, noMatch, onlyChanged)
+	if _, err := noMatch.PreviousCompatibleRun(ctx, onlyAnchor); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("changed-suite-only err = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestPreviousCompatibleRunTieBreaksByID(t *testing.T) {
 	st := profileStore(t)
 	ctx := context.Background()

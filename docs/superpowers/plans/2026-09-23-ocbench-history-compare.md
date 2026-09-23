@@ -38,7 +38,7 @@
 
 - [ ] Write failing tests that seed temp SQLite rows and assert sorted metric/validation reads, profile reconstruction by ID, newest non-dry selection, and previous compatibility filtering.
 - [ ] Run `go test ./internal/store -run 'Test(GetRunMetrics|ListRunValidations|LatestRun|PreviousCompatibleRun|GetProfileByID)' -count=1` and observe compile/behavior failures.
-- [ ] Implement query methods using `QueryContext`, scanning nullable fields exactly as existing `GetRun` does. `PreviousCompatibleRun` must use `(started_at,id) < (?,?)`, match suite/task/version/fixture, exclude `dry_run=1`, and order descending.
+- [ ] Implement query methods using `QueryContext`, scanning nullable fields exactly as existing `GetRun` does. `PreviousCompatibleRun` must use `(started_at,id) < (?,?)`, match suite name/version/hash plus task/version/fixture (a changed suite hash under the same name/version is not a controlled comparison), exclude `dry_run=1`, and order descending.
 - [ ] Re-run focused store tests, then `go test ./internal/store -count=1`.
 - [ ] Commit: `feat: add store read models for history`.
 
