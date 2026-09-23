@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -187,8 +188,32 @@ func TestRunReportsHealthyEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("schema version: %v", err)
 	}
-	if v != 1 {
-		t.Fatalf("schema version = %d, want 1", v)
+	// Derive the expected version from the embedded migration filenames
+	// (../store/migrations/NNNN_name.sql) instead of writing it down, so adding
+	// a migration cannot leave this health check asserting a stale version.
+	migs, err := filepath.Glob(filepath.Join("..", "store", "migrations", "*.sql"))
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	want := 0
+	for _, p := range migs {
+		prefix, _, ok := strings.Cut(filepath.Base(p), "_")
+		if !ok {
+			t.Fatalf("migration %s: expected NNNN_name.sql", p)
+		}
+		n, err := strconv.Atoi(prefix)
+		if err != nil {
+			t.Fatalf("migration %s: %v", p, err)
+		}
+		if n > want {
+			want = n
+		}
+	}
+	if want == 0 {
+		t.Fatal("no migrations found")
+	}
+	if v != want {
+		t.Fatalf("schema version = %d, want %d", v, want)
 	}
 }
 
