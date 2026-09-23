@@ -56,18 +56,16 @@ type Outcome struct {
 }
 
 // ParseArm parses an arm spec of the form "label=path" and resolves the path
-// into an Overlay. An empty label, an empty path or a missing separator is an
+// into an Overlay. A bare "label" or "label=" is the no-overlay arm (spec
+// §12.1's "none" kind, the unmodified resolved profile). An empty label is an
 // error. Duplicate labels across arms are the caller's validation.
 func ParseArm(spec string) (ArmSpec, error) {
-	label, path, ok := strings.Cut(spec, "=")
-	if !ok {
-		return ArmSpec{}, fmt.Errorf("arm %q: want label=path", spec)
-	}
+	label, path, _ := strings.Cut(spec, "=")
 	if label == "" {
 		return ArmSpec{}, fmt.Errorf("arm %q: empty label", spec)
 	}
 	if path == "" {
-		return ArmSpec{}, fmt.Errorf("arm %q: empty path", spec)
+		return ArmSpec{Label: label, Overlay: Overlay{Kind: OverlayNone}}, nil
 	}
 	overlay, err := ResolveOverlay(path)
 	if err != nil {
@@ -109,8 +107,8 @@ func Run(ctx context.Context, st *store.Store, req Request) (Outcome, error) {
 	if len(tasks) == 0 {
 		return Outcome{}, fmt.Errorf("experiment: no tasks to run")
 	}
-	if len(req.Arms) == 0 {
-		return Outcome{}, fmt.Errorf("experiment: no arms")
+	if len(req.Arms) < 2 {
+		return Outcome{}, fmt.Errorf("experiment: at least two arms are required")
 	}
 	if req.AdapterFor == nil {
 		return Outcome{}, fmt.Errorf("experiment: AdapterFor is required")

@@ -37,8 +37,9 @@ type Request struct {
 	DryRun       bool
 	KeepWorktree bool
 	// ExperimentID is written to runs.experiment_id verbatim. The experiments
-	// row is created by the CLI (Task 9); the runner only sets the column, so an
-	// unknown id is a foreign-key error and must already exist when non-empty.
+	// row is created by experiment.Run before any run; the runner only sets the
+	// column, so an unknown id is a foreign-key error and must already exist
+	// when non-empty.
 	ExperimentID string
 	// ArmID is written to runs.arm_id when non-empty; the experiment_arms row
 	// must already exist. An empty ArmID is stored as SQL NULL.

@@ -111,6 +111,24 @@ func TestParseArmValidDir(t *testing.T) {
 	}
 }
 
+func TestParseArmNone(t *testing.T) {
+	for _, spec := range []string{"A", "A="} {
+		got, err := ParseArm(spec)
+		if err != nil {
+			t.Fatalf("ParseArm(%q): %v", spec, err)
+		}
+		if got.Label != "A" {
+			t.Errorf("ParseArm(%q) label = %q, want A", spec, got.Label)
+		}
+		if got.Overlay.Kind != OverlayNone {
+			t.Errorf("ParseArm(%q) kind = %q, want %q", spec, got.Overlay.Kind, OverlayNone)
+		}
+		if got.Overlay.Path != "" || got.Overlay.SHA256 != "" || len(got.Overlay.Env) != 0 {
+			t.Errorf("ParseArm(%q) carried overlay data: %+v", spec, got.Overlay)
+		}
+	}
+}
+
 func TestParseArmInvalid(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "overlay.json")
@@ -119,10 +137,9 @@ func TestParseArmInvalid(t *testing.T) {
 	}
 
 	cases := map[string]string{
-		"empty label":  "=" + path,
-		"empty path":   "A=",
-		"no separator": "A" + path,
-		"empty spec":   "",
+		"empty label":        "=" + path,
+		"empty label, empty": "=",
+		"empty spec":         "",
 	}
 	for name, spec := range cases {
 		if _, err := ParseArm(spec); err == nil {
@@ -388,5 +405,32 @@ func TestRunRejectsBaselineNotAmongArms(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "baseline") {
 		t.Errorf("error %q does not mention baseline", err)
+	}
+}
+
+func TestRunRequiresTwoArms(t *testing.T) {
+	f := setupExperiment(t)
+	_, err := Run(context.Background(), f.st, Request{
+		Suite:      f.s,
+		Tasks:      f.tasks,
+		Arms:       []ArmSpec{{Label: "A"}},
+		Paths:      f.paths,
+		AdapterFor: func(ArmSpec) opencode.Adapter { return nil },
+		Repeat:     1,
+	})
+	if err == nil {
+		t.Fatal("Run with one arm: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "two arms") {
+		t.Errorf("error %q does not mention two arms", err)
+	}
+
+	var experiments int
+	if err := f.st.DB().QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM experiments`).Scan(&experiments); err != nil {
+		t.Fatal(err)
+	}
+	if experiments != 0 {
+		t.Errorf("experiment rows = %d, want 0 (nothing written)", experiments)
 	}
 }
