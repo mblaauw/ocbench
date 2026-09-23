@@ -37,6 +37,7 @@ type TaskRow struct {
 type RunRow struct {
 	ID              string
 	ExperimentID    string
+	ArmID           *string
 	RepeatIndex     int
 	ProfileID       string
 	ProfileHash     string
@@ -95,6 +96,15 @@ type ExperimentRow struct {
 	CreatedAt string
 }
 
+// ExperimentArmRow is one experiment_arms row: a labelled profile/overlay
+// variant of an experiment. ProfileID, OverlayPath and OverlaySHA256 are
+// nullable and read back as nil pointers.
+type ExperimentArmRow struct {
+	ID, ExperimentID, Label               string
+	ProfileID, OverlayPath, OverlaySHA256 *string
+	ProfileHash, OverlayKind, CreatedAt   string
+}
+
 // InsertExperiment writes an experiments row in one transaction. An existing
 // row with the same id is left untouched, so a retried insert is idempotent.
 func (s *Store) InsertExperiment(ctx context.Context, row ExperimentRow) error {
@@ -115,6 +125,110 @@ func (s *Store) InsertExperiment(ctx context.Context, row ExperimentRow) error {
 		return fmt.Errorf("insert experiment %s: %w", row.ID, err)
 	}
 	return nil
+}
+
+// armColumns is the shared experiment_arms projection; it must stay in sync
+// with scanArmRow.
+const armColumns = `id, experiment_id, label, profile_id, profile_hash,
+		       overlay_kind, overlay_path, overlay_sha256, created_at`
+
+// scanArmRow scans one row in armColumns order, mapping SQL NULL to nil
+// pointers for the optional columns.
+func scanArmRow(sc rowScanner) (ExperimentArmRow, error) {
+	var row ExperimentArmRow
+	err := sc.Scan(&row.ID, &row.ExperimentID, &row.Label, &row.ProfileID, &row.ProfileHash,
+		&row.OverlayKind, &row.OverlayPath, &row.OverlaySHA256, &row.CreatedAt)
+	return row, err
+}
+
+// InsertExperimentArm writes an experiment_arms row in one transaction. It
+// requires the experiment to exist and propagates the UNIQUE
+// (experiment_id, label) violation as an error rather than swallowing it.
+func (s *Store) InsertExperimentArm(ctx context.Context, a ExperimentArmRow) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("insert experiment arm: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO experiment_arms (
+			id, experiment_id, label, profile_id, profile_hash,
+			overlay_kind, overlay_path, overlay_sha256, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.ID, a.ExperimentID, a.Label, a.ProfileID, a.ProfileHash,
+		a.OverlayKind, a.OverlayPath, a.OverlaySHA256, rfc3339UTC(a.CreatedAt)); err != nil {
+		return fmt.Errorf("insert experiment arm %s: %w", a.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("insert experiment arm %s: %w", a.ID, err)
+	}
+	return nil
+}
+
+// GetExperimentArm returns an arm by id, or a wrapped sql.ErrNoRows when
+// absent.
+func (s *Store) GetExperimentArm(ctx context.Context, id string) (*ExperimentArmRow, error) {
+	row, err := scanArmRow(s.db.QueryRowContext(ctx,
+		`SELECT `+armColumns+` FROM experiment_arms WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("experiment arm %s: %w", id, sql.ErrNoRows)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get experiment arm %s: %w", id, err)
+	}
+	return &row, nil
+}
+
+// ListExperimentArms returns an experiment's arms ordered by label. An
+// experiment with no arms yields an empty slice, not an error.
+func (s *Store) ListExperimentArms(ctx context.Context, experimentID string) ([]ExperimentArmRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+armColumns+` FROM experiment_arms WHERE experiment_id = ? ORDER BY label`, experimentID)
+	if err != nil {
+		return nil, fmt.Errorf("list experiment arms %s: %w", experimentID, err)
+	}
+	defer rows.Close()
+
+	var out []ExperimentArmRow
+	for rows.Next() {
+		row, err := scanArmRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan experiment arm: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list experiment arms %s: %w", experimentID, err)
+	}
+	return out, nil
+}
+
+// RunsForExperiment returns an experiment's runs ordered by (started_at, id).
+// An experiment with no runs yields an empty slice, not an error.
+func (s *Store) RunsForExperiment(ctx context.Context, experimentID string) ([]RunRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+runColumns+`
+		FROM runs
+		WHERE experiment_id = ?
+		ORDER BY started_at, id`, experimentID)
+	if err != nil {
+		return nil, fmt.Errorf("runs for experiment %s: %w", experimentID, err)
+	}
+	defer rows.Close()
+
+	var out []RunRow
+	for rows.Next() {
+		row, err := scanRunRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan run: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("runs for experiment %s: %w", experimentID, err)
+	}
+	return out, nil
 }
 
 // InsertSuite upserts a suite in one transaction. An existing row for the same
@@ -171,13 +285,13 @@ func (s *Store) InsertRun(ctx context.Context, row RunRow) error {
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO runs (
-			id, experiment_id, repeat_index, profile_id, profile_hash,
+			id, experiment_id, arm_id, repeat_index, profile_id, profile_hash,
 			suite_id, suite_name, suite_version, suite_hash,
 			task_id, task_version, fixture_sha, opencode_version, ocbench_version,
 			model, agent, variant, status, dry_run, exit_code, session_id,
 			started_at, finished_at, duration_ms, artifacts_dir, error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		row.ID, nullString(row.ExperimentID), row.RepeatIndex, row.ProfileID, row.ProfileHash,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		row.ID, nullString(row.ExperimentID), row.ArmID, row.RepeatIndex, row.ProfileID, row.ProfileHash,
 		nullString(row.SuiteID), row.SuiteName, row.SuiteVersion, row.SuiteHash,
 		row.TaskID, row.TaskVersion, row.FixtureSHA, row.OpenCodeVersion, row.OCBenchVersion,
 		nullString(row.Model), nullString(row.Agent), nullString(row.Variant), row.Status, boolInt(row.DryRun),
@@ -254,7 +368,7 @@ func (s *Store) InsertRunValidations(ctx context.Context, runID string, vals []V
 
 // runColumns is the shared runs projection; it must stay in sync with
 // scanRunRow.
-const runColumns = `id, COALESCE(experiment_id, ''), repeat_index, profile_id, profile_hash,
+const runColumns = `id, COALESCE(experiment_id, ''), arm_id, repeat_index, profile_id, profile_hash,
 		       COALESCE(suite_id, ''), suite_name, suite_version, suite_hash,
 		       task_id, task_version, fixture_sha, opencode_version, ocbench_version,
 		       COALESCE(model, ''), COALESCE(agent, ''), COALESCE(variant, ''),
@@ -271,7 +385,7 @@ type rowScanner interface {
 // zero values the insert helpers write.
 func scanRunRow(sc rowScanner) (RunRow, error) {
 	var row RunRow
-	err := sc.Scan(&row.ID, &row.ExperimentID, &row.RepeatIndex, &row.ProfileID, &row.ProfileHash,
+	err := sc.Scan(&row.ID, &row.ExperimentID, &row.ArmID, &row.RepeatIndex, &row.ProfileID, &row.ProfileHash,
 		&row.SuiteID, &row.SuiteName, &row.SuiteVersion, &row.SuiteHash,
 		&row.TaskID, &row.TaskVersion, &row.FixtureSHA, &row.OpenCodeVersion, &row.OCBenchVersion,
 		&row.Model, &row.Agent, &row.Variant, &row.Status, &row.DryRun, &row.ExitCode, &row.SessionID,

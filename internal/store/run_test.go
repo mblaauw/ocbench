@@ -648,3 +648,207 @@ func TestInsertExperimentRoundTrip(t *testing.T) {
 		t.Fatalf("experiments = %d, want 1", n)
 	}
 }
+
+// sampleArm builds an experiment arm whose profile reference is p1.
+func sampleArm(id, experimentID, label string) ExperimentArmRow {
+	profileID := "p1"
+	return ExperimentArmRow{
+		ID:           id,
+		ExperimentID: experimentID,
+		Label:        label,
+		ProfileID:    &profileID,
+		ProfileHash:  "hash-1",
+		OverlayKind:  "none",
+		CreatedAt:    "2026-03-01T10:00:00Z",
+	}
+}
+
+// insertSampleExperiment inserts the profile, experiment and arm a run-level
+// arm test needs.
+func insertSampleExperiment(t *testing.T, st *Store, exp ExperimentRow) {
+	t.Helper()
+	insertSampleProfile(t, st, "p1", "hash-1")
+	if err := st.InsertExperiment(context.Background(), exp); err != nil {
+		t.Fatalf("InsertExperiment: %v", err)
+	}
+}
+
+func TestExperimentArmRoundTrip(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleExperiment(t, st, ExperimentRow{
+		ID: "exp-1", Name: "run core@1", SpecJSON: `{"repeat":2}`, CreatedAt: "2026-03-01T10:00:00Z",
+	})
+
+	profileID := "p1"
+	overlayPath := "overlays/a.patch"
+	overlaySHA := "deadbeef"
+	want := ExperimentArmRow{
+		ID:            "arm-1",
+		ExperimentID:  "exp-1",
+		Label:         "baseline",
+		ProfileID:     &profileID,
+		ProfileHash:   "hash-1",
+		OverlayKind:   "patch",
+		OverlayPath:   &overlayPath,
+		OverlaySHA256: &overlaySHA,
+		CreatedAt:     "2026-03-01T10:00:00Z",
+	}
+	if err := st.InsertExperimentArm(ctx, want); err != nil {
+		t.Fatalf("InsertExperimentArm: %v", err)
+	}
+
+	got, err := st.GetExperimentArm(ctx, "arm-1")
+	if err != nil {
+		t.Fatalf("GetExperimentArm: %v", err)
+	}
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("arm round trip:\n got %+v\nwant %+v", *got, want)
+	}
+
+	// Nullable columns read back as nil pointers.
+	if err := st.InsertExperimentArm(ctx, ExperimentArmRow{
+		ID: "arm-2", ExperimentID: "exp-1", Label: "no-overlay",
+		ProfileID: nil, ProfileHash: "hash-1", OverlayKind: "none",
+		CreatedAt: "2026-03-01T10:00:00Z",
+	}); err != nil {
+		t.Fatalf("InsertExperimentArm nullable: %v", err)
+	}
+	nullable, err := st.GetExperimentArm(ctx, "arm-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nullable.ProfileID != nil || nullable.OverlayPath != nil || nullable.OverlaySHA256 != nil {
+		t.Fatalf("nullable arm pointers = %v/%v/%v, want nil", nullable.ProfileID, nullable.OverlayPath, nullable.OverlaySHA256)
+	}
+
+	if _, err := st.GetExperimentArm(ctx, "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetExperimentArm(missing) err = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestListExperimentArmsLabelOrder(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleExperiment(t, st, ExperimentRow{
+		ID: "exp-1", Name: "run core@1", SpecJSON: `{}`, CreatedAt: "2026-03-01T10:00:00Z",
+	})
+
+	for _, a := range []ExperimentArmRow{
+		sampleArm("arm-c", "exp-1", "candidate"),
+		sampleArm("arm-a", "exp-1", "baseline"),
+		sampleArm("arm-b", "exp-1", "boosted"),
+	} {
+		if err := st.InsertExperimentArm(ctx, a); err != nil {
+			t.Fatalf("InsertExperimentArm %s: %v", a.ID, err)
+		}
+	}
+
+	got, err := st.ListExperimentArms(ctx, "exp-1")
+	if err != nil {
+		t.Fatalf("ListExperimentArms: %v", err)
+	}
+	var labels []string
+	for _, a := range got {
+		labels = append(labels, a.Label)
+	}
+	if want := []string{"baseline", "boosted", "candidate"}; !reflect.DeepEqual(labels, want) {
+		t.Fatalf("label order = %v, want %v", labels, want)
+	}
+
+	empty, err := st.ListExperimentArms(ctx, "no-such-exp")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("missing arms = %+v, %v, want empty", empty, err)
+	}
+}
+
+func TestInsertExperimentArmDuplicateLabelFails(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleExperiment(t, st, ExperimentRow{
+		ID: "exp-1", Name: "run core@1", SpecJSON: `{}`, CreatedAt: "2026-03-01T10:00:00Z",
+	})
+	if err := st.InsertExperimentArm(ctx, sampleArm("arm-1", "exp-1", "baseline")); err != nil {
+		t.Fatalf("InsertExperimentArm: %v", err)
+	}
+	// A different id with the same (experiment_id, label) violates UNIQUE.
+	if err := st.InsertExperimentArm(ctx, sampleArm("arm-2", "exp-1", "baseline")); err == nil {
+		t.Fatal("duplicate (experiment_id,label) insert succeeded, want error")
+	}
+	// The same label under a different experiment is allowed.
+	if err := st.InsertExperiment(ctx, ExperimentRow{
+		ID: "exp-2", Name: "run core@1", SpecJSON: `{}`, CreatedAt: "2026-03-01T10:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertExperimentArm(ctx, sampleArm("arm-3", "exp-2", "baseline")); err != nil {
+		t.Fatalf("same label in another experiment: %v", err)
+	}
+}
+
+func TestDeleteExperimentCascadesArms(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleExperiment(t, st, ExperimentRow{
+		ID: "exp-1", Name: "run core@1", SpecJSON: `{}`, CreatedAt: "2026-03-01T10:00:00Z",
+	})
+	if err := st.InsertExperimentArm(ctx, sampleArm("arm-1", "exp-1", "baseline")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `DELETE FROM experiments WHERE id = 'exp-1'`); err != nil {
+		t.Fatalf("delete experiment: %v", err)
+	}
+	var n int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM experiment_arms`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("experiment_arms after cascade = %d, want 0", n)
+	}
+}
+
+func TestRunsForExperiment(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+	insertSampleProfile(t, st, "p1", "hash-1")
+	for _, exp := range []ExperimentRow{
+		{ID: "exp-1", Name: "run core@1", SpecJSON: `{}`, CreatedAt: "2026-03-01T10:00:00Z"},
+		{ID: "exp-2", Name: "run core@1", SpecJSON: `{}`, CreatedAt: "2026-03-02T10:00:00Z"},
+	} {
+		if err := st.InsertExperiment(ctx, exp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	armID := "arm-1"
+	if err := st.InsertExperimentArm(ctx, sampleArm(armID, "exp-1", "baseline")); err != nil {
+		t.Fatal(err)
+	}
+
+	mine := sampleRun("run-1", "py-bugfix", "2026-03-01T10:00:00Z")
+	mine.ExperimentID = "exp-1"
+	mine.ArmID = &armID
+	later := sampleRun("run-2", "py-bugfix", "2026-03-01T12:00:00Z")
+	later.ExperimentID = "exp-1"
+	later.ArmID = &armID
+	other := sampleRun("run-3", "py-bugfix", "2026-03-01T11:00:00Z")
+	other.ExperimentID = "exp-2"
+	for _, r := range []RunRow{later, other, mine} {
+		insertSampleRun(t, st, r)
+	}
+
+	got, err := st.RunsForExperiment(ctx, "exp-1")
+	if err != nil {
+		t.Fatalf("RunsForExperiment: %v", err)
+	}
+	if want := []string{"run-1", "run-2"}; !reflect.DeepEqual(runIDs(got), want) {
+		t.Fatalf("runs = %v, want %v", runIDs(got), want)
+	}
+	if got[0].ArmID == nil || *got[0].ArmID != armID {
+		t.Fatalf("run-1 arm = %v, want %q", got[0].ArmID, armID)
+	}
+
+	empty, err := st.RunsForExperiment(ctx, "no-such-exp")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("missing runs = %+v, %v, want empty", empty, err)
+	}
+}
