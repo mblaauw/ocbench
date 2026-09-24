@@ -142,11 +142,17 @@ func ParseExport(data []byte) (*Session, error) {
 			if p.Type != "tool" {
 				continue
 			}
+			dur := p.State.Time.End - p.State.Time.Start
+			if dur < 0 {
+				// A tool still running has a start but no end; never report a
+				// negative duration.
+				dur = 0
+			}
 			msg.Tools = append(msg.Tools, ToolCall{
 				Name:       p.Tool,
 				Title:      p.State.Title,
 				Status:     p.State.Status,
-				DurationMS: p.State.Time.End - p.State.Time.Start,
+				DurationMS: dur,
 			})
 		}
 		s.Messages = append(s.Messages, msg)

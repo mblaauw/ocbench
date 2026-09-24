@@ -236,6 +236,85 @@ func TestRollupEmpty(t *testing.T) {
 	}
 }
 
+// TestRollupUsesMessageLevelNotSessionLevel pins spec §13.3: the roll-up uses
+// each message's info.agent/tokens/cost, not the session-level info totals.
+// The session totals here are deliberately much larger than the message sums.
+func TestRollupUsesMessageLevelNotSessionLevel(t *testing.T) {
+	data := []byte(`{"info":{"id":"ses_agg","agent":"build","cost":99,"tokens":{"total":9999,"input":9000,"output":900,"reasoning":90,"cache":{"read":9,"write":0}}},"messages":[
+		{"info":{"agent":"build","cost":0.25,"tokens":{"total":11,"input":7,"output":2,"reasoning":1,"cache":{"read":1,"write":0}}},"parts":[
+			{"type":"tool","tool":"bash","state":{"status":"completed","time":{"start":100,"end":200}}}
+		]},
+		{"info":{"agent":"explore","cost":0.75,"tokens":{"total":22,"input":14,"output":4,"reasoning":2,"cache":{"read":2,"write":0}}},"parts":[]}
+	]}`)
+	s, err := ParseExport(data)
+	if err != nil {
+		t.Fatalf("ParseExport: %v", err)
+	}
+	got := Rollup([]*Session{s})
+	if len(got) != 2 {
+		t.Fatalf("len(Rollup) = %d, want 2: %+v", len(got), got)
+	}
+	if got[0].Agent != "build" || got[1].Agent != "explore" {
+		t.Fatalf("order = [%q, %q], want [build, explore]", got[0].Agent, got[1].Agent)
+	}
+	build := got[0]
+	if build.Messages != 1 || build.ToolCalls != 1 {
+		t.Fatalf("build counts = %+v", build)
+	}
+	wantCost(t, build.Cost, 0.25)
+	if build.Tokens.Total != 11 || build.Tokens.Input != 7 {
+		t.Fatalf("build tokens = %+v, want message-derived 11/7 (not session 9999/9000)", build.Tokens)
+	}
+	explore := got[1]
+	if explore.Messages != 1 {
+		t.Fatalf("explore counts = %+v", explore)
+	}
+	wantCost(t, explore.Cost, 0.75)
+	if explore.Tokens.Total != 22 {
+		t.Fatalf("explore tokens = %+v, want message-derived 22 (not session 9999)", explore.Tokens)
+	}
+}
+
+func TestRollupAggregatesSameAgentAcrossSessions(t *testing.T) {
+	s1, err := ParseExport([]byte(`{"info":{"id":"ses_1","agent":"x"},"messages":[{"info":{"agent":"x","cost":1,"tokens":{"total":10,"input":10}},"parts":[]}]}`))
+	if err != nil {
+		t.Fatalf("ParseExport s1: %v", err)
+	}
+	s2, err := ParseExport([]byte(`{"info":{"id":"ses_2","agent":"x"},"messages":[{"info":{"agent":"x","cost":2,"tokens":{"total":20,"input":20}},"parts":[]}]}`))
+	if err != nil {
+		t.Fatalf("ParseExport s2: %v", err)
+	}
+	got := Rollup([]*Session{s1, s2})
+	if len(got) != 1 {
+		t.Fatalf("len(Rollup) = %d, want 1 merged entry: %+v", len(got), got)
+	}
+	if got[0].Agent != "x" || got[0].Messages != 2 {
+		t.Fatalf("rollup = %+v, want agent x with 2 messages", got[0])
+	}
+	wantCost(t, got[0].Cost, 3)
+	if got[0].Tokens.Total != 30 || got[0].Tokens.Input != 30 {
+		t.Fatalf("tokens = %+v, want 30", got[0].Tokens)
+	}
+}
+
+func TestParseExportClampsNegativeDuration(t *testing.T) {
+	data := []byte(`{"info":{"id":"ses_clamp","agent":"build"},"messages":[
+		{"info":{"agent":"build"},"parts":[
+			{"type":"tool","tool":"bash","state":{"status":"running","time":{"start":500}}}
+		]}
+	]}`)
+	s, err := ParseExport(data)
+	if err != nil {
+		t.Fatalf("ParseExport: %v", err)
+	}
+	if len(s.Messages) != 1 || len(s.Messages[0].Tools) != 1 {
+		t.Fatalf("messages = %+v", s.Messages)
+	}
+	if got := s.Messages[0].Tools[0].DurationMS; got != 0 {
+		t.Fatalf("DurationMS = %d, want clamped 0", got)
+	}
+}
+
 func mustEvent(t *testing.T, line string) evaluation.Event {
 	t.Helper()
 	e, err := evaluation.ParseLine([]byte(line))
