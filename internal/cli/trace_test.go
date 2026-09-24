@@ -162,16 +162,68 @@ func TestTraceHumanNestsSubagentUnderTask(t *testing.T) {
 			t.Fatalf("trace output missing %q:\n%s", want, out)
 		}
 	}
-	taskIdx := strings.Index(out, "List files in directory")
-	childIdx := strings.Index(out, "explore")
-	if taskIdx < 0 || childIdx < 0 || childIdx < taskIdx {
-		t.Fatalf("child not nested under task line:\n%s", out)
+	// The child span must be nested directly under its task line, not merely
+	// appear somewhere after it (which appending children at the end would
+	// also satisfy).
+	lines := strings.Split(out, "\n")
+	taskLineIdx := -1
+	for i, l := range lines {
+		if strings.Contains(l, "List files in directory") {
+			taskLineIdx = i
+			break
+		}
 	}
-	// The child line must be indented further than the task line.
-	taskLine := out[strings.LastIndex(out[:taskIdx], "\n")+1:]
-	childLine := out[strings.LastIndex(out[:childIdx], "\n")+1:]
-	if !strings.HasPrefix(childLine, "    ") || strings.HasPrefix(taskLine, "    ") {
-		t.Fatalf("unexpected indentation:\ntask=%q\nchild=%q", taskLine, childLine)
+	if taskLineIdx < 0 {
+		t.Fatalf("task line missing:\n%s", out)
+	}
+	if taskLineIdx+1 >= len(lines) {
+		t.Fatalf("task line has no following child line:\n%s", out)
+	}
+	taskLine := lines[taskLineIdx]
+	childLine := lines[taskLineIdx+1]
+	if strings.HasPrefix(taskLine, "    ") {
+		t.Fatalf("task line unexpectedly indented: %q", taskLine)
+	}
+	if !strings.HasPrefix(childLine, "    ") || !strings.Contains(childLine, "explore") {
+		t.Fatalf("child line does not immediately follow its task line:\ntask=%q\nnext=%q", taskLine, childLine)
+	}
+}
+
+func TestTraceEmptyEventsJSONShape(t *testing.T) {
+	d, st := traceTestDeps(t)
+	dir := t.TempDir()
+	// The file exists but carries no events: this is a valid run, not an
+	// infrastructure failure.
+	if err := os.WriteFile(filepath.Join(dir, "events.jsonl"), nil, 0o644); err != nil {
+		t.Fatalf("write empty events: %v", err)
+	}
+	r := historyBaseRun("run-empty", "2026-01-01T00:00:00Z", cliTaskID, "p1", "hash-1")
+	r.ArtifactsDir = dir
+	seedHistoryRun(t, st, r)
+
+	out, err := runTraceCmd(t, d, "run-empty", "--json")
+	if err != nil {
+		t.Fatalf("trace empty events: %v\n%s", err, out)
+	}
+	var doc struct {
+		RunID     string            `json:"run_id"`
+		TaskID    string            `json:"task_id"`
+		Steps     []json.RawMessage `json:"steps"`
+		Subagents []json.RawMessage `json:"subagents"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("decode trace JSON: %v\n%s", err, out)
+	}
+	if doc.Steps == nil || doc.Subagents == nil {
+		t.Fatalf("empty slices must be [] not null: steps=%v subagents=%v\n%s", doc.Steps, doc.Subagents, out)
+	}
+	if len(doc.Steps) != 0 || len(doc.Subagents) != 0 {
+		t.Fatalf("steps=%d subagents=%d, want 0", len(doc.Steps), len(doc.Subagents))
+	}
+	for _, key := range []string{`"steps": []`, `"subagents": []`} {
+		if !strings.Contains(out, key) {
+			t.Fatalf("JSON missing empty array %s:\n%s", key, out)
+		}
 	}
 }
 
