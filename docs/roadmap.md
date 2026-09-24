@@ -64,10 +64,18 @@ straightforward implementation gets wrong:
 | `go-pager-cursor` | Go | cursor pagination that loses rows when ranks tie; the visible test uses distinct ranks only, the hidden test walks every page size |
 | `js-allocate-cents` | JavaScript | splitting an amount without losing a cent — largest remainder with ties to the left, validated over several totals |
 
-The `tier` field is a declaration, not a measurement: no task here has a
-characterised failure rate, so "a strong model fails it 30–70% of the time" is
-still an intention rather than a fact. Characterising them needs repeated runs
-across models, which is what `experiment` is for.
+**Live characterisation says none of it is hard yet.** A first pass with a cheap
+model at its lowest variant passed ten of eleven runs — both `hard` tasks among
+them — at 50–110k tokens and 13–42 seconds per task. The one failure was a task
+defect (a prompt and its hidden test disagreed about the pager cursor), fixed in
+`bd03618`. See
+[evidence/2026-09-24-live-suite-characterisation.md](evidence/2026-09-24-live-suite-characterisation.md).
+
+So `tier` is a declaration, not a measurement: `hard` currently means "an
+implementation without care gets the boundary wrong", not "a strong model
+usually fails". Making the tiers real is task authoring — the machinery
+(hidden tests, reference proofs, `diff`/`grep`/`process` validators, partial
+credit) is in place, but the fixtures are still small and mostly single-file.
 
 ## Unscheduled review items
 
