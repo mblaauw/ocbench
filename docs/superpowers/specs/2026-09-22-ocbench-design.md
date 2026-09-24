@@ -451,6 +451,8 @@ run request
       stdout → events.jsonl (line-buffered, streamed)
       timeout → process-group SIGTERM then SIGKILL
   → opencode export <sessionID> → session.json (cross-check)
+  → discover delegated child sessions from task tool metadata, export each
+      recursively → sessions/<child-id>.json, roll up per-agent usage
   → git status/diff versus baseline SHA → diff.patch, changed-files metrics
   → validators with sandboxed env → validation results
   → normalise events → metrics, aggregate result.json
@@ -503,6 +505,25 @@ cost, tool calls) can be added without a schema change; a plain name is always
 run-scoped. Experiment-level statistics are derived at read time and never
 stored, so a statistics fix re-reads history without a migration.
 
+Per-agent roll-ups come from the exported session files (see §13) and use:
+
+```
+agent.<name>.messages, agent.<name>.cost
+agent.<name>.tokens_input, agent.<name>.tokens_output,
+agent.<name>.tokens_reasoning, agent.<name>.tokens_cache_read,
+agent.<name>.tokens_cache_write, agent.<name>.tokens_total
+agent.<name>.tool_calls, agent.<name>.tool_calls_failed
+subagent_sessions, subagent_tokens_total, subagent_cost,
+subagent_export_failures
+session_crosscheck_tokens_delta
+```
+
+`subagent_*` count only delegated child sessions; the primary agent's own
+session is covered by the existing run-scoped metrics. `session_crosscheck_tokens_delta`
+is the absolute difference between event-derived `tokens_total` and the primary
+session export's own total, so the cross-check the pipeline promises is a number
+rather than an assumption.
+
 ## 10. Commands (v0.1)
 
 ```
@@ -513,6 +534,7 @@ ocbench run <suite> [task] [--repeat N] [--dry-run] [--suite-dir P]
                      [--agent A] [--model M] [--variant V]
                      [--inherit-environment] [--keep-worktree] [--json]
 ocbench history [--task T] [--limit N] [--json]
+ocbench trace <run-id> [--json]         # per-step timeline with subagent spans
 ocbench compare <a> <b> [--json]        # ids, hashes, "latest", "previous"
 ocbench experiment run [suite] [task...] --profile A=<path> --profile B=<path>
                        [--repeat N] [--baseline A] [--exit-on-regression] [--json]
@@ -645,3 +667,57 @@ can ingest results without re-reading SQLite:
 
 `schema_version` is the contract: additive changes keep the version, breaking
 changes bump it.
+
+## 13. Subagents and sessions
+
+A primary agent can delegate work with the `task` tool. The subagent runs in its
+own OpenCode session, and that session's tokens and cost are **not** part of the
+parent's totals — so a run that delegates is under-reported until child sessions
+are captured. Verified against OpenCode 1.18.32: a one-delegation probe recorded
+25,175 parent tokens and 5,653 child tokens, with the child absent from the
+parent's `info.tokens`, from the sum of the parent's messages, and from the
+event stream's `step_finish` totals.
+
+### 13.1 Discovery
+
+The child session id is read from the `task` tool part already present in the
+event stream:
+
+```
+part.tool == "task"
+part.state.metadata.sessionId       → the child session
+part.state.metadata.parentSessionId → the session that spawned it
+```
+
+Discovery is recursive: an exported child session may itself contain `task`
+parts, so children of children are captured too. Traversal stops at a depth of
+five and visits each session id at most once, so a malformed or cyclic stream
+cannot loop.
+
+### 13.2 Capture
+
+After the primary session is exported, each discovered child is exported with
+the same `export` call and written to `runs/<run-id>/sessions/<child-session-id>.json`.
+A child export that fails does not fail the run: the failure count is recorded
+in `subagent_export_failures` and the run keeps the sessions it did capture.
+Session files are artifacts like any other: they are not served by the
+dashboard and they never enter a worktree.
+
+### 13.3 Roll-up
+
+Every captured session, primary included, contributes per-agent metrics under
+the `agent.<name>.<metric>` names in §9, using each message's `info.agent`,
+`info.tokens` and `info.cost`. `subagent_sessions`, `subagent_tokens_total` and
+`subagent_cost` aggregate the child sessions only. Because the roll-up is
+derived from stored session files, a later parser or aggregation fix can
+recompute it without re-running a model.
+
+### 13.4 Trace
+
+`ocbench trace <run-id>` renders one run as a timeline: steps in order, each tool
+call with its status and duration, subagent spans nested under the `task` call
+that produced them (with the subagent's name, tokens and cost), and retries and
+compactions. `--json` emits the same structure with stable keys. The trace is
+built from the run's stored events and session files, so it works for any
+persisted run, including ones recorded before this section existed — those
+simply have no child sessions to show.
