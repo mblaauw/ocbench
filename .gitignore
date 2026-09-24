@@ -5,3 +5,4 @@
 *.db-wal
 .ocbench/
 .worktrees/
+.playwright-mcp/
