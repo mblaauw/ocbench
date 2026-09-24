@@ -223,6 +223,53 @@ func TestTraceBuildRetryCompactionCounters(t *testing.T) {
 	}
 }
 
+// TestTraceBuildRetryBetweenStepsStaysOnFirstStep pins the attribution
+// boundary: a retry after step_finish and before the next step_start attaches
+// to the just-finished step, not a synthetic step 0.
+func TestTraceBuildRetryBetweenStepsStaysOnFirstStep(t *testing.T) {
+	events := syntheticEvents(t,
+		`{"type":"step_start","timestamp":10,"part":{"type":"step-start"}}`,
+		`{"type":"step_finish","timestamp":20,"part":{"type":"step-finish","tokens":{"total":5,"input":5,"output":0,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0.1}}`,
+		`{"type":"retry","timestamp":21,"part":{"type":"retry","attempt":1}}`,
+		`{"type":"step_start","timestamp":30,"part":{"type":"step-start"}}`,
+		`{"type":"step_finish","timestamp":40,"part":{"type":"step-finish","tokens":{"total":5,"input":5,"output":0,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0.1}}`,
+	)
+	tr := Build("run-1", "t", events, nil)
+
+	if len(tr.Steps) != 2 {
+		t.Fatalf("steps = %d, want 2", len(tr.Steps))
+	}
+	if tr.Steps[0].Retries != 1 {
+		t.Fatalf("first step retries = %d, want 1", tr.Steps[0].Retries)
+	}
+	if tr.Steps[1].Retries != 0 {
+		t.Fatalf("second step retries = %d, want 0", tr.Steps[1].Retries)
+	}
+}
+
+// TestToSessionTokensComputesTotalWhenMissing proves a step_finish without an
+// explicit total is summed rather than reported as zero.
+func TestToSessionTokensComputesTotalWhenMissing(t *testing.T) {
+	tok := &evaluation.Tokens{Input: 10, Output: 2, Reasoning: 1}
+	tok.Cache.Read = 3
+	tok.Cache.Write = 4
+	got := toSessionTokens(tok)
+	if got.Total != 16 {
+		t.Fatalf("Total = %d, want 16 (10+2+1+3)", got.Total)
+	}
+	if got.CacheWrite != 4 {
+		t.Fatalf("CacheWrite = %d, want 4", got.CacheWrite)
+	}
+}
+
+// TestToSessionTokensKeepsExplicitTotal proves a non-zero total is preserved.
+func TestToSessionTokensKeepsExplicitTotal(t *testing.T) {
+	tok := &evaluation.Tokens{Total: 99, Input: 10, Output: 2, Reasoning: 1}
+	if got := toSessionTokens(tok); got.Total != 99 {
+		t.Fatalf("Total = %d, want explicit 99", got.Total)
+	}
+}
+
 func TestTraceBuildSubagentsFirstAppearanceOrder(t *testing.T) {
 	events := syntheticEvents(t,
 		`{"type":"step_start","timestamp":10,"part":{"type":"step-start"}}`,

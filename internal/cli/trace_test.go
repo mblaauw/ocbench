@@ -227,6 +227,34 @@ func TestTraceEmptyEventsJSONShape(t *testing.T) {
 	}
 }
 
+// TestReadTraceSessionsSkipsCorruptChild pins the tolerant reader: one good and
+// one unparseable child file yield the good session and no error.
+func TestReadTraceSessionsSkipsCorruptChild(t *testing.T) {
+	dir := t.TempDir()
+	sessionsDir := filepath.Join(dir, "sessions")
+	if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	good := `{"info":{"id":"ses_good","agent":"explore"},"messages":[]}`
+	if err := os.WriteFile(filepath.Join(sessionsDir, "ses_good.json"), []byte(good), 0o644); err != nil {
+		t.Fatalf("write good session: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionsDir, "ses_bad.json"), []byte("{not json"), 0o644); err != nil {
+		t.Fatalf("write corrupt session: %v", err)
+	}
+
+	got, err := readTraceSessions(dir)
+	if err != nil {
+		t.Fatalf("readTraceSessions: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(got))
+	}
+	if s, ok := got["ses_good"]; !ok || s.Agent != "explore" {
+		t.Fatalf("good session = %+v, want ses_good/explore", s)
+	}
+}
+
 func TestTraceUnknownRunIsUsageError(t *testing.T) {
 	d, _ := traceTestDeps(t)
 	out, err := runTraceCmd(t, d, "no-such-run")

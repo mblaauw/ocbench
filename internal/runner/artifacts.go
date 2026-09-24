@@ -412,11 +412,35 @@ func sessionMetrics(c SessionCapture, eventTokensTotal float64) map[string]float
 		sessions = append(sessions, c.Primary)
 	}
 	sessions = append(sessions, c.Children...)
+	// Distinct raw agent names can sanitise to the same metric-key element
+	// (e.g. "code-reviewer" and "code_reviewer"), so merge their rollups
+	// rather than letting a later one overwrite an earlier one. The merge
+	// count is surfaced so the ambiguity is visible in the metrics.
+	merged := make(map[string]session.AgentRollup)
+	collisions := 0
 	for _, r := range session.Rollup(sessions) {
 		name := evaluation.SanitizeName(r.Agent)
 		if name == "" {
 			name = "unknown"
 		}
+		if prev, ok := merged[name]; ok {
+			prev.Messages += r.Messages
+			prev.Cost += r.Cost
+			prev.Tokens.Input += r.Tokens.Input
+			prev.Tokens.Output += r.Tokens.Output
+			prev.Tokens.Reasoning += r.Tokens.Reasoning
+			prev.Tokens.CacheRead += r.Tokens.CacheRead
+			prev.Tokens.CacheWrite += r.Tokens.CacheWrite
+			prev.Tokens.Total += r.Tokens.Total
+			prev.ToolCalls += r.ToolCalls
+			prev.ToolCallsFailed += r.ToolCallsFailed
+			merged[name] = prev
+			collisions++
+			continue
+		}
+		merged[name] = r
+	}
+	for name, r := range merged {
 		prefix := "agent." + name + "."
 		out[prefix+"messages"] = float64(r.Messages)
 		out[prefix+"cost"] = r.Cost
@@ -428,6 +452,9 @@ func sessionMetrics(c SessionCapture, eventTokensTotal float64) map[string]float
 		out[prefix+"tokens_total"] = float64(r.Tokens.Total)
 		out[prefix+"tool_calls"] = float64(r.ToolCalls)
 		out[prefix+"tool_calls_failed"] = float64(r.ToolCallsFailed)
+	}
+	if collisions > 0 {
+		out["agent_name_collisions"] = float64(collisions)
 	}
 	if len(c.Children) > 0 {
 		var tokens int64

@@ -140,6 +140,30 @@ func TestParseExportUsesExplicitTotal(t *testing.T) {
 	}
 }
 
+// TestParseExportClampsNegativeTokens pins the rule that negative token
+// components and an explicit negative total are floored at zero.
+func TestParseExportClampsNegativeTokens(t *testing.T) {
+	data := []byte(`{"info":{"id":"ses_neg","tokens":{"total":-7,"input":-1,"output":2,"reasoning":-3,"cache":{"read":-4,"write":-5}}}}`)
+	s, err := ParseExport(data)
+	if err != nil {
+		t.Fatalf("ParseExport: %v", err)
+	}
+	want := Tokens{Output: 2}
+	if s.Tokens != want {
+		t.Fatalf("Tokens = %+v, want %+v", s.Tokens, want)
+	}
+
+	// Without an explicit total the computed sum uses the clamped components.
+	data = []byte(`{"info":{"id":"ses_neg2","tokens":{"input":-1,"output":2,"reasoning":-3,"cache":{"read":-4}}}}`)
+	s, err = ParseExport(data)
+	if err != nil {
+		t.Fatalf("ParseExport: %v", err)
+	}
+	if s.Tokens.Total != 2 {
+		t.Fatalf("Tokens.Total = %d, want 2", s.Tokens.Total)
+	}
+}
+
 func TestParseExportTolerantOfMissingFields(t *testing.T) {
 	s, err := ParseExport([]byte(`{"info":{"id":"ses_min"}}`))
 	if err != nil {

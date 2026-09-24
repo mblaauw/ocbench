@@ -1476,6 +1476,34 @@ func TestSessionMetricsSanitizesAgentNames(t *testing.T) {
 	wantMetric(t, got, "agent.unknown.tokens_total", 7)
 }
 
+// TestSessionMetricsMergesCollidingAgentNames pins the collision rule: two
+// distinct raw agent names that sanitise to the same key are summed into one
+// rollup, and the merge is counted so the ambiguity is visible.
+func TestSessionMetricsMergesCollidingAgentNames(t *testing.T) {
+	s, err := session.ParseExport([]byte(`{"info":{"id":"ses_c"},"messages":[
+		{"info":{"agent":"code-reviewer","cost":1.5,"tokens":{"input":10,"output":2,"reasoning":1,"cache":{"read":3,"write":4}}},"parts":[{"type":"tool","tool":"read","state":{"status":"completed"}}]},
+		{"info":{"agent":"code_reviewer","cost":0.5,"tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}}},"parts":[{"type":"tool","tool":"read","state":{"status":"error"}}]}
+	]}`))
+	if err != nil {
+		t.Fatalf("ParseExport: %v", err)
+	}
+	got := sessionMetrics(SessionCapture{Primary: s}, 0)
+	for name, want := range map[string]float64{
+		"agent.code_reviewer.messages":          2,
+		"agent.code_reviewer.cost":              2,
+		"agent.code_reviewer.tokens_input":      15,
+		"agent.code_reviewer.tokens_output":     3,
+		"agent.code_reviewer.tokens_reasoning":  1,
+		"agent.code_reviewer.tokens_cache_read": 3,
+		"agent.code_reviewer.tokens_total":      22,
+		"agent.code_reviewer.tool_calls":        2,
+		"agent.code_reviewer.tool_calls_failed": 1,
+		"agent_name_collisions":                 1,
+	} {
+		wantMetric(t, got, name, want)
+	}
+}
+
 // TestRunContinuesOnChildExportFailure proves a child export error does not
 // fail the run: result.json is still written and no child file appears.
 func TestRunContinuesOnChildExportFailure(t *testing.T) {

@@ -72,18 +72,27 @@ type rawTokens struct {
 	} `json:"cache"`
 }
 
+// clampNonNegative floors a token counter at zero. Exports occasionally carry
+// negative deltas; a negative component or total would corrupt downstream sums.
+func clampNonNegative(v int64) int64 {
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
 func (r rawTokens) toTokens() Tokens {
 	t := Tokens{
-		Input:      r.Input,
-		Output:     r.Output,
-		Reasoning:  r.Reasoning,
-		CacheRead:  r.Cache.Read,
-		CacheWrite: r.Cache.Write,
+		Input:      clampNonNegative(r.Input),
+		Output:     clampNonNegative(r.Output),
+		Reasoning:  clampNonNegative(r.Reasoning),
+		CacheRead:  clampNonNegative(r.Cache.Read),
+		CacheWrite: clampNonNegative(r.Cache.Write),
 	}
 	if r.Total != nil {
-		t.Total = *r.Total
+		t.Total = clampNonNegative(*r.Total)
 	} else {
-		t.Total = r.Input + r.Output + r.Reasoning + r.Cache.Read
+		t.Total = t.Input + t.Output + t.Reasoning + t.CacheRead
 	}
 	return t
 }

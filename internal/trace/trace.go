@@ -65,10 +65,13 @@ type toolState struct {
 }
 
 // Build walks events in order and assembles the trace. step_start opens a step,
-// tool_use appends a span, step_finish closes the current step with its tokens
-// and cost, and retry/compaction increment the current step. Any of the latter
-// events seen before the first step_start land on a synthetic step 0. Subagents
-// lists the captured child sessions in first-appearance order.
+// tool_use appends a span, and step_finish records the current step's tokens
+// and cost. A retry or compaction attaches to the most recently opened step;
+// step_finish does not close the step, so an event between a step_finish and
+// the next step_start still lands on the just-finished step. Only when no step
+// has opened yet (before the first step_start) do retry/compaction land on a
+// synthetic step 0. Subagents lists the captured child sessions in
+// first-appearance order.
 func Build(runID, taskID string, events []evaluation.Event, sessions map[string]*session.Session) Trace {
 	tr := Trace{RunID: runID, TaskID: taskID, Steps: []Step{}, Subagents: []SubagentSpan{}}
 	seen := make(map[string]bool)
@@ -79,20 +82,13 @@ func Build(runID, taskID string, events []evaluation.Event, sessions map[string]
 	ensure := func(ts int64) *Step {
 		if cur == nil {
 			tr.Steps = append(tr.Steps, Step{Index: len(tr.Steps), Tools: []ToolSpan{}})
-			times = append(times, span{first: ts, last: ts, set: true})
+			times = append(times, span{first: ts, last: ts})
 			cur = &tr.Steps[len(tr.Steps)-1]
 		}
 		return cur
 	}
 	mark := func(ts int64) {
 		i := len(tr.Steps) - 1
-		if i < 0 {
-			return
-		}
-		if !times[i].set {
-			times[i] = span{first: ts, last: ts, set: true}
-			return
-		}
 		if ts < times[i].first {
 			times[i].first = ts
 		}
@@ -109,7 +105,7 @@ func Build(runID, taskID string, events []evaluation.Event, sessions map[string]
 		switch e.Type {
 		case "step_start":
 			tr.Steps = append(tr.Steps, Step{Index: len(tr.Steps), Tools: []ToolSpan{}})
-			times = append(times, span{first: e.Timestamp, last: e.Timestamp, set: true})
+			times = append(times, span{first: e.Timestamp, last: e.Timestamp})
 			cur = &tr.Steps[len(tr.Steps)-1]
 		case "tool_use":
 			ensure(e.Timestamp)
@@ -137,7 +133,7 @@ func Build(runID, taskID string, events []evaluation.Event, sessions map[string]
 	}
 
 	for i := range tr.Steps {
-		if times[i].set && times[i].last > times[i].first {
+		if times[i].last > times[i].first {
 			tr.Steps[i].DurationMS = times[i].last - times[i].first
 		}
 	}
@@ -147,7 +143,6 @@ func Build(runID, taskID string, events []evaluation.Event, sessions map[string]
 // span tracks the first and last timestamp observed for one step.
 type span struct {
 	first, last int64
-	set         bool
 }
 
 // buildTool decodes one tool part into a span, attaching the child session for
@@ -202,9 +197,16 @@ func flattenTools(s *session.Session) []session.ToolCall {
 }
 
 // toSessionTokens converts the event-stream token shape into the session shape.
+// The event stream carries no pointer for total, so an omitted (zero) total is
+// recomputed as input+output+reasoning+cache.read, the same formula as
+// session.rawTokens.toTokens, rather than silently reporting zero.
 func toSessionTokens(t *evaluation.Tokens) session.Tokens {
 	if t == nil {
 		return session.Tokens{}
+	}
+	total := t.Total
+	if total == 0 {
+		total = t.Input + t.Output + t.Reasoning + t.Cache.Read
 	}
 	return session.Tokens{
 		Input:      t.Input,
@@ -212,6 +214,6 @@ func toSessionTokens(t *evaluation.Tokens) session.Tokens {
 		Reasoning:  t.Reasoning,
 		CacheRead:  t.Cache.Read,
 		CacheWrite: t.Cache.Write,
-		Total:      t.Total,
+		Total:      total,
 	}
 }

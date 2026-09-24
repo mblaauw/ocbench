@@ -91,7 +91,8 @@ func readTraceEvents(artifactsDir string) ([]evaluation.Event, error) {
 
 // readTraceSessions parses every captured child export under sessions/. A run
 // with no sessions directory (recorded before subagent capture) yields an empty
-// map, not an error.
+// map, not an error. An unparseable child file is skipped rather than failing
+// the whole command, matching readTraceEvents and the runner's readStoredEvents.
 func readTraceSessions(artifactsDir string) (map[string]*session.Session, error) {
 	out := make(map[string]*session.Session)
 	matches, err := filepath.Glob(filepath.Join(artifactsDir, "sessions", "*.json"))
@@ -105,7 +106,7 @@ func readTraceSessions(artifactsDir string) (map[string]*session.Session, error)
 		}
 		s, err := session.ParseExport(data)
 		if err != nil {
-			return nil, fmt.Errorf("parse session %s: %w", path, err)
+			continue
 		}
 		id := s.ID
 		if id == "" {
