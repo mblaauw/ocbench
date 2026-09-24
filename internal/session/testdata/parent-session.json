@@ -1,0 +1,286 @@
+{
+  "info": {
+    "id": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+    "slug": "sunny-eagle",
+    "projectID": "global",
+    "directory": "/private/tmp/subagent-probe.ycu41O",
+    "path": "",
+    "title": "New session - 2026-09-24T16:25:07.029Z",
+    "agent": "build",
+    "model": {
+      "id": "deepseek-v4.1-flash",
+      "providerID": "opencode-go",
+      "variant": "high"
+    },
+    "version": "1.18.32",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0.002078364,
+    "tokens": {
+      "input": 12646,
+      "output": 211,
+      "reasoning": 30,
+      "cache": {
+        "read": 12288,
+        "write": 0
+      }
+    },
+    "permission": [
+      {
+        "permission": "question",
+        "pattern": "*",
+        "action": "deny"
+      },
+      {
+        "permission": "plan_enter",
+        "pattern": "*",
+        "action": "deny"
+      },
+      {
+        "permission": "plan_exit",
+        "pattern": "*",
+        "action": "deny"
+      }
+    ],
+    "time": {
+      "created": 1790267107029,
+      "updated": 1790267119175
+    }
+  },
+  "messages": [
+    {
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1790267107323
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "opencode-go",
+          "modelID": "deepseek-v4.1-flash",
+          "variant": "high"
+        },
+        "summary": {
+          "diffs": [
+            {
+              "file": "events.jsonl",
+              "patch": "Index: events.jsonl\n===================================================================\n--- events.jsonl\t\n+++ events.jsonl\t\n@@ -0,0 +1,2 @@\n+{\"type\":\"step_start\",\"timestamp\":1790267111217,\"sessionID\":\"ses_f2bc3d92affeCnLLfkkU6BkZso\",\"part\":{\"id\":\"prt_0d43c372c001nJYitIKGf6yuSc\",\"messageID\":\"msg_0d43c2817001M2BJer6dS3scHQ\",\"sessionID\":\"ses_f2bc3d92affeCnLLfkkU6BkZso\",\"snapshot\":\"85b8020d77bb93a9ea1baeb37b9fa1a8fc8cb6d4\",\"type\":\"step-start\"}}\n+{\"type\":\"tool_use\",\"timestamp\":1790267115815,\"sessionID\":\"ses_f2bc3d92affeCnLLfkkU6BkZso\",\"part\":{\"type\":\"tool\",\"tool\":\"task\",\"callID\":\"call_00_fryxvufyamggbtpb3uefwghf\",\"state\":{\"status\":\"completed\",\"input\":{\"description\":\"List files in directory\",\"prompt\":\"List the files and directories in the current working directory /private/tmp/subagent-probe.ycu41O. Include hidden files. Report the full list of entries, noting which are directories and which are files. This is a read-only task; do not modify anything. Thoroughness: quick.\",\"subagent_type\":\"explore\"},\"output\":\"<task id=\\\"ses_f2bc3c5a4ffe0WMXC38zE4mJNF\\\" state=\\\"completed\\\">\\n<task_result>\\nContents of `/private/tmp/subagent-probe.ycu41O` (including hidden entries):\\n\\n**Directories**\\n- `.git/`\\n\\n**Files**\\n- `err.txt`\\n- `events.jsonl`\\n\\nTotal: 3 entries (1 directory, 2 files). This is a git repository. No modifications made.\\n</task_result>\\n</task>\",\"metadata\":{\"parentSessionId\":\"ses_f2bc3d92affeCnLLfkkU6BkZso\",\"sessionId\":\"ses_f2bc3c5a4ffe0WMXC38zE4mJNF\",\"model\":{\"providerID\":\"opencode-go\",\"modelID\":\"deepseek-v4.1-flash\"},\"truncated\":false},\"title\":\"List files in directory\",\"time\":{\"start\":1790267112030,\"end\":1790267115808}},\"id\":\"prt_0d43c382a001IWlAJ2NzTHz3Gm\",\"sessionID\":\"ses_f2bc3d92affeCnLLfkkU6BkZso\",\"messageID\":\"msg_0d43c2817001M2BJer6dS3scHQ\"}}\n",
+              "additions": 2,
+              "deletions": 0,
+              "status": "modified"
+            }
+          ]
+        },
+        "id": "msg_0d43c27fb001zJ2W3NVHjTiY8N",
+        "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso"
+      },
+      "parts": [
+        {
+          "type": "text",
+          "text": "\"Use the task tool with subagent_type explore to list the files in this directory, then tell me what it reported.\"",
+          "id": "prt_0d43c280600161MQQ1qzgL6e6l",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c27fb001zJ2W3NVHjTiY8N"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_0d43c27fb001zJ2W3NVHjTiY8N",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "variant": "high",
+        "path": {
+          "cwd": "/private/tmp/subagent-probe.ycu41O",
+          "root": "/private/tmp/subagent-probe.ycu41O"
+        },
+        "cost": 0.00194745,
+        "tokens": {
+          "total": 12491,
+          "input": 12327,
+          "output": 134,
+          "reasoning": 30,
+          "cache": {
+            "write": 0,
+            "read": 0
+          }
+        },
+        "modelID": "deepseek-v4.1-flash",
+        "providerID": "opencode-go",
+        "time": {
+          "created": 1790267107351,
+          "completed": 1790267116051
+        },
+        "finish": "tool-calls",
+        "id": "msg_0d43c2817001M2BJer6dS3scHQ",
+        "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso"
+      },
+      "parts": [
+        {
+          "snapshot": "85b8020d77bb93a9ea1baeb37b9fa1a8fc8cb6d4",
+          "type": "step-start",
+          "id": "prt_0d43c372c001nJYitIKGf6yuSc",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c2817001M2BJer6dS3scHQ"
+        },
+        {
+          "type": "reasoning",
+          "text": "The user wants me to use the task tool with subagent_type explore to list files in this directory, then report back.\n\nLet me do that.",
+          "time": {
+            "start": 1790267111260,
+            "end": 1790267111464
+          },
+          "id": "prt_0d43c375c0012eS9Jm43uEYxm2",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c2817001M2BJer6dS3scHQ"
+        },
+        {
+          "type": "tool",
+          "tool": "task",
+          "callID": "call_00_fryxvufyamggbtpb3uefwghf",
+          "state": {
+            "status": "completed",
+            "input": {
+              "description": "List files in directory",
+              "prompt": "List the files and directories in the current working directory /private/tmp/subagent-probe.ycu41O. Include hidden files. Report the full list of entries, noting which are directories and which are files. This is a read-only task; do not modify anything. Thoroughness: quick.",
+              "subagent_type": "explore"
+            },
+            "output": "<task id=\"ses_f2bc3c5a4ffe0WMXC38zE4mJNF\" state=\"completed\">\n<task_result>\nContents of `/private/tmp/subagent-probe.ycu41O` (including hidden entries):\n\n**Directories**\n- `.git/`\n\n**Files**\n- `err.txt`\n- `events.jsonl`\n\nTotal: 3 entries (1 directory, 2 files). This is a git repository. No modifications made.\n</task_result>\n</task>",
+            "metadata": {
+              "parentSessionId": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+              "sessionId": "ses_f2bc3c5a4ffe0WMXC38zE4mJNF",
+              "model": {
+                "providerID": "opencode-go",
+                "modelID": "deepseek-v4.1-flash"
+              },
+              "truncated": false
+            },
+            "title": "List files in directory",
+            "time": {
+              "start": 1790267112030,
+              "end": 1790267115808
+            }
+          },
+          "id": "prt_0d43c382a001IWlAJ2NzTHz3Gm",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c2817001M2BJer6dS3scHQ"
+        },
+        {
+          "reason": "tool-calls",
+          "snapshot": "4d84cd408971ea4ecce232c677edadcf4ce7abd5",
+          "type": "step-finish",
+          "tokens": {
+            "total": 12491,
+            "input": 12327,
+            "output": 134,
+            "reasoning": 30,
+            "cache": {
+              "write": 0,
+              "read": 0
+            }
+          },
+          "cost": 0.00194745,
+          "id": "prt_0d43c4997001rZlVjtwI9CRxP9",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c2817001M2BJer6dS3scHQ"
+        },
+        {
+          "type": "patch",
+          "hash": "85b8020d77bb93a9ea1baeb37b9fa1a8fc8cb6d4",
+          "files": [
+            "/private/tmp/subagent-probe.ycu41O/events.jsonl"
+          ],
+          "id": "prt_0d43c4a10001eYcyy5U9Gb8zqv",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c2817001M2BJer6dS3scHQ"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_0d43c27fb001zJ2W3NVHjTiY8N",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "variant": "high",
+        "path": {
+          "cwd": "/private/tmp/subagent-probe.ycu41O",
+          "root": "/private/tmp/subagent-probe.ycu41O"
+        },
+        "cost": 0.000130914,
+        "tokens": {
+          "total": 12684,
+          "input": 319,
+          "output": 77,
+          "reasoning": 0,
+          "cache": {
+            "write": 0,
+            "read": 12288
+          }
+        },
+        "modelID": "deepseek-v4.1-flash",
+        "providerID": "opencode-go",
+        "time": {
+          "created": 1790267116053,
+          "completed": 1790267119168
+        },
+        "finish": "stop",
+        "id": "msg_0d43c4a15001UdrqQS6aU72007",
+        "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso"
+      },
+      "parts": [
+        {
+          "snapshot": "14a3126e9999b4c545638282556cd3efdc9e27c3",
+          "type": "step-start",
+          "id": "prt_0d43c52e8001HEDJCdH9loU6k4",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c4a15001UdrqQS6aU72007"
+        },
+        {
+          "type": "text",
+          "text": "The `explore` subagent reported that the current directory `/private/tmp/subagent-probe.ycu41O` contains 3 entries:\n\n**Directories**\n- `.git/` (so this is a git repository)\n\n**Files**\n- `err.txt`\n- `events.jsonl`\n\nThat's the complete list, including hidden entries. No modifications were made.",
+          "time": {
+            "start": 1790267118389,
+            "end": 1790267118910
+          },
+          "id": "prt_0d43c5335001T2aATdoCTY67EY",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c4a15001UdrqQS6aU72007"
+        },
+        {
+          "reason": "stop",
+          "snapshot": "44e4bcf41e2a22834a46dfaee175548d74472f91",
+          "type": "step-finish",
+          "tokens": {
+            "total": 12684,
+            "input": 319,
+            "output": 77,
+            "reasoning": 0,
+            "cache": {
+              "write": 0,
+              "read": 12288
+            }
+          },
+          "cost": 0.000130914,
+          "id": "prt_0d43c55c1001f02hrhM43MeLwm",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c4a15001UdrqQS6aU72007"
+        },
+        {
+          "type": "patch",
+          "hash": "14a3126e9999b4c545638282556cd3efdc9e27c3",
+          "files": [
+            "/private/tmp/subagent-probe.ycu41O/events.jsonl"
+          ],
+          "id": "prt_0d43c563d001lBPrktGNklmHHv",
+          "sessionID": "ses_f2bc3d92affeCnLLfkkU6BkZso",
+          "messageID": "msg_0d43c4a15001UdrqQS6aU72007"
+        }
+      ]
+    }
+  ]
+}
