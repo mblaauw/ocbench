@@ -391,10 +391,14 @@ suites/core/
     task.yaml
     prompt.md
     fixture/            materialised into the worktree (only this)
-    evaluator/          hidden; never materialised into the worktree
+    evaluator/          hidden; never materialised before the agent stops
+      tests/            copied into the worktree after the agent stops, then run
+      reference/        reference solution tree, never materialised
+      answer.json       answer patterns
 ```
 
-`suite.yaml`: `name`, `version`, `description`, optional `defaults.timeout`.
+`suite.yaml`: `name`, `version`, `description`, optional `defaults.timeout`,
+optional `tier` (`smoke`, `standard` or `hard`).
 
 `task.yaml`:
 
@@ -403,6 +407,9 @@ id: py-bugfix-017
 version: 1
 name: Fix retry behaviour
 tags: [python, debugging]
+difficulty: medium            # easy | medium | hard
+capabilities: [debugging]     # what the task exercises, see §14
+expected_tokens: 40000        # optional; used to normalise cost per solved task
 timeout: 300
 requires: [python3]
 allow_changes:
@@ -412,10 +419,22 @@ validators:
   - kind: command
     name: unit tests
     command: ["python3", "-m", "unittest", "discover", "-s", "tests"]
+    weight: 2                 # optional; defaults to 1
   - kind: answer
     name: root cause stated
     patterns: ["retry", "off-by-one"]
     # patterns may live in evaluator/answer.json instead
+  - kind: diff
+    name: touched only the parser
+    required_paths: ["src/**"]
+    forbidden_paths: ["tests/**"]
+    max_lines: 60
+  - kind: grep
+    name: no leftover debug output
+    absent: ["print\\(", "TODO"]
+  - kind: process
+    name: ran the tests before finishing
+    tool_pattern: "(unittest|pytest|go test|npm test)"
 ```
 
 Rules:
@@ -433,7 +452,27 @@ Rules:
   globs feed the `files_unexpected` metric. Changes are computed against the
   baseline commit SHA (survives agents that commit).
 - Hidden evaluator data lives in `evaluator/` and is passed to validators out
-  of band; it is never written into the agent worktree.
+  of band; it is never written into the agent worktree, with one deliberate
+  exception: `evaluator/tests/` is copied into the worktree **after the agent
+  has stopped**, immediately before validators run, so a task can be graded by
+  tests the agent never saw. The copy happens after the changed-file set and
+  `diff.patch` are computed, so hidden tests never appear as agent changes.
+- A task's expected behaviour is proven by an automated fail-before /
+  pass-after check: `evaluator/reference/` holds a reference solution tree that
+  is copied over a scratch copy of the fixture. Validators must fail on the
+  untouched fixture and pass with the reference applied. For answer tasks the
+  reference is `evaluator/reference/answer.txt`, which the answer validator must
+  accept. A suite test runs this for every task, so an ill-posed task cannot
+  ship.
+- Validator kinds: `command` (argv, exit status), `answer` (patterns over the
+  final text event), `diff` (required/forbidden paths and a changed-line
+  ceiling), `grep` (required/absent patterns in the worktree after the run) and
+  `process` (a tool call matching a pattern occurred before the run ended).
+  Each validator may carry `weight` (default 1) for partial credit.
+- `success` stays binary — every validator passed — while `score` is the
+  weighted fraction of validators that passed. Tasks are grouped for reporting
+  by `difficulty` and by `capabilities`, so a profile can be compared on
+  "delegation tasks" or "hard tasks" without a schema change.
 
 Threat model (documented, not oversold): the sandbox prevents accidental
 credential leakage and cross-contamination between benchmark runs. It is not
@@ -492,8 +531,22 @@ tool_calls_total, tool_calls_failed, tool_calls_<tool>
 subagent_calls, skill_loads, mcp_calls, mcp_calls_<server>, retries, compactions
 files_changed, files_created, files_deleted,
 diff_lines_added, diff_lines_removed, files_unexpected
-duration_ms, validator_failures, success, first_shot_success
+duration_ms, validator_failures, success, first_shot_success, score
 ```
+
+Process metrics, derived from the same event stream and the captured sessions:
+
+```
+time_to_first_edit_ms, tool_calls_before_first_edit, redundant_reads,
+verification_commands, subagent_calls, subagent_tokens_total
+```
+
+`score` is the weighted fraction of validators that passed (`success` stays
+binary). `redundant_reads` counts read tool calls for a path already read in
+the same run; `verification_commands` counts tool calls whose command matches a
+test or lint pattern; `time_to_first_edit_ms` is measured from run start to the
+first edit or write tool call. These describe how an agent worked, not just
+what it produced, which is what makes an agentic profile comparable.
 
 Raw JSONL events are canonical and retained per run; normalisation is
 re-runnable so a parser fix can reprocess historical runs without schema
@@ -721,3 +774,45 @@ compactions. `--json` emits the same structure with stable keys. The trace is
 built from the run's stored events and session files, so it works for any
 persisted run, including ones recorded before this section existed — those
 simply have no child sessions to show.
+
+## 14. Agentic evaluation
+
+A profile is more than its model settings: it decides whether an agent
+delegates, plans, loads a skill, follows project rules and stays inside its
+bounds. The `agentic` suite exists to make those behaviours measurable, using
+the same machinery as every other task — fixtures, validators, metrics — rather
+than a separate harness.
+
+### 14.1 Capability vocabulary
+
+Every task declares `capabilities` from a fixed set, so results can be grouped
+without a schema change:
+
+```
+delegation, planning, tool-use, context, skill-use,
+instruction-following, restraint, debugging, multi-file, search
+```
+
+### 14.2 Task families
+
+| Capability | Task shape | What proves it |
+|---|---|---|
+| `delegation` | Three independent areas, each answerable on its own, in a fixture too large to read serially inside the budget | `process` validator requires a `task` tool call (the prompt asks for delegation); `answer` requires all three findings; `agent.*` metrics show which agents ran and what they cost |
+| `planning` | A change with an ordered dependency (schema → loader → caller), where an intermediate artifact is required | `answer` requires the stated plan; `command` requires the tests to pass after implementation; `diff` bounds the change |
+| `context` | A large fixture (30+ files) with one buried fact and deliberate near-misses | `answer` requires the fact; `tool_calls_before_first_edit` and `duration_ms` show the search cost |
+| `skill-use` | The knowledge needed is in a skill, not in the fixture | `command`/`answer` check the outcome; `skill_loads` shows whether the skill was consulted |
+| `instruction-following` | The fixture ships `AGENTS.md` rules (never touch `tests/`, always document public functions, use the project's formatting) | `grep`/`diff` validators assert each rule the prompt restates |
+| `restraint` | A failing test that could be "fixed" by editing the test, or a shortcut that disables a check | `diff` forbids the shortcut path; `grep` forbids the disabling pattern |
+| `multi-file` | A feature spanning several modules with a shared interface | `command` runs the suite; `diff` bounds the touched set |
+| `debugging` | A failure whose cause is not where the symptom appears | `command` runs the reproduction; `answer` states the cause |
+
+### 14.3 Honesty rules
+
+- A process validator may only check something the prompt asks for. Grading an
+  unstated preference measures obedience to the grader, not capability.
+- A task must be solvable without the capability it names — the capability
+  makes it cheaper or more reliable, not possible. Otherwise the task measures
+  whether the agent guessed the grader's intent.
+- `expected_tokens` is an estimate for normalising cost, never a pass criterion.
+- Hidden tests are the task's tests, not new requirements: they must be exactly
+  the tests the reference solution passes.
