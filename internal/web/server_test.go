@@ -212,7 +212,7 @@ func TestRunPageShowsSafeSummaryAndEscapesExcerpt(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want text/html", ct)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"run-1", "tokens_total", "120"} {
+	for _, want := range []string{"run-1", "Tokens", "120", "unit"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body missing %q:\n%s", want, body)
 		}
@@ -385,5 +385,79 @@ func TestStoreBusyReturns503(t *testing.T) {
 	rec := get(t, web.NewHandler(st), "/runs/run-1")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestRunPageShowsSubagentRollUp covers the per-agent panel for a run that
+// actually delegated: the live database has only single-agent runs, so the
+// share bars would otherwise never be exercised.
+func TestRunPageShowsSubagentRollUp(t *testing.T) {
+	st := testStore(t)
+	seedProfile(t, st, "profile-sub", "hash-sub", []store.ComponentRow{
+		{Kind: "primary", Name: "primary", Hash: "h1", CanonicalJSON: `{"default_agent":"build"}`},
+		{Kind: "agent", Name: "build", Hash: "h2",
+			CanonicalJSON: `{"model":"opencode-go/deepseek-v4.1-flash","variant":"high"}`},
+		{Kind: "agent", Name: "explore", Hash: "h3",
+			CanonicalJSON: `{"model":"opencode-go/deepseek-v4.1-flash","variant":"low"}`},
+		{Kind: "agent", Name: "general", Hash: "h4",
+			CanonicalJSON: `{"model":"opencode-go/deepseek-v4.1-flash","variant":"low"}`},
+	})
+	exit := 0
+	dur := int64(42000)
+	seedRunRow(t, st, store.RunRow{
+		ID: "run-sub", ProfileID: "profile-sub", ProfileHash: "hash-sub",
+		SuiteName: "agentic", SuiteVersion: "1", SuiteHash: "suite-hash",
+		TaskID: "repo-investigation", TaskVersion: "1", FixtureSHA: "fixture",
+		OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", Model: "m", Agent: "build",
+		Status: "passed", ExitCode: &exit, StartedAt: "2026-01-01T00:00:00Z",
+		FinishedAt: "2026-01-01T00:00:42Z", DurationMS: &dur, ArtifactsDir: "/runs/run-sub",
+	})
+	if err := st.InsertRunMetrics(context.Background(), "run-sub", map[string]float64{
+		"score": 1, "success": 1, "tokens_total": 100000,
+		"agent.build.messages": 6, "agent.build.tool_calls": 5, "agent.build.tokens_total": 40000,
+		"agent.explore.messages": 4, "agent.explore.tool_calls": 2, "agent.explore.tokens_total": 45000,
+		"agent.general.messages": 1, "agent.general.tool_calls": 0, "agent.general.tokens_total": 15000,
+		"subagent_tokens_total": 60000,
+	}); err != nil {
+		t.Fatalf("insert metrics: %v", err)
+	}
+
+	body := get(t, web.NewHandler(st), "/runs/run-sub").Body.String()
+
+	for _, want := range []string{
+		"Subagents via task",
+		"explore", "75%", // 45000 of 60000 subagent tokens
+		"general", "25%",
+		"deepseek-v4.1-flash",
+		"100k", // run token total
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q", want)
+		}
+	}
+	// The share bar is SVG geometry, because inline style attributes are
+	// blocked by the page's content security policy.
+	if !strings.Contains(body, `width="75"`) || !strings.Contains(body, `width="25"`) {
+		t.Errorf("share bars not rendered as SVG geometry")
+	}
+	if strings.Contains(body, "No subagents") {
+		t.Errorf("single-agent empty state shown for a delegating run")
+	}
+}
+
+// TestRunPageUnknownIDIs404 pins the behaviour that an explicitly requested run
+// that does not exist is an error, not a silently different run.
+func TestRunPageUnknownIDIs404(t *testing.T) {
+	st := testStore(t)
+	seedRun(t, st, "run-1", "py-bugfix")
+
+	for _, target := range []string{"/runs/nope", "/runs?run=nope"} {
+		if rec := get(t, web.NewHandler(st), target); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", target, rec.Code)
+		}
+	}
+	// A run that does exist still renders.
+	if rec := get(t, web.NewHandler(st), "/runs?run=run-1"); rec.Code != http.StatusOK {
+		t.Errorf("GET /runs?run=run-1 = %d, want 200", rec.Code)
 	}
 }

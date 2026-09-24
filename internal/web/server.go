@@ -105,52 +105,6 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// handleList renders the recent-runs page.
-func (h *handler) handleList(w http.ResponseWriter, r *http.Request) {
-	if h.store == nil {
-		http.Error(w, "store unavailable", http.StatusInternalServerError)
-		return
-	}
-	runs, err := history.List(r.Context(), h.store, "", defaultListLimit)
-	if err != nil {
-		writeStoreError(w, err)
-		return
-	}
-
-	page := runsPage{
-		layout: h.page(r, "runs", "History", "Runs",
-			"Every run persisted to the store, newest first."),
-		Runs: make([]runSummary, 0, len(runs)),
-	}
-	for _, detail := range runs {
-		page.Runs = append(page.Runs, newRunSummary(detail))
-	}
-	render(w, listTmpl, page)
-}
-
-// handleRun renders one run's safe result summary: metadata, numeric metrics,
-// validation excerpts and redacted profile component hashes. It never serves
-// artifacts_dir, session ids or raw file content.
-func (h *handler) handleRun(w http.ResponseWriter, r *http.Request) {
-	if h.store == nil {
-		http.Error(w, "store unavailable", http.StatusInternalServerError)
-		return
-	}
-	detail, err := history.Get(r.Context(), h.store, r.PathValue("id"))
-	if err != nil {
-		writeStoreError(w, err)
-		return
-	}
-
-	render(w, runTmpl, runPage{
-		layout:      h.page(r, "runs", "History", "Run "+detail.Run.ID, detail.Run.TaskID),
-		Run:         newRunSummary(detail),
-		Metrics:     metricViews(detail.Metrics),
-		Validations: validationViews(detail.Validations),
-		Profile:     componentViews(detail.Profile),
-	})
-}
-
 // handleCompare mirrors the CLI comparison: both selectors are required, and
 // the shared service rejects missing runs (404) and invalid or incompatible
 // selectors (400).
@@ -227,20 +181,6 @@ func render(w http.ResponseWriter, tmpl *template.Template, data any) {
 }
 
 // runsPage backs the `/` listing.
-type runsPage struct {
-	layout
-	Runs []runSummary
-}
-
-// runPage backs a single-run summary.
-type runPage struct {
-	layout
-	Run         runSummary
-	Metrics     []metricView
-	Validations []validationView
-	Profile     []componentView
-}
-
 // comparePage backs a run comparison.
 type comparePage struct {
 	layout
