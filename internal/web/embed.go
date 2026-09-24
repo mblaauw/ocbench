@@ -12,7 +12,10 @@ import (
 // can never collide with another page's.
 const baseTemplate = "templates/base.html"
 
-// listTmpl renders the `/` runs listing.
+// overviewTmpl renders the profile leaderboard at `/`.
+var overviewTmpl = mustParsePage("templates/overview.html")
+
+// listTmpl renders the `/runs` listing.
 var listTmpl = mustParsePage("templates/runs.html")
 
 // runTmpl, compareTmpl and profileTmpl render the detail views that the

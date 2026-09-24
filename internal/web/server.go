@@ -33,14 +33,16 @@ type handler struct {
 }
 
 // NewHandler returns the read-only dashboard handler backed by st. It exposes
-// `GET /`, `GET /runs/{id}`, `GET /compare`, `GET /profiles/{hash}`, the
-// embedded `/static/` assets and a 404 for everything else. It never serves
-// raw artifacts or arbitrary filesystem paths.
+// `GET /` (the profile leaderboard), `GET /runs`, `GET /runs/{id}`,
+// `GET /compare`, `GET /profiles/{hash}`, the embedded `/static/` assets and a
+// 404 for everything else. It never serves raw artifacts or arbitrary
+// filesystem paths.
 func NewHandler(st *store.Store) http.Handler {
 	h := &handler{store: st}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", h.handleList)
+	mux.HandleFunc("GET /{$}", h.handleOverview)
+	mux.HandleFunc("GET /runs", h.handleList)
 	mux.HandleFunc("GET /runs/{id}", h.handleRun)
 	mux.HandleFunc("GET /compare", h.handleCompare)
 	mux.HandleFunc("GET /profiles/{hash}", h.handleProfile)
@@ -115,7 +117,11 @@ func (h *handler) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := runsPage{Title: "Runs", Runs: make([]runSummary, 0, len(runs))}
+	page := runsPage{
+		layout: h.page(r, "runs", "History", "Runs",
+			"Every run persisted to the store, newest first."),
+		Runs: make([]runSummary, 0, len(runs)),
+	}
 	for _, detail := range runs {
 		page.Runs = append(page.Runs, newRunSummary(detail))
 	}
@@ -137,7 +143,7 @@ func (h *handler) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render(w, runTmpl, runPage{
-		Title:       "Run " + detail.Run.ID,
+		layout:      h.page(r, "runs", "History", "Run "+detail.Run.ID, detail.Run.TaskID),
 		Run:         newRunSummary(detail),
 		Metrics:     metricViews(detail.Metrics),
 		Validations: validationViews(detail.Validations),
@@ -176,7 +182,7 @@ func (h *handler) handleCompare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render(w, compareTmpl, comparePage{
-		Title:          "Compare " + cmp.Before.Run.ID + " and " + cmp.After.Run.ID,
+		layout:         h.page(r, "runs", "Compare", "Compare two runs", cmp.Before.Run.TaskID+" → "+cmp.After.Run.TaskID),
 		Before:         newRunSummary(cmp.Before),
 		After:          newRunSummary(cmp.After),
 		Metrics:        metricDeltaViews(cmp.Metrics),
@@ -200,7 +206,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	render(w, profileTmpl, profilePage{
-		Title:           "Profile " + row.ProfileHash,
+		layout:          h.page(r, "profiles", "Profiles", "Profile "+shortHash(row.ProfileHash), row.OpenCodeVersion),
 		ProfileHash:     row.ProfileHash,
 		OpenCodeVersion: row.OpenCodeVersion,
 		Components:      componentRowViews(comps),
@@ -222,13 +228,13 @@ func render(w http.ResponseWriter, tmpl *template.Template, data any) {
 
 // runsPage backs the `/` listing.
 type runsPage struct {
-	Title string
-	Runs  []runSummary
+	layout
+	Runs []runSummary
 }
 
 // runPage backs a single-run summary.
 type runPage struct {
-	Title       string
+	layout
 	Run         runSummary
 	Metrics     []metricView
 	Validations []validationView
@@ -237,7 +243,7 @@ type runPage struct {
 
 // comparePage backs a run comparison.
 type comparePage struct {
-	Title          string
+	layout
 	Before         runSummary
 	After          runSummary
 	Metrics        []metricDeltaView
@@ -248,7 +254,7 @@ type comparePage struct {
 
 // profilePage backs a redacted profile view.
 type profilePage struct {
-	Title           string
+	layout
 	ProfileHash     string
 	OpenCodeVersion string
 	Components      []componentView

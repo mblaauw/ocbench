@@ -70,20 +70,24 @@ func TestRootReturnsHTML(t *testing.T) {
 	st := testStore(t)
 	seedRun(t, st, "run-1", "py-bugfix")
 
+	// `/` is the profile leaderboard; the run listing lives at /runs.
 	rec := get(t, web.NewHandler(st), "/")
-
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
 		t.Fatalf("Content-Type = %q, want text/html", ct)
 	}
-	body := rec.Body.String()
-	if !strings.Contains(body, "<!DOCTYPE html>") {
+	if body := rec.Body.String(); !strings.Contains(body, "<!DOCTYPE html>") {
 		t.Errorf("body does not look like an HTML document:\n%s", body)
 	}
-	if !strings.Contains(body, "run-1") {
-		t.Errorf("body does not include the seeded run id:\n%s", body)
+
+	rec = get(t, web.NewHandler(st), "/runs")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/runs status = %d, want 200", rec.Code)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "run-1") {
+		t.Errorf("/runs body does not include the seeded run id:\n%s", body)
 	}
 }
 
@@ -114,7 +118,7 @@ func TestEscapesDatabaseContent(t *testing.T) {
 	const payload = `<script>alert(1)</script>`
 	seedRun(t, st, "run-x", payload)
 
-	rec := get(t, web.NewHandler(st), "/")
+	rec := get(t, web.NewHandler(st), "/runs")
 
 	body := rec.Body.String()
 	if strings.Contains(body, payload) {

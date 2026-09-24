@@ -7,15 +7,38 @@
 <link rel="stylesheet" href="/static/site.css">
 </head>
 <body>
-<header class="site-header">
-  <a class="brand" href="/">ocbench</a>
-</header>
-<main class="site-main">
-{{template "content" .}}
-</main>
-<footer class="site-footer">
-  <p>Read-only benchmark dashboard.</p>
-</footer>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="/">
+      <span class="mark"><span></span></span>
+      <span>
+        <span class="name">ocbench</span><br>
+        <span class="tag">OpenCode benchmark</span>
+      </span>
+    </a>
+    <nav class="nav">
+      {{range .Nav}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span>{{.Label}}</span><span class="hint">{{.Hint}}</span></a>{{end}}
+    </nav>
+    <div class="env">
+      <div class="label">Environment</div>
+      {{range .Env}}<div class="row"><span>{{.Label}}</span><b>{{.Value}}</b></div>{{end}}
+      <div class="foot">read-only · 127.0.0.1:8787</div>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="page-head">
+      <div>
+        <div class="crumb">{{.Crumb}}</div>
+        <h1>{{.PageTitle}}</h1>
+        <div class="sub">{{.Sub}}</div>
+      </div>
+      {{if .ShowScope}}
+      <div class="scope">{{range .Scope}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}</div>
+      {{end}}
+    </header>
+    {{template "content" .}}
+    <footer class="site-footer">ocbench — read-only benchmark dashboard. Statistics are derived from stored runs at read time.</footer>
+  </main>
+</div>
 </body>
-</html>
-{{end}}
+</html>{{end}}

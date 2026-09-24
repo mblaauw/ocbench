@@ -1,0 +1,148 @@
+{{define "content"}}
+{{if not .HasRuns}}
+<section class="card">
+  <div class="empty">
+    No scored runs in this scope yet, so there is nothing to rank. Run a suite to populate the leaderboard, for example
+    <code>ocbench run standard --suite-dir suites/standard</code>.
+    {{if .ExcludedRuns}}<br>{{.ExcludedRuns}} run(s) were recorded against an older version of their suite and are excluded from scoring.{{end}}
+  </div>
+</section>
+{{end}}
+
+{{if .HasRuns}}
+{{$leader := index .Rows 0}}
+<section class="card">
+  <div class="hero">
+    <div class="who">
+      <span class="crumb">Leading configuration</span>
+      <span class="name">{{$leader.Label}}</span>
+      <span class="dim">{{$leader.Hash}}</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="k">Score</span><span class="v">{{$leader.ScoreText}}</span><span class="n">weighted task score, 0–1</span></div>
+      <div class="stat"><span class="k">Pass rate</span><span class="v">{{$leader.PassText}}</span><span class="n">runs with every validator green</span></div>
+      <div class="stat"><span class="k">Cost / solved</span><span class="v">{{$leader.CostText}}</span><span class="n">per run that passed</span></div>
+      <div class="stat"><span class="k">Median tokens</span><span class="v">{{$leader.TokensText}}</span><span class="n">per task</span></div>
+      <div class="stat"><span class="k">Runs</span><span class="v">{{$leader.Runs}}</span><span class="n">in this scope</span></div>
+    </div>
+    {{with .Significance}}
+    <div>
+      <span class="tag {{if .Distinguishable}}good{{else}}warn{{end}}">{{if .Distinguishable}}distinguishable{{else}}not distinguishable{{end}}</span>
+      <span class="dim">{{.Note}}</span>
+    </div>
+    {{end}}
+  </div>
+</section>
+
+{{if .HeroDiff}}
+<section class="card">
+  <header>
+    <h2>What the leader changes</h2>
+    <span class="muted">relative to the runner-up</span>
+  </header>
+  <div class="diff">
+    {{range .HeroDiff}}
+    <div class="row">
+      <span class="sign {{.Class}}">{{.Sign}}</span>
+      <span class="change">{{.Change}}</span>
+      <span class="what">{{.What}}</span>
+      <span class="note">{{.Note}}</span>
+    </div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+<section class="card">
+  <header>
+    <h2>Leaderboard</h2>
+    <span class="muted">score, pass rate, cost per solved task and tokens</span>
+  </header>
+  <table class="board">
+    <thead>
+      <tr>
+        <th class="rank">#</th>
+        <th>Architecture</th>
+        <th class="score">Score</th>
+        <th>Pass</th>
+        <th>Cost / solved</th>
+        <th>Tokens</th>
+        <th>Runs</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td class="rank{{if .First}} first{{end}}">{{.Rank}}</td>
+        <td>
+          <div>{{.Label}}</div>
+          <div class="muted"><a class="hash" href="{{.Href}}">{{.ShortHash}}</a></div>
+        </td>
+        <td class="score">
+          <div class="score-cell">
+            <span class="value">{{.ScoreText}}</span>
+            {{if .HasRuns}}
+            <span class="bar{{if .First}} first{{end}}">
+              <span style="width: {{.ScorePercent}}%"></span>
+              <span class="ci" style="left: {{.CILowPercent}}%; width: {{.CIHighPercent}}%"></span>
+            </span>
+            {{end}}
+          </div>
+        </td>
+        <td class="metric">{{.PassText}}</td>
+        <td class="metric">{{.CostText}}</td>
+        <td class="metric">{{.TokensText}}</td>
+        <td class="metric">{{.Runs}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <header>
+      <h2>Score by suite</h2>
+      <span class="muted">weighted task score, 0–1</span>
+    </header>
+    <div class="matrix">
+      <div class="row head" style="grid-template-columns: minmax(120px, 1.4fr) repeat({{len .Suites}}, minmax(0, 1fr)) 1fr">
+        <span></span>
+        {{range .Suites}}<span>{{.}}</span>{{end}}
+        <span>all</span>
+      </div>
+      {{range .Matrix}}
+      <div class="row" style="grid-template-columns: minmax(120px, 1.4fr) repeat({{len $.Suites}}, minmax(0, 1fr)) 1fr">
+        <span class="rowname">{{.Label}}</span>
+        {{range .Cells}}<span class="cell" style="{{.Style}}">{{.Text}}</span>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="card">
+    <header>
+      <h2>Score vs. cost per solved task</h2>
+      <span class="muted">up and left is better</span>
+    </header>
+    <div class="scatter">
+      <svg viewBox="0 0 320 230" role="img" aria-label="Score against cost per solved task">
+        <line class="axis" x1="20" y1="20" x2="20" y2="210"></line>
+        <line class="axis" x1="20" y1="210" x2="300" y2="210"></line>
+        <line class="grid" x1="20" y1="115" x2="300" y2="115"></line>
+        <line class="grid" x1="20" y1="20" x2="300" y2="20"></line>
+        <text x="4" y="24">1.0</text>
+        <text x="4" y="118">0.5</text>
+        <text x="4" y="214">0</text>
+        <text x="20" y="224">$0</text>
+        <text x="270" y="224">{{.ScatterXMax}}</text>
+        {{range .Scatter}}
+        <circle class="dot{{if not .First}} other{{end}}" cx="{{printf "%.1f" .X}}" cy="{{printf "%.1f" .Y}}" r="4"></circle>
+        <text class="label" x="{{printf "%.1f" .X}}" y="{{printf "%.1f" .Y}}" dx="7" dy="3">{{.Label}}</text>
+        {{end}}
+      </svg>
+    </div>
+  </section>
+</div>
+{{end}}
+{{end}}

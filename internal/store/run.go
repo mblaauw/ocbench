@@ -620,3 +620,13 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
+
+// CountRuns returns how many runs are persisted, dry runs included. The
+// dashboard's environment panel shows it.
+func (s *Store) CountRuns(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM runs`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count runs: %w", err)
+	}
+	return n, nil
+}
