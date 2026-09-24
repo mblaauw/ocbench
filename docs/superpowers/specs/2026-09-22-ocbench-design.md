@@ -600,11 +600,17 @@ Per arm, per task, from the persisted runs:
 - a seeded permutation test comparing arms on the metric of interest.
 
 Statistics are derived at read time. With fewer than three repeats per arm per
-task the report says "insufficient data" and makes no significance claim. When
-more than one benchmark-relevant variable differs between arms (model, agent,
-variant, OpenCode version, suite hash, task version, fixture SHA), the report
-names every difference, refuses to attribute any difference to the config
-overlay, and repeats the spec's standing rule: it never claims causation.
+task the report says "insufficient data" and makes no significance claim.
+
+Drift detection compares the variables that are meant to be held constant
+across arms: OpenCode version, suite hash, task version and fixture SHA. Any
+difference is named, suppresses significance claims, and repeats the spec's
+standing rule: it never claims causation. The requested `model`, `agent` and
+`variant` come from the experiment invocation and are constant by construction;
+an overlay that changes the *effective* model, agent or variant is the
+experiment variable itself — it is recorded in that arm's profile hash and
+belongs to a profile comparison, not to this guard. Attribution hazards of that
+kind are the job of the semantic profile diff.
 
 ### 12.4 Regression rule
 
