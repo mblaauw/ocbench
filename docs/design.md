@@ -826,3 +826,67 @@ instruction-following, restraint, debugging, multi-file, search
 - `expected_tokens` is an estimate for normalising cost, never a pass criterion.
 - Hidden tests are the task's tests, not new requirements: they must be exactly
   the tests the reference solution passes.
+
+## 15. Dashboard
+
+The dashboard answers the question the tool exists for: **which configuration
+scores best?** It is profile-first — the profile is the subject under test, and
+every number is attributed to a profile.
+
+### 15.1 Information architecture
+
+Four pages, served from the store and the profile captures:
+
+| Page | Question it answers |
+|---|---|
+| **Overview** (`/`) | Which setup scores best? A leaderboard with confidence, a score-by-suite matrix, and score against cost per solved task |
+| **Runs** (`/runs`, `/runs/{id}`) | What happened, run by run — validators, excerpts, and the architecture that produced it |
+| **Architecture** (`/arch`, `/arch/{hash}`) | How is this profile built up — primary agent, delegated subagents, skills, MCP, and how it differs from another profile |
+| **Suites & tasks** (`/suites`, `/suites/{name}`) | What is being measured — tiers, task metadata, validators and their weights, per-profile scores |
+
+A **scope switcher** (all suites, or one suite) applies to Overview and
+Architecture. The dashboard is read-only and binds to loopback only, as before.
+
+### 15.2 Scoring
+
+- **Task score** — the mean of the `score` metric across that task's runs, where
+  `score` is the weighted fraction of validators that passed.
+- **Task pass** — the mean of `success` across that task's runs.
+- **Suite score** — the mean of task scores over the tasks of that suite that
+  have at least one run.
+- **Overall score** — suite scores weighted by task count (core 5, standard 3,
+  hard 2, agentic 4).
+- **Cost per solved task** — total cost divided by the number of runs with
+  `success = 1`; shown as "—" when nothing was solved.
+- **Confidence** — a seeded bootstrap over the task scores in scope, so the same
+  data always yields the same interval. Pass rate uses a Wilson interval.
+- **Significance** — the seeded permutation test over the leader's and runner-up's
+  task scores. The dashboard states whether the gap is distinguishable from
+  noise, and never claims causation.
+
+A suite is identified by **name**, and scored only from runs carrying its most
+recently recorded `suite_hash`; runs from older hashes are counted and disclosed
+rather than silently mixed into the score.
+
+### 15.3 What may be rendered
+
+The dashboard renders the **profile** in full, because it is the subject under
+test: models, model options, agents and their instruction text, skills, MCP
+servers, plugins, permissions, and the subagent architecture. It also renders
+**task definitions** — prompt, difficulty, capabilities and validators.
+
+It never renders a run's raw material: task prompts sent to the model,
+`events.jsonl`, `session.json`, worktrees or untracked files. Those stay on disk.
+
+### 15.4 Assets and interaction
+
+No CDN at runtime and no JavaScript: fonts are vendored under `web/static/fonts`
+with their licence, styles are a single embedded stylesheet, and the charts are
+server-rendered inline SVG. The prototype's interactivity — sorting, scope
+switching, filtering — becomes query parameters and links.
+
+### 15.5 Empty states
+
+A profile with no runs appears in the leaderboard as "no runs" and is excluded
+from the matrix and the scatter. A suite with no runs renders "—". Nothing is
+interpolated or estimated: with few runs the dashboard is sparse, and it says so.
