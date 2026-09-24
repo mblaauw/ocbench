@@ -259,7 +259,10 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	// from disk, never the in-memory drain) before validators run. Capture is
 	// best-effort: export and write failures are counted inside captureSessions
 	// and never fail the run. The capture feeds the per-agent roll-up below.
-	capture := captureSessions(postCtx, a, runDir, res.SessionID, readStoredEvents(filepath.Join(runDir, "events.jsonl")))
+	// The stored events feed both session capture and the context-aware
+	// validators (diff, grep, process), so they are parsed once.
+	storedEvents := readStoredEvents(filepath.Join(runDir, "events.jsonl"))
+	capture := captureSessions(postCtx, a, runDir, res.SessionID, storedEvents)
 
 	changed, err := ChangedFiles(postCtx, worktree, baseline.SHA)
 	if err != nil {
@@ -301,7 +304,14 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		// the budget is shared by the agent session and validators are cheap,
 		// so a fixed per-validator bound is simpler and keeps a single validator
 		// from being starved by an earlier one.
-		validations, validationRows, err = runValidators(ctx, req, runDir, worktree, env, timeout, metrics.FinalAnswer)
+		vctx := evaluation.ValidatorContext{
+			Worktree:    worktree,
+			Changed:     changed,
+			Diff:        diff,
+			Events:      storedEvents,
+			FinalAnswer: metrics.FinalAnswer,
+		}
+		validations, validationRows, err = runValidators(ctx, req, runDir, vctx, env, timeout)
 		if err != nil {
 			return Result{}, err
 		}
@@ -530,7 +540,7 @@ func discoverChildrenInExport(s *session.Session) []session.ChildRef {
 // runValidators executes every task validator, writing each result's full
 // output to validation/<seq>-<name>.log. When a task requirement is missing all
 // validators are skipped with the reason in Output.
-func runValidators(ctx context.Context, req Request, runDir, worktree string, env []string, timeout time.Duration, finalAnswer string) ([]evaluation.ValidationResult, []store.ValidationRow, error) {
+func runValidators(ctx context.Context, req Request, runDir string, vctx evaluation.ValidatorContext, env []string, timeout time.Duration) ([]evaluation.ValidationResult, []store.ValidationRow, error) {
 	missing := evaluation.Requirements(req.Task.Requires)
 	results := make([]evaluation.ValidationResult, 0, len(req.Task.Validators))
 	rows := make([]store.ValidationRow, 0, len(req.Task.Validators))
@@ -558,9 +568,20 @@ func runValidators(ctx context.Context, req Request, runDir, worktree string, en
 				Status: "skipped", ExitCode: -1, Output: reason, Excerpt: reason,
 			}
 		default:
-			res = evaluation.RunValidator(ctx, seq, evaluation.ValidatorSpec{
-				Kind: v.Kind, Name: v.Name, Command: v.Command, Patterns: v.Patterns, Mode: v.Mode,
-			}, worktree, env, timeout, finalAnswer)
+			res = evaluation.RunValidatorContext(ctx, seq, evaluation.ValidatorSpec{
+				Kind:           v.Kind,
+				Name:           v.Name,
+				Command:        v.Command,
+				Patterns:       v.Patterns,
+				Mode:           v.Mode,
+				RequiredPaths:  v.RequiredPaths,
+				ForbiddenPaths: v.ForbiddenPaths,
+				MaxLines:       v.MaxLines,
+				Present:        v.Present,
+				Absent:         v.Absent,
+				ToolPattern:    v.ToolPattern,
+				Weight:         v.Weight,
+			}, vctx, env, timeout)
 		}
 		rel := validationRelPath(seq, v.Name)
 		if err := os.WriteFile(filepath.Join(runDir, filepath.FromSlash(rel)), []byte(res.Output), 0o644); err != nil {

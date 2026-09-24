@@ -1526,3 +1526,47 @@ func TestRunContinuesOnChildExportFailure(t *testing.T) {
 		t.Fatalf("child file exists despite export failure: %v", err)
 	}
 }
+
+// TestRunContextValidatorsSeeRunState proves the diff, grep and process kinds
+// are reachable from a task and receive the run's change set, worktree and
+// event stream. The happy-path fixture leaves untracked.txt untracked, so a
+// diff validator can be pointed at it either way round.
+func TestRunContextValidatorsSeeRunState(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	f.task.Validators = []suite.Validator{
+		{Kind: "diff", Name: "saw the new file", RequiredPaths: []string{"untracked.txt"}},
+		{Kind: "grep", Name: "fixture is readable", Present: []string{"func|def|package|module"}},
+		{Kind: "process", Name: "read something", ToolPattern: "read"},
+	}
+	a := newScriptedAdapter(t)
+
+	res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != "passed" {
+		t.Fatalf("status = %q, want passed: %+v", res.Status, res.Validations)
+	}
+	for _, v := range res.Validations {
+		if v.Status != "passed" {
+			t.Errorf("validator %q (%s) status = %q: %s", v.Name, v.Kind, v.Status, v.Output)
+		}
+	}
+
+	// The same change set must also be able to fail a constraint.
+	f2 := setupRunner(t)
+	f2.task.Validators = []suite.Validator{
+		{Kind: "diff", Name: "left the untracked file alone", ForbiddenPaths: []string{"untracked.txt"}},
+	}
+	res2, err := Run(context.Background(), newScriptedAdapter(t), f2.st, runnerRequest(f2))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res2.Status != "failed" {
+		t.Fatalf("status = %q, want failed", res2.Status)
+	}
+	if !strings.Contains(res2.Validations[0].Output, "untracked.txt") {
+		t.Errorf("output %q does not name the forbidden path", res2.Validations[0].Output)
+	}
+}

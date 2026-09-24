@@ -93,13 +93,26 @@ type Task struct {
 	SpecHash       string
 }
 
-// Validator is a single task validator.
+// Validator is a single task validator. Kind is "command", "answer", "diff",
+// "grep" or "process"; the fields below apply per kind (design §7).
 type Validator struct {
-	Kind     string // "command" | "answer"
+	Kind     string // command | answer | diff | grep | process
 	Name     string
 	Command  []string
 	Patterns []string
 	Mode     string // answer: "all" (default) | "any"
+
+	RequiredPaths  []string // diff
+	ForbiddenPaths []string // diff
+	MaxLines       int      // diff
+
+	Present []string // grep
+	Absent  []string // grep
+
+	ToolPattern string // process
+
+	// Weight feeds the weighted score; zero means 1.
+	Weight float64
 }
 
 // Task returns the task with the given id.

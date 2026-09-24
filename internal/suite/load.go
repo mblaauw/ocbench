@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -59,6 +60,17 @@ type rawValidator struct {
 	Command  []string `yaml:"command"`
 	Patterns []string `yaml:"patterns"`
 	Mode     string   `yaml:"mode"`
+
+	RequiredPaths  []string `yaml:"required_paths"`
+	ForbiddenPaths []string `yaml:"forbidden_paths"`
+	MaxLines       int      `yaml:"max_lines"`
+
+	Present []string `yaml:"present"`
+	Absent  []string `yaml:"absent"`
+
+	ToolPattern string `yaml:"tool_pattern"`
+
+	Weight float64 `yaml:"weight"`
 }
 
 // rawAnswer is the schema of evaluator/answer.json, the hidden fallback for
@@ -230,7 +242,39 @@ func resolveValidator(raw rawValidator, evaluator map[string][]byte, id string, 
 		if len(raw.Command) == 0 {
 			return Validator{}, fmt.Errorf("task %q: validator %d (%s): command requires a non-empty argv", id, i, raw.Name)
 		}
-		return Validator{Kind: raw.Kind, Name: raw.Name, Command: raw.Command}, nil
+		return Validator{Kind: raw.Kind, Name: raw.Name, Command: raw.Command, Weight: raw.Weight}, nil
+	case "diff":
+		if len(raw.RequiredPaths) == 0 && len(raw.ForbiddenPaths) == 0 && raw.MaxLines <= 0 {
+			return Validator{}, fmt.Errorf("task %q: validator %d (%s): diff validator needs required_paths, forbidden_paths or max_lines", id, i, raw.Name)
+		}
+		if raw.MaxLines < 0 {
+			return Validator{}, fmt.Errorf("task %q: validator %d (%s): max_lines must not be negative", id, i, raw.Name)
+		}
+		return Validator{
+			Kind: raw.Kind, Name: raw.Name,
+			RequiredPaths: raw.RequiredPaths, ForbiddenPaths: raw.ForbiddenPaths, MaxLines: raw.MaxLines,
+			Weight: raw.Weight,
+		}, nil
+	case "grep":
+		if len(raw.Present) == 0 && len(raw.Absent) == 0 {
+			return Validator{}, fmt.Errorf("task %q: validator %d (%s): grep validator needs present or absent patterns", id, i, raw.Name)
+		}
+		if _, err := regexp.Compile(strings.Join(append(append([]string{}, raw.Present...), raw.Absent...), "|")); err != nil {
+			return Validator{}, fmt.Errorf("task %q: validator %d (%s): %w", id, i, raw.Name, err)
+		}
+		return Validator{
+			Kind: raw.Kind, Name: raw.Name,
+			Present: raw.Present, Absent: raw.Absent,
+			Weight: raw.Weight,
+		}, nil
+	case "process":
+		if raw.ToolPattern == "" {
+			return Validator{}, fmt.Errorf("task %q: validator %d (%s): process validator needs tool_pattern", id, i, raw.Name)
+		}
+		if _, err := regexp.Compile(raw.ToolPattern); err != nil {
+			return Validator{}, fmt.Errorf("task %q: validator %d (%s): invalid tool_pattern: %w", id, i, raw.Name, err)
+		}
+		return Validator{Kind: raw.Kind, Name: raw.Name, ToolPattern: raw.ToolPattern, Weight: raw.Weight}, nil
 	case "answer":
 		patterns, mode := raw.Patterns, raw.Mode
 		if len(patterns) == 0 {
@@ -256,7 +300,7 @@ func resolveValidator(raw rawValidator, evaluator map[string][]byte, id string, 
 		if mode != "all" && mode != "any" {
 			return Validator{}, fmt.Errorf("task %q: validator %d (%s): mode %q must be all or any", id, i, raw.Name, mode)
 		}
-		return Validator{Kind: raw.Kind, Name: raw.Name, Patterns: patterns, Mode: mode}, nil
+		return Validator{Kind: raw.Kind, Name: raw.Name, Patterns: patterns, Mode: mode, Weight: raw.Weight}, nil
 	default:
 		return Validator{}, fmt.Errorf("task %q: validator %d: unknown kind %q", id, i, raw.Kind)
 	}

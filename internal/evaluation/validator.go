@@ -21,15 +21,29 @@ const (
 	excerptBytes   = 2 << 10 // 2 KiB
 )
 
-// ValidatorSpec describes one task validator. Kind is "command" or "answer";
-// Command is an argv (never a shell string) and Patterns/Mode apply to answer
-// validators, where Mode is "all" (default) or "any".
+// ValidatorSpec describes one task validator. Kind is "command", "answer",
+// "diff", "grep" or "process". Command is an argv (never a shell string);
+// Patterns/Mode apply to answer validators, where Mode is "all" (default) or
+// "any"; RequiredPaths/ForbiddenPaths/MaxLines apply to diff validators;
+// Present/Absent apply to grep validators; ToolPattern applies to process
+// validators. Weight defaults to 1 and feeds the weighted score.
 type ValidatorSpec struct {
 	Kind     string
 	Name     string
 	Command  []string
 	Patterns []string
 	Mode     string
+
+	RequiredPaths  []string
+	ForbiddenPaths []string
+	MaxLines       int
+
+	Present []string
+	Absent  []string
+
+	ToolPattern string
+
+	Weight float64
 }
 
 // ValidationResult is the outcome of one validator run. Status is one of
@@ -70,16 +84,7 @@ func Requirements(requires []string) (missing []string) {
 // reason in Output. dir and env apply to command validators; finalAnswer is
 // matched by answer validators. A non-positive timeout means no deadline.
 func RunValidator(ctx context.Context, seq int, spec ValidatorSpec, dir string, env []string, timeout time.Duration, finalAnswer string) ValidationResult {
-	switch spec.Kind {
-	case "command":
-		return runCommandValidator(ctx, seq, spec, dir, env, timeout)
-	case "answer":
-		return runAnswerValidator(seq, spec, finalAnswer)
-	default:
-		res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, Status: "error", ExitCode: -1}
-		res.setOutput(fmt.Sprintf("unknown validator kind %q", spec.Kind))
-		return res
-	}
+	return RunValidatorContext(ctx, seq, spec, ValidatorContext{Worktree: dir, FinalAnswer: finalAnswer}, env, timeout)
 }
 
 // runCommandValidator runs spec.Command as an argv with dir and env, capturing
