@@ -257,7 +257,7 @@ func newExperimentShowCmd(d Deps) *cobra.Command {
 			if format == "jsonl" {
 				return renderExperimentJSONL(cmd.Context(), cmd.OutOrStdout(), st, args[0])
 			}
-			summary, err := experiment.Summarize(cmd.Context(), st, args[0], "", stats.DefaultAlpha)
+			summary, err := experiment.Summarize(cmd.Context(), st, args[0], "")
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					return &UsageError{Err: err}
@@ -514,7 +514,7 @@ func runExperiment(cmd *cobra.Command, d Deps, adapterFor func(experiment.ArmSpe
 		return err
 	}
 
-	summary, err := experiment.Summarize(ctx, st, outcome.ExperimentID, opts.baseline, stats.DefaultAlpha)
+	summary, err := experiment.Summarize(ctx, st, outcome.ExperimentID, opts.baseline)
 	if err != nil {
 		return err
 	}

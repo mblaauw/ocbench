@@ -3,6 +3,7 @@ package experiment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,6 +11,10 @@ import (
 	"mbl/ocbench/internal/stats"
 	"mbl/ocbench/internal/store"
 )
+
+// ErrSelector marks a selector that names no arm of an experiment. Callers
+// treat it as a usage error, matching history.ErrSelector.
+var ErrSelector = errors.New("invalid selector")
 
 // wilsonZ is the standard-normal quantile for a two-sided 95% interval, the
 // level spec §12.3 fixes for the reported pass-rate interval.
@@ -102,7 +107,7 @@ func taskWeight(string) float64 { return 1 }
 // baseline names the reference arm. An empty baseline falls back to the one
 // recorded in the experiment spec, then to the first arm in label order,
 // mirroring spec §12.1.
-func Summarize(ctx context.Context, st *store.Store, experimentID, baseline string, alpha float64) (ExperimentSummary, error) {
+func Summarize(ctx context.Context, st *store.Store, experimentID, baseline string) (ExperimentSummary, error) {
 	exp, err := st.GetExperiment(ctx, experimentID)
 	if err != nil {
 		return ExperimentSummary{}, err
@@ -110,6 +115,18 @@ func Summarize(ctx context.Context, st *store.Store, experimentID, baseline stri
 	arms, err := st.ListExperimentArms(ctx, experimentID)
 	if err != nil {
 		return ExperimentSummary{}, err
+	}
+	if baseline != "" {
+		known := false
+		for _, a := range arms {
+			if a.Label == baseline {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return ExperimentSummary{}, fmt.Errorf("%w: baseline %q names no arm", ErrSelector, baseline)
+		}
 	}
 	runs, err := st.RunsForExperiment(ctx, experimentID)
 	if err != nil {

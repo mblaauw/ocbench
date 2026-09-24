@@ -2,6 +2,7 @@ package experiment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -167,7 +168,7 @@ func TestSummarizeIdenticalArmsNoRegression(t *testing.T) {
 	// A run with no arm id belongs to a single-profile run and is ignored.
 	aggInsertOrphan(t, st, "exp-1", "orphan")
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -231,7 +232,7 @@ func TestSummarizeArmWorsePassRateRegression(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, false, 0.5, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -263,7 +264,7 @@ func TestSummarizeEqualPassRateCostRegression(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, true, cost, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -298,7 +299,7 @@ func TestSummarizeInsufficientData(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 2, true, 0.5, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -325,7 +326,7 @@ func TestSummarizeDriftSuppressesSignificance(t *testing.T) {
 		}
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -358,7 +359,7 @@ func TestSummarizeDriftOnNonModelField(t *testing.T) {
 		}
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -390,7 +391,7 @@ func TestSummarizeThreeArmsNamesRegressedArm(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["c"], task, 3, false, 0.5, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -422,7 +423,7 @@ func TestSummarizeCandidateBetterNoRegression(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, true, 0.25, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -442,6 +443,22 @@ func TestSummarizeCandidateBetterNoRegression(t *testing.T) {
 	}
 }
 
+func TestSummarizeUnknownBaselineErrors(t *testing.T) {
+	st := aggStore(t)
+	aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "candidate")
+
+	_, err := Summarize(context.Background(), st, "exp-1", "ghost")
+	if err == nil {
+		t.Fatal("Summarize unknown baseline: want error, got nil")
+	}
+	if !errors.Is(err, ErrSelector) {
+		t.Fatalf("err = %v, want ErrSelector", err)
+	}
+	if !strings.Contains(err.Error(), `"ghost"`) {
+		t.Fatalf("error %q does not name the baseline label", err)
+	}
+}
+
 func TestSummarizeBorderlineAlpha(t *testing.T) {
 	st := aggStore(t)
 	ids := aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "candidate")
@@ -451,7 +468,7 @@ func TestSummarizeBorderlineAlpha(t *testing.T) {
 		aggSeedRepeats(t, st, "exp-1", ids["candidate"], task, 3, false, 0.5, 100, 1000)
 	}
 
-	s, err := Summarize(context.Background(), st, "exp-1", "baseline", stats.DefaultAlpha)
+	s, err := Summarize(context.Background(), st, "exp-1", "baseline")
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}

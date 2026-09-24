@@ -157,3 +157,29 @@ func TestResolveOverlayDirHashStableAndContentSensitive(t *testing.T) {
 		t.Errorf("dir hash unchanged after file edit: %q", third.SHA256)
 	}
 }
+
+func TestResolveOverlayDirHashSensitiveToRename(t *testing.T) {
+	dir := t.TempDir()
+	original := filepath.Join(dir, "original.json")
+	if err := os.WriteFile(original, []byte(`{"a":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := ResolveOverlay(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Same bytes, different relative path: a move/rename must change the hash.
+	moved := filepath.Join(dir, "moved.json")
+	if err := os.Rename(original, moved); err != nil {
+		t.Fatal(err)
+	}
+	second, err := ResolveOverlay(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SHA256 == first.SHA256 {
+		t.Errorf("dir hash unchanged after file rename: %q", second.SHA256)
+	}
+}

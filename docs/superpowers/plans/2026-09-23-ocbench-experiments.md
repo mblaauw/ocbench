@@ -191,7 +191,7 @@ type ExperimentSummary struct {
     Regression *RegressionDecision
 }
 type RegressionDecision struct { Arm string; Regressed bool; Reason string } // Arm empty when none regressed
-func Summarize(ctx context.Context, st *store.Store, experimentID, baseline string, alpha float64) (ExperimentSummary, error)
+func Summarize(ctx context.Context, st *store.Store, experimentID, baseline string) (ExperimentSummary, error)
 func DecideRegression(s ExperimentSummary, alpha float64) RegressionDecision
 ```
 The cost test uses a median-difference permutation (`stats.PermutationPMedian`), so add that helper to `internal/stats` in this task (pooled resample, two-sided, `(count+1)/(iters+1)`, seeded) with its own tests.
