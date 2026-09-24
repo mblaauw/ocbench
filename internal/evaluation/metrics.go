@@ -164,3 +164,10 @@ func sanitize(s string) string {
 		return '_'
 	}, s)
 }
+
+// SanitizeName is the exported form of sanitize for callers outside the
+// package, such as the runner's per-agent metric keys. It has identical
+// behaviour: every non-alphanumeric rune becomes an underscore.
+func SanitizeName(s string) string {
+	return sanitize(s)
+}

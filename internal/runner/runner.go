@@ -258,9 +258,8 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	// Capture delegated child sessions from the stored event stream (re-read
 	// from disk, never the in-memory drain) before validators run. Capture is
 	// best-effort: export and write failures are counted inside captureSessions
-	// and never fail the run. Task 3 consumes the returned capture for the
-	// per-agent roll-up.
-	_ = captureSessions(postCtx, a, runDir, res.SessionID, readStoredEvents(filepath.Join(runDir, "events.jsonl")))
+	// and never fail the run. The capture feeds the per-agent roll-up below.
+	capture := captureSessions(postCtx, a, runDir, res.SessionID, readStoredEvents(filepath.Join(runDir, "events.jsonl")))
 
 	changed, err := ChangedFiles(postCtx, worktree, baseline.SHA)
 	if err != nil {
@@ -356,7 +355,7 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	if err != nil {
 		return Result{}, err
 	}
-	for name, value := range derivedMetrics(res, changed, diff, validations, created, deleted) {
+	for name, value := range derivedMetrics(res, capture, changed, diff, validations, created, deleted) {
 		res.Metrics[name] = value
 	}
 	finished := time.Now().UTC().Format(time.RFC3339)

@@ -315,6 +315,32 @@ func TestParseExportClampsNegativeDuration(t *testing.T) {
 	}
 }
 
+func TestParseExportToleratesMalformedMessagePart(t *testing.T) {
+	// A non-object part must not fail the export; the valid parts on the same
+	// message are still parsed and roll up.
+	data := []byte(`{"info":{"id":"ses_tol","agent":"build"},"messages":[
+		{"info":{"agent":"build","tokens":{"total":9}},"parts":[
+			{"type":"text","text":"hi"},
+			42,
+			{"type":"tool","tool":"read","state":{"status":"completed","time":{"start":1,"end":3}}}
+		]}
+	]}`)
+	s, err := ParseExport(data)
+	if err != nil {
+		t.Fatalf("ParseExport: %v", err)
+	}
+	if len(s.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(s.Messages))
+	}
+	if len(s.Messages[0].Tools) != 1 || s.Messages[0].Tools[0].Name != "read" {
+		t.Fatalf("Tools = %+v, want the valid read call", s.Messages[0].Tools)
+	}
+	got := Rollup([]*Session{s})
+	if len(got) != 1 || got[0].Messages != 1 || got[0].ToolCalls != 1 {
+		t.Fatalf("rollup = %+v, want 1 message / 1 tool call", got)
+	}
+}
+
 func mustEvent(t *testing.T, line string) evaluation.Event {
 	t.Helper()
 	e, err := evaluation.ParseLine([]byte(line))

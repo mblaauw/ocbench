@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"strings"
 
 	"mbl/ocbench/internal/evaluation"
+	"mbl/ocbench/internal/session"
 	"mbl/ocbench/internal/suite"
 )
 
@@ -357,7 +359,7 @@ func diffLineCounts(diff []byte) (added, removed int) {
 // derivedMetrics builds the spec §9 metrics that come from the runner rather
 // than the event stream. It is only called for a run whose session completed,
 // so every value is computable.
-func derivedMetrics(res Result, changed []string, diff []byte, validations []evaluation.ValidationResult, created, deleted int) map[string]float64 {
+func derivedMetrics(res Result, capture SessionCapture, changed []string, diff []byte, validations []evaluation.ValidationResult, created, deleted int) map[string]float64 {
 	added, removed := diffLineCounts(diff)
 	failures := 0
 	for _, v := range validations {
@@ -374,7 +376,7 @@ func derivedMetrics(res Result, changed []string, diff []byte, validations []eva
 	if failures == 0 && res.Status == "passed" {
 		firstShot = 1
 	}
-	return map[string]float64{
+	out := map[string]float64{
 		"files_changed":      float64(len(changed)),
 		"files_created":      float64(created),
 		"files_deleted":      float64(deleted),
@@ -386,6 +388,64 @@ func derivedMetrics(res Result, changed []string, diff []byte, validations []eva
 		"success":            success,
 		"first_shot_success": firstShot,
 	}
+	// res.Metrics already holds the event-derived totals, including
+	// tokens_total; pass it through for the event-vs-session cross-check.
+	for name, value := range sessionMetrics(capture, res.Metrics["tokens_total"]) {
+		out[name] = value
+	}
+	return out
+}
+
+// sessionMetrics renders the spec §9 session roll-up from a captured session
+// tree. Every captured session, primary included, contributes agent.<name>.*
+// metrics built from its messages; subagent_* aggregate the delegated children
+// only. eventTokensTotal is the event-derived tokens_total already computed by
+// evaluation.Metrics; the cross-check delta is omitted, rather than reported as
+// zero, when no primary export was captured.
+func sessionMetrics(c SessionCapture, eventTokensTotal float64) map[string]float64 {
+	out := map[string]float64{
+		"subagent_sessions":        float64(len(c.Children)),
+		"subagent_export_failures": float64(c.Failures),
+	}
+	sessions := make([]*session.Session, 0, len(c.Children)+1)
+	if c.Primary != nil {
+		sessions = append(sessions, c.Primary)
+	}
+	sessions = append(sessions, c.Children...)
+	for _, r := range session.Rollup(sessions) {
+		name := evaluation.SanitizeName(r.Agent)
+		if name == "" {
+			name = "unknown"
+		}
+		prefix := "agent." + name + "."
+		out[prefix+"messages"] = float64(r.Messages)
+		out[prefix+"cost"] = r.Cost
+		out[prefix+"tokens_input"] = float64(r.Tokens.Input)
+		out[prefix+"tokens_output"] = float64(r.Tokens.Output)
+		out[prefix+"tokens_reasoning"] = float64(r.Tokens.Reasoning)
+		out[prefix+"tokens_cache_read"] = float64(r.Tokens.CacheRead)
+		out[prefix+"tokens_cache_write"] = float64(r.Tokens.CacheWrite)
+		out[prefix+"tokens_total"] = float64(r.Tokens.Total)
+		out[prefix+"tool_calls"] = float64(r.ToolCalls)
+		out[prefix+"tool_calls_failed"] = float64(r.ToolCallsFailed)
+	}
+	if len(c.Children) > 0 {
+		var tokens int64
+		var cost float64
+		for _, s := range c.Children {
+			if s == nil {
+				continue
+			}
+			tokens += s.Tokens.Total
+			cost += s.Cost
+		}
+		out["subagent_tokens_total"] = float64(tokens)
+		out["subagent_cost"] = cost
+	}
+	if c.Primary != nil {
+		out["session_crosscheck_tokens_delta"] = math.Abs(eventTokensTotal - float64(c.Primary.Tokens.Total))
+	}
+	return out
 }
 
 // matchAny reports whether name matches at least one glob.

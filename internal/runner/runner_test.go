@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,6 +21,7 @@ import (
 	"mbl/ocbench/internal/evaluation"
 	"mbl/ocbench/internal/opencode"
 	"mbl/ocbench/internal/profile"
+	"mbl/ocbench/internal/session"
 	"mbl/ocbench/internal/store"
 	"mbl/ocbench/internal/suite"
 )
@@ -1306,6 +1308,172 @@ func TestRunCapturesChildSessions(t *testing.T) {
 	if _, ok := rf.Artifacts["sessions"]; !ok {
 		t.Fatalf("result.json artifacts missing sessions/: %v", rf.Artifacts)
 	}
+}
+
+// readSessionFixture loads one of the real probe exports captured under
+// internal/session/testdata. The runner tests reuse them so the roll-up is
+// exercised against the same numbers as the session package.
+func readSessionFixture(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "session", "testdata", name))
+	if err != nil {
+		t.Fatalf("read session fixture %s: %v", name, err)
+	}
+	return data
+}
+
+func wantMetric(t *testing.T, metrics map[string]float64, name string, want float64) {
+	t.Helper()
+	got, ok := metrics[name]
+	if !ok {
+		t.Errorf("metric %s missing", name)
+		return
+	}
+	if math.Abs(got-want) > 1e-9 {
+		t.Errorf("metric %s = %v, want %v", name, got, want)
+	}
+}
+
+// TestSessionMetrics pins the per-agent roll-up and the child-session
+// aggregates wired into Run's derived metrics. The event stream is
+// fakeTaskEvents (tokens_total 15); the primary and child exports are the real
+// probe fixtures.
+func TestSessionMetrics(t *testing.T) {
+	parent := readSessionFixture(t, "parent-session.json")
+	child := readSessionFixture(t, "child-session.json")
+
+	t.Run("parent and child roll up", func(t *testing.T) {
+		useMode(t, "task")
+		f := setupRunner(t)
+		a := newScriptedAdapter(t)
+		a.exportFunc = func(id string) ([]byte, error) {
+			if id == "ses_child" {
+				return child, nil
+			}
+			return parent, nil
+		}
+
+		res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		for name, want := range map[string]float64{
+			"subagent_sessions":               1,
+			"subagent_tokens_total":           5653,
+			"subagent_cost":                   0.000511764,
+			"subagent_export_failures":        0,
+			"agent.build.messages":            3,
+			"agent.build.cost":                0.002078364,
+			"agent.build.tokens_input":        12646,
+			"agent.build.tokens_total":        25175,
+			"agent.build.tool_calls":          1,
+			"agent.build.tool_calls_failed":   0,
+			"agent.explore.messages":          3,
+			"agent.explore.cost":              0.000511764,
+			"agent.explore.tokens_total":      5653,
+			"agent.explore.tool_calls":        1,
+			"agent.explore.tool_calls_failed": 0,
+			// The event-derived total is never replaced by the session roll-up.
+			"tokens_total":                    15,
+			"session_crosscheck_tokens_delta": 25160,
+		} {
+			wantMetric(t, res.Metrics, name, want)
+		}
+	})
+
+	t.Run("no children emits no agent keys", func(t *testing.T) {
+		useMode(t, "ok")
+		f := setupRunner(t)
+		a := newScriptedAdapter(t)
+
+		res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		wantMetric(t, res.Metrics, "subagent_sessions", 0)
+		wantMetric(t, res.Metrics, "subagent_export_failures", 0)
+		if _, ok := res.Metrics["subagent_tokens_total"]; ok {
+			t.Errorf("subagent_tokens_total present with no children")
+		}
+		if _, ok := res.Metrics["subagent_cost"]; ok {
+			t.Errorf("subagent_cost present with no children")
+		}
+		for name := range res.Metrics {
+			if strings.HasPrefix(name, "agent.") {
+				t.Errorf("unexpected agent metric %s", name)
+			}
+		}
+		// The default fake export totals 15, matching the event stream.
+		wantMetric(t, res.Metrics, "session_crosscheck_tokens_delta", 0)
+	})
+
+	t.Run("failed child export counts a failure only", func(t *testing.T) {
+		useMode(t, "task")
+		f := setupRunner(t)
+		a := newScriptedAdapter(t)
+		a.exportFunc = func(id string) ([]byte, error) {
+			if id == "ses_child" {
+				return nil, errors.New("child export boom")
+			}
+			return parent, nil
+		}
+
+		res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		wantMetric(t, res.Metrics, "subagent_export_failures", 1)
+		wantMetric(t, res.Metrics, "subagent_sessions", 0)
+		if _, ok := res.Metrics["subagent_tokens_total"]; ok {
+			t.Errorf("subagent_tokens_total present despite failed child export")
+		}
+		if _, ok := res.Metrics["subagent_cost"]; ok {
+			t.Errorf("subagent_cost present despite failed child export")
+		}
+		// The primary export still rolls up and cross-checks.
+		wantMetric(t, res.Metrics, "agent.build.tokens_total", 25175)
+		wantMetric(t, res.Metrics, "session_crosscheck_tokens_delta", 25160)
+	})
+
+	t.Run("primary unavailable omits crosscheck", func(t *testing.T) {
+		useMode(t, "task")
+		f := setupRunner(t)
+		a := newScriptedAdapter(t)
+		a.exportFunc = func(id string) ([]byte, error) {
+			if id == "ses_child" {
+				return child, nil
+			}
+			return nil, errors.New("primary export boom")
+		}
+
+		res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if _, ok := res.Metrics["session_crosscheck_tokens_delta"]; ok {
+			t.Errorf("crosscheck present without a primary export")
+		}
+		if _, ok := res.Metrics["agent.build.tokens_total"]; ok {
+			t.Errorf("agent.build metric present without a primary export")
+		}
+		wantMetric(t, res.Metrics, "subagent_sessions", 1)
+		wantMetric(t, res.Metrics, "agent.explore.tokens_total", 5653)
+	})
+}
+
+// TestSessionMetricsSanitizesAgentNames pins the metric-key safety rule: a
+// name is sanitised and an empty result falls back to "unknown".
+func TestSessionMetricsSanitizesAgentNames(t *testing.T) {
+	s, err := session.ParseExport([]byte(`{"info":{"id":"ses_s","agent":"my-agent.v2"},"messages":[
+		{"info":{"agent":"my-agent.v2","tokens":{"total":5}},"parts":[]},
+		{"info":{"agent":"","tokens":{"total":7}},"parts":[]}
+	]}`))
+	if err != nil {
+		t.Fatalf("ParseExport: %v", err)
+	}
+	got := sessionMetrics(SessionCapture{Primary: s}, 0)
+	wantMetric(t, got, "agent.my_agent_v2.tokens_total", 5)
+	wantMetric(t, got, "agent.unknown.tokens_total", 7)
 }
 
 // TestRunContinuesOnChildExportFailure proves a child export error does not
