@@ -14,49 +14,35 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | Dashboard — embedded web, safe routes, `serve` | **done** | `10b5a9d`..`42a8330` |
 | Experiments — arms, overlays, statistics, regression gate, JSONL export | **done** | `2db8b81`..`a29748a` |
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |
-| Task infrastructure — metadata, hidden tests, references, new validators | **specified, not started** | `531a303` (spec only) |
-| Agentic suite — delegation, planning, context, skill use, restraint | **designed, not planned** | design §14 |
+| Task infrastructure — metadata, hidden tests, references, new validators | **done** | `acf0f83`..`6472c50` |
+| Agentic suite — delegation, restraint, project rules, buried fact | **done** | `fb2f025`, evidence `2026-09-24` |
 | Difficulty tiers — standard/hard suites, multi-language fixtures | **not started** | — |
 
-## In flight: task infrastructure
+## Landed: task infrastructure and the agentic suite
 
-Planned in [plans/2026-09-24-ocbench-task-infrastructure.md](plans/2026-09-24-ocbench-task-infrastructure.md),
-seven tasks, none implemented:
+Plan [2026-09-24-ocbench-task-infrastructure.md](plans/2026-09-24-ocbench-task-infrastructure.md)
+is implemented: task metadata (`difficulty`, `capabilities`, `expected_tokens`,
+suite `tier`), hidden tests copied in after the agent stops, reference solutions
+with an automated fail-before/pass-after test over every task, `diff`/`grep`/
+`process` validators, weighted `score` beside binary `success`, and process
+metrics. Two plan items remain open: the plan's own verification task is
+superseded by the evidence file below, and no task yet populates the `hard` tier.
 
-1. **Task metadata** — `difficulty`, `capabilities`, `expected_tokens`, suite `tier`, with hashing rules.
-2. **Hidden tests** — `evaluator/tests/` copied into the worktree only after the agent stops.
-3. **Reference solutions** — `evaluator/reference/` plus a suite test proving every task fails untouched and passes with its reference.
-4. **`diff` and `grep` validators** — required/forbidden paths, a changed-line ceiling, present/absent patterns.
-5. **`process` validator, weights and `score`** — check that a stated behaviour happened (for example that the tests were run) and grade partial credit without changing `success`.
-6. **Process metrics** — time to first edit, tool calls before it, redundant reads, verification commands.
-7. **Verification** — gates plus a live smoke on `py-bugfix`.
+`suites/agentic/` holds four tasks, one per agentic capability:
 
-The minimum needed before the agentic suite is tasks 1, 4 and 5: metadata for
-grouping, and the validators that make delegation, restraint and
-instruction-following checkable at all.
+| Task | Capability | Proof |
+|---|---|---|
+| `delegation-sweep` | delegation, search | live run: three subagents, 37.6k subagent tokens against the parent's 24.4k, `process` and `answer` both passed |
+| `restraint-test-edit` | restraint | `diff` forbids `tests/**`, requires `calc.py`, caps the change at 10 lines |
+| `rules-compliance` | instruction-following | two command checks plus `grep` (no tabs) and `diff` (changelog untouched) |
+| `buried-fact` | search, context | 30-file tree with the real `MAX_RETRIES = 7` among decoys |
 
-## Next: the agentic suite
+Verification: [evidence/2026-09-24-agentic-suite-verification.md](evidence/2026-09-24-agentic-suite-verification.md).
+Three defects were found while authoring it and are fixed: hidden tests landed
+at the worktree root instead of `tests/`, stale Python bytecode made a fixed
+task still fail, and a `grep` validator read a binary `.pyc` as text.
 
-Design settled in [design.md §14](design.md); a plan still has to be written.
-The suite (`suites/agentic/`) targets the behaviours that separate one profile
-from another, using the capability vocabulary `delegation, planning, tool-use,
-context, skill-use, instruction-following, restraint, debugging, multi-file,
-search`:
-
-| Task | What it exercises |
-|---|---|
-| `parallel-investigation` | Three independent areas in a fixture too large to read serially; the prompt asks for delegation, so a `process` validator may check it |
-| `plan-then-implement` | An ordered change (schema → loader → caller) where the plan is an artifact and the tests must pass afterwards |
-| `buried-fact` | A 30+ file fixture with one fact and deliberate near-misses; measures search cost |
-| `skill-application` | Knowledge that lives in a skill rather than the fixture; `skill_loads` shows whether it was consulted |
-| `project-rules` | A fixture shipping `AGENTS.md` rules the prompt restates; `grep`/`diff` validators check compliance |
-| `tempting-shortcut` | A failing test that could be "fixed" by editing the test; `diff` forbids the shortcut |
-| `multi-module-feature` | A feature spanning modules with a shared interface |
-
-Honesty rules from §14.3 apply: a process validator may only check something the
-prompt asks for, and a task must be solvable without the capability it names.
-
-## Then: difficulty tiers and multi-language fixtures
+## Next: difficulty tiers and multi-language fixtures
 
 Slice B's remaining half. The current five tasks are all small stdlib Python and
 an inexpensive model passes them in ten seconds, so every profile passes
@@ -70,6 +56,12 @@ everything and only cost and time separate them. To fix that:
 ## Unscheduled review items
 
 Numbering is from the original external review, kept so nothing is lost.
+
+**Task quality** — remaining from the original review: `ast` and `json_schema`
+validator kinds, an optional `llm_judge` reported separately from the
+deterministic score, and tasks that exercise a specific skill or MCP server so
+adding one shows up as a measurable difference. Hidden tests, reference
+solutions, task metadata and the `diff`/`grep`/`process` validators are done.
 
 **Capture depth** — split the catch-all `config` profile component into
 `command/<name>`, `lsp/<lang>`, `formatter/<name>`, `provider/<id>`,
@@ -109,7 +101,7 @@ provider/model version and temperature where OpenCode exposes them (#13).
 
 Deferred during implementation, grouped by area. None blocks current use.
 
-- **Suites and tasks** — only `config-yaml-fix` has an automated fail-before/pass-after proof (the other four were proven by hand when authored); answer patterns are phrasing-sensitive; `task.Name`/`Tags` are excluded from the task hash; the embedded/on-disk parity test reads the source tree at `../../suites/core`; `//go:embed all:core` would also embed stray hidden files; `LoadFS` does not literally call `HashTasks`; a zero-task suite needs an empty `tasks/` directory; a missing `suite.yaml` error does not name the directory; `Source.Name` is the requested identifier rather than the loaded suite name; `Export` follows symlinks and can leave a partial tree; `ListSources` labels any filesystem as embedded; empty directories are not recreated on export; an empty YAML file reports `parse <file>: EOF`.
+- **Suites and tasks** — every task now has an automated fail-before/pass-after proof; answer patterns are phrasing-sensitive; `task.Name`/`Tags` are excluded from the task hash; the embedded/on-disk parity test reads the source tree at `../../suites/core`; `//go:embed all:core` would also embed stray hidden files; `LoadFS` does not literally call `HashTasks`; a zero-task suite needs an empty `tasks/` directory; a missing `suite.yaml` error does not name the directory; `Source.Name` is the requested identifier rather than the loaded suite name; `Export` follows symlinks and can leave a partial tree; `ListSources` labels any filesystem as embedded; empty directories are not recreated on export; an empty YAML file reports `parse <file>: EOF`.
 - **Runner** — `changeCounts` is sampled after validators while `changed`/`diff` are sampled before, so validator caches can inflate created/deleted counts; the drain-error path still persists no run row; `persist` issues several transactions rather than one; the near-deadline watchdog test is not actually near-deadline.
 - **Store** — `ListRuns` orders by second-precision `started_at`, so runs in the same second fall back to UUID order.
 - **Evaluation** — retry/compaction are dispatched on `part.type` regardless of envelope type; blank lines count as parse errors; an excerpt can split an ANSI escape sequence; hostile part shapes (null, array, wrong-typed fields) are handled but untested; the golden fixture's byte-identity to the live probe is asserted only by a report hash.

@@ -157,6 +157,36 @@ reasoning and what it costs if the call was wrong. The design itself is
   synthetic step 0 when no step has opened yet. *Cost if wrong:* a compaction
   emitted between steps is attributed to the previous step rather than the next.
 
+## Task infrastructure and the agentic suite
+
+- **Hidden tests keep their directory name.** `evaluator/tests/` lands at
+  `<worktree>/tests/` because a validator refers to it by path. The first
+  implementation walked the subtree and wrote files at the worktree root, which
+  broke every task whose validator runs `unittest discover -s tests`. *Cost if
+  wrong:* a task cannot place hidden files outside `tests/`.
+- **Runs set `PYTHONDONTWRITEBYTECODE=1`.** Stray bytecode counts as created
+  files and can be read by a grep validator; worse, a same-length edit inside
+  the same second makes Python reuse a stale `.pyc`, so a fixed task still
+  fails. *Cost if wrong:* a task that genuinely needs bytecode caching loses it.
+- **The grep validator skips files that look binary** (a NUL byte in the first
+  8 KiB, the heuristic git uses). *Cost if wrong:* a pattern that only appears
+  in a binary artefact is not matched.
+- **A process validator may only check what the prompt asks for**, and a task
+  must be solvable without the capability it names. Grading an unstated
+  preference measures obedience to the grader, not capability. *Cost if wrong:*
+  some agentic behaviours cannot be checked at all.
+- **`score` is weighted and `success` stays binary.** Skipped validators count in
+  neither the numerator nor the denominator, and `score` is omitted rather than
+  zeroed when everything was skipped. *Cost if wrong:* consumers reading only
+  `success` see no partial progress.
+- **The honesty harness excludes process validators** because they observe agent
+  behaviour, which no reference tree can supply; those are proven by a live run
+  instead. *Cost if wrong:* a broken process validator is caught by a live run,
+  not by the suite test.
+- **Reference solutions are file trees, not patches.** They copy over a scratch
+  fixture, so they review in a diff and need no patch tooling. *Cost if wrong:*
+  a reference that deletes a file cannot be expressed.
+
 ## Documentation
 
 - **The design is one document**, not a set of per-subsystem files. It is long
