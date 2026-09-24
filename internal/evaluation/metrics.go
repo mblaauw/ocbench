@@ -2,6 +2,7 @@ package evaluation
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -17,7 +18,17 @@ type Metrics struct {
 	Texts                                                        []string
 	FinalAnswer                                                  string // most recent text event, the model's final message
 
-	mcpServers []string
+	// Process metrics describe how the agent worked, not what it produced.
+	// FirstEditMS is the timestamp of the first edit-like tool call; zero
+	// means no edit happened, and time_to_first_edit_ms is then omitted.
+	FirstEditMS              int64
+	ToolCallsBeforeFirstEdit int
+	RedundantReads           int
+	VerificationCommands     int
+
+	mcpServers    []string
+	readsSeen     map[string]bool
+	lastTimestamp int64
 }
 
 // NewMetrics returns initialised Metrics. mcpServers lists the configured MCP
@@ -38,12 +49,23 @@ func NewMetrics(mcpServers []string) *Metrics {
 // toolState is the subset of a tool part's state used for metrics.
 type toolState struct {
 	Status string `json:"status"`
+	Input  struct {
+		Command  string `json:"command"`
+		FilePath string `json:"filePath"`
+	} `json:"input"`
 }
+
+// editTools are the tool calls that count as changing the worktree.
+var editTools = map[string]bool{"edit": true, "write": true, "patch": true}
+
+// verificationPattern matches commands that run the project's checks.
+var verificationPattern = regexp.MustCompile(`(?i)(unittest|pytest|go test|npm test|cargo test|make test|lint|golangci)`)
 
 // Observe folds a single event into the metrics. It never returns an error:
 // undecodable parts increment ParseErrors. Unknown envelope and part types are
 // ignored for forward compatibility.
 func (m *Metrics) Observe(e Event) {
+	m.lastTimestamp = e.Timestamp
 	p, err := e.PartDecoded()
 	if err != nil {
 		m.ParseErrors++
@@ -81,6 +103,32 @@ func (m *Metrics) ObserveLine(line []byte) {
 func (m *Metrics) observeTool(p Part) {
 	m.ToolCalls++
 	m.ToolCallsByName[p.Tool]++
+	if m.readsSeen == nil {
+		m.readsSeen = map[string]bool{}
+	}
+	if m.FirstEditMS == 0 {
+		if editTools[p.Tool] {
+			m.FirstEditMS = m.lastTimestamp
+		} else {
+			m.ToolCallsBeforeFirstEdit++
+		}
+	}
+	if p.Tool == "read" {
+		var st toolState
+		if len(p.State) > 0 && json.Unmarshal(p.State, &st) == nil && st.Input.FilePath != "" {
+			if m.readsSeen[st.Input.FilePath] {
+				m.RedundantReads++
+			}
+			m.readsSeen[st.Input.FilePath] = true
+		}
+	}
+	if p.Tool == "bash" || p.Tool == "shell" {
+		var st toolState
+		if len(p.State) > 0 && json.Unmarshal(p.State, &st) == nil && st.Input.Command != "" &&
+			verificationPattern.MatchString(st.Input.Command) {
+			m.VerificationCommands++
+		}
+	}
 	if len(p.State) > 0 {
 		var st toolState
 		if err := json.Unmarshal(p.State, &st); err == nil && st.Status == "error" {
@@ -144,6 +192,15 @@ func (m *Metrics) MetricsMap() map[string]float64 {
 		"tokens_cache_write": float64(m.TokensCacheWrite),
 		"tokens_total":       float64(m.TokensTotal),
 		"cost":               m.Cost,
+
+		"tool_calls_before_first_edit": float64(m.ToolCallsBeforeFirstEdit),
+		"redundant_reads":              float64(m.RedundantReads),
+		"verification_commands":        float64(m.VerificationCommands),
+	}
+	// Omitted rather than zeroed: no edit is a different fact from an edit at
+	// time zero.
+	if m.FirstEditMS > 0 {
+		out["time_to_first_edit_ms"] = float64(m.FirstEditMS)
 	}
 	for tool, n := range m.ToolCallsByName {
 		out["tool_calls_"+sanitize(tool)] = float64(n)

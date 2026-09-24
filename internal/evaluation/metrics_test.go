@@ -295,3 +295,58 @@ func TestSanitizeMetricSuffix(t *testing.T) {
 		t.Fatalf("map = %v", m.MetricsMap())
 	}
 }
+
+func TestProcessMetrics(t *testing.T) {
+	m := NewMetrics(nil)
+	// A read, a redundant read of the same file, then the first edit, then a
+	// verification command.
+	m.ObserveLine([]byte(`{"type":"tool_use","timestamp":1000,"part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"src/a.py"}}}}`))
+	m.ObserveLine([]byte(`{"type":"tool_use","timestamp":2000,"part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"src/a.py"}}}}`))
+	m.ObserveLine([]byte(`{"type":"tool_use","timestamp":3000,"part":{"type":"tool","tool":"edit","state":{"status":"completed","input":{"filePath":"src/a.py"}}}}`))
+	m.ObserveLine([]byte(`{"type":"tool_use","timestamp":4000,"part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"python3 -m unittest discover -s tests"}}}}`))
+
+	if m.ToolCallsBeforeFirstEdit != 2 {
+		t.Errorf("ToolCallsBeforeFirstEdit = %d, want 2", m.ToolCallsBeforeFirstEdit)
+	}
+	if m.FirstEditMS != 3000 {
+		t.Errorf("FirstEditMS = %d, want 3000 (the edit event's timestamp)", m.FirstEditMS)
+	}
+	if m.RedundantReads != 1 {
+		t.Errorf("RedundantReads = %d, want 1", m.RedundantReads)
+	}
+	if m.VerificationCommands != 1 {
+		t.Errorf("VerificationCommands = %d, want 1", m.VerificationCommands)
+	}
+
+	out := m.MetricsMap()
+	if out["time_to_first_edit_ms"] != 3000 {
+		t.Errorf("time_to_first_edit_ms = %v, want 3000", out["time_to_first_edit_ms"])
+	}
+	if out["tool_calls_before_first_edit"] != 2 || out["redundant_reads"] != 1 || out["verification_commands"] != 1 {
+		t.Errorf("process metrics missing from MetricsMap: %v", out)
+	}
+}
+
+func TestProcessMetricsOmitTimeWithoutAnEdit(t *testing.T) {
+	m := NewMetrics(nil)
+	m.ObserveLine([]byte(`{"type":"tool_use","timestamp":1000,"part":{"type":"tool","tool":"read","state":{"status":"completed","input":{"filePath":"src/a.py"}}}}`))
+	if m.FirstEditMS != 0 {
+		t.Errorf("FirstEditMS = %d, want 0", m.FirstEditMS)
+	}
+	if _, present := m.MetricsMap()["time_to_first_edit_ms"]; present {
+		t.Error("time_to_first_edit_ms must be omitted when no edit happened")
+	}
+	if m.MetricsMap()["redundant_reads"] != 0 {
+		t.Error("redundant_reads should still be reported")
+	}
+}
+
+func TestProcessMetricsCountsWriteAndPatchAsEdits(t *testing.T) {
+	for _, tool := range []string{"write", "patch"} {
+		m := NewMetrics(nil)
+		m.ObserveLine([]byte(`{"type":"tool_use","timestamp":500,"part":{"type":"tool","tool":"` + tool + `","state":{"status":"completed","input":{"filePath":"src/b.py"}}}}`))
+		if m.FirstEditMS != 500 {
+			t.Errorf("%s: FirstEditMS = %d, want 500", tool, m.FirstEditMS)
+		}
+	}
+}
