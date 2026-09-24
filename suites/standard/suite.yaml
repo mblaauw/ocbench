@@ -1,0 +1,6 @@
+name: standard
+version: "1.0.0"
+description: "Multi-language tasks that need real debugging rather than a one-line fix."
+tier: standard
+defaults:
+  timeout: 600

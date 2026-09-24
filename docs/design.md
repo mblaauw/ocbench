@@ -410,6 +410,7 @@ tags: [python, debugging]
 difficulty: medium            # easy | medium | hard
 capabilities: [debugging]     # what the task exercises, see §14
 expected_tokens: 40000        # optional; used to normalise cost per solved task
+hidden_tests_dest: "."        # optional; where evaluator/tests/ lands (default "tests")
 timeout: 300
 requires: [python3]
 allow_changes:
@@ -453,7 +454,9 @@ Rules:
   baseline commit SHA (survives agents that commit).
 - Hidden evaluator data lives in `evaluator/` and is passed to validators out
   of band; it is never written into the agent worktree, with one deliberate
-  exception: `evaluator/tests/` is copied into the worktree at `<worktree>/tests/`
+  exception: `evaluator/tests/` is copied into the worktree at
+  `<worktree>/<hidden_tests_dest>` (default `tests`; a language whose tests live
+  beside the source, such as Go, sets it to `.`)
   **after the agent has stopped**, immediately before validators run, so a task
   can be graded by tests the agent never saw. The directory keeps its name
   because a validator refers to it by path. The copy happens after the

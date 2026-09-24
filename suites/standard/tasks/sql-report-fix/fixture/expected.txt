@@ -1,0 +1,3 @@
+Ada|2
+Alan|0
+Grace|1

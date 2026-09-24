@@ -1,0 +1,18 @@
+id: js-allocate-cents
+version: 1
+name: Split an amount without losing a cent
+difficulty: hard
+capabilities: [multi-file, debugging]
+tags: [javascript, algorithms, money]
+timeout: 900
+requires: [node]
+allow_changes: ["lib/**"]
+validators:
+  - kind: command
+    name: node tests
+    command: ["node", "--test"]
+  - kind: diff
+    name: only the library changed
+    required_paths: ["lib/allocate.js"]
+    forbidden_paths: ["tests/**"]
+    max_lines: 60

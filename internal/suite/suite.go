@@ -93,6 +93,10 @@ type Task struct {
 	// copied into the worktree only after the agent stops, so a task can be
 	// graded by tests the agent never saw (design §7).
 	HiddenTests fs.FS
+	// HiddenTestsDest is the worktree-relative directory the hidden tests are
+	// copied into. It defaults to "tests"; a language whose tests live beside
+	// the source (Go) sets "." instead.
+	HiddenTestsDest string
 	// Reference is the subtree at tasks/<id>/evaluator/reference, or nil: the
 	// solution that must make the validators pass. It is never materialised
 	// into a worktree; a suite test uses it to prove the task measures

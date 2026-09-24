@@ -41,17 +41,18 @@ type rawSuite struct {
 }
 
 type rawTask struct {
-	ID             string         `yaml:"id"`
-	Version        scalarString   `yaml:"version"`
-	Name           string         `yaml:"name"`
-	Tags           []string       `yaml:"tags"`
-	Difficulty     string         `yaml:"difficulty"`
-	Capabilities   []string       `yaml:"capabilities"`
-	ExpectedTokens int            `yaml:"expected_tokens"`
-	Timeout        int            `yaml:"timeout"`
-	Requires       []string       `yaml:"requires"`
-	AllowChanges   []string       `yaml:"allow_changes"`
-	Validators     []rawValidator `yaml:"validators"`
+	ID              string         `yaml:"id"`
+	Version         scalarString   `yaml:"version"`
+	Name            string         `yaml:"name"`
+	Tags            []string       `yaml:"tags"`
+	Difficulty      string         `yaml:"difficulty"`
+	Capabilities    []string       `yaml:"capabilities"`
+	ExpectedTokens  int            `yaml:"expected_tokens"`
+	HiddenTestsDest string         `yaml:"hidden_tests_dest"`
+	Timeout         int            `yaml:"timeout"`
+	Requires        []string       `yaml:"requires"`
+	AllowChanges    []string       `yaml:"allow_changes"`
+	Validators      []rawValidator `yaml:"validators"`
 }
 
 type rawValidator struct {
@@ -150,6 +151,33 @@ func LoadDir(dir string) (*Suite, error) {
 	return s, nil
 }
 
+// defaultHiddenTestsDest is where hidden tests land unless the task says
+// otherwise: the conventional tests directory.
+const defaultHiddenTestsDest = "tests"
+
+func resolveHiddenTestsDest(v string) string {
+	if v == "" {
+		return defaultHiddenTestsDest
+	}
+	return v
+}
+
+// validateHiddenTestsDest rejects a destination that could escape the worktree.
+func validateHiddenTestsDest(v string) error {
+	if v == "" {
+		return nil
+	}
+	if filepath.IsAbs(v) {
+		return fmt.Errorf("hidden_tests_dest %q must be relative", v)
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(v), "/") {
+		if seg == ".." {
+			return fmt.Errorf("hidden_tests_dest %q must not escape the worktree", v)
+		}
+	}
+	return nil
+}
+
 // loadHiddenTests returns the evaluator/tests subtree, or nil when it is
 // absent. The subtree is deliberately not part of the evaluator map: the map
 // is hashed and used out of band, while these files are copied into the
@@ -188,6 +216,9 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 		return nil, fmt.Errorf("task %q: task.yaml id %q does not match directory", id, raw.ID)
 	}
 
+	if err := validateHiddenTestsDest(raw.HiddenTestsDest); err != nil {
+		return nil, fmt.Errorf("task %q: %w", id, err)
+	}
 	if err := validateDifficulty(raw.Difficulty); err != nil {
 		return nil, fmt.Errorf("task %q: %w", id, err)
 	}
@@ -224,22 +255,23 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 	}
 
 	t := &Task{
-		ID:             raw.ID,
-		Version:        string(raw.Version),
-		Name:           raw.Name,
-		Tags:           raw.Tags,
-		Difficulty:     raw.Difficulty,
-		Capabilities:   raw.Capabilities,
-		ExpectedTokens: raw.ExpectedTokens,
-		TimeoutSeconds: resolveTimeout(raw.Timeout, suiteDefault),
-		Requires:       raw.Requires,
-		AllowChanges:   raw.AllowChanges,
-		Prompt:         string(prompt),
-		Fixture:        fixture,
-		Evaluator:      evaluator,
-		HiddenTests:    hidden,
-		Reference:      reference,
-		FixtureHash:    fixtureHash,
+		ID:              raw.ID,
+		Version:         string(raw.Version),
+		Name:            raw.Name,
+		Tags:            raw.Tags,
+		Difficulty:      raw.Difficulty,
+		Capabilities:    raw.Capabilities,
+		ExpectedTokens:  raw.ExpectedTokens,
+		TimeoutSeconds:  resolveTimeout(raw.Timeout, suiteDefault),
+		Requires:        raw.Requires,
+		AllowChanges:    raw.AllowChanges,
+		Prompt:          string(prompt),
+		Fixture:         fixture,
+		Evaluator:       evaluator,
+		HiddenTests:     hidden,
+		HiddenTestsDest: resolveHiddenTestsDest(raw.HiddenTestsDest),
+		Reference:       reference,
+		FixtureHash:     fixtureHash,
 	}
 	for i, rv := range raw.Validators {
 		v, err := resolveValidator(rv, evaluator, id, i)

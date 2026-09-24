@@ -21,7 +21,7 @@ import (
 // reference tree can supply. They are covered by the evaluation package's tests
 // instead.
 func TestEveryTaskFailsUntouchedAndPassesWithItsReference(t *testing.T) {
-	for _, suiteDir := range []string{"../../suites/core", "../../suites/agentic"} {
+	for _, suiteDir := range discoverSuites(t) {
 		s, err := LoadDir(suiteDir)
 		if err != nil {
 			t.Fatalf("LoadDir(%s): %v", suiteDir, err)
@@ -32,6 +32,27 @@ func TestEveryTaskFailsUntouchedAndPassesWithItsReference(t *testing.T) {
 			})
 		}
 	}
+}
+
+// discoverSuites lists every suite under ../../suites, so a new suite is
+// covered by the honesty rule the moment it exists.
+func discoverSuites(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir("../../suites")
+	if err != nil {
+		t.Fatalf("read suites dir: %v", err)
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		out = append(out, filepath.Join("../../suites", e.Name()))
+	}
+	if len(out) == 0 {
+		t.Fatal("no suites found under ../../suites")
+	}
+	return out
 }
 
 func checkTaskHonesty(t *testing.T, task *Task) {
@@ -55,8 +76,12 @@ func checkTaskHonesty(t *testing.T, task *Task) {
 
 	// A real run copies evaluator/tests into the worktree before validators
 	// run; without this, a task whose tests are hidden looks unsolvable here.
-	// Hidden tests keep their directory name, exactly as the runner does.
-	if _, err := copyFS(task.HiddenTests, filepath.Join(dir, "tests")); err != nil {
+	// Hidden tests land where the task says, exactly as the runner does.
+	hiddenDir := dir
+	if dest := task.HiddenTestsDest; dest != "" && dest != "." {
+		hiddenDir = filepath.Join(dir, filepath.FromSlash(dest))
+	}
+	if _, err := copyFS(task.HiddenTests, hiddenDir); err != nil {
 		t.Fatalf("copy hidden tests: %v", err)
 	}
 

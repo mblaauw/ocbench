@@ -1,0 +1,6 @@
+name: hard
+version: "1.0.0"
+description: "Tasks with boundary conditions a straightforward implementation gets wrong."
+tier: hard
+defaults:
+  timeout: 900

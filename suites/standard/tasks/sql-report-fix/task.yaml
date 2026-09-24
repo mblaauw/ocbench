@@ -1,0 +1,21 @@
+id: sql-report-fix
+version: 1
+name: Fix the customer order report
+difficulty: medium
+capabilities: [debugging]
+tags: [sql, sqlite, debugging]
+timeout: 600
+requires: [sqlite3]
+allow_changes: ["report.sql"]
+validators:
+  - kind: command
+    name: report check
+    command: ["sh", "check.sh"]
+  - kind: command
+    name: edge dataset
+    command: ["sh", "tests/edge_check.sh"]
+  - kind: diff
+    name: only the report query changed
+    required_paths: ["report.sql"]
+    forbidden_paths: ["schema.sql", "seed.sql", "expected.txt", "check.sh"]
+    max_lines: 15

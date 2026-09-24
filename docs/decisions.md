@@ -159,6 +159,10 @@ reasoning and what it costs if the call was wrong. The design itself is
 
 ## Task infrastructure and the agentic suite
 
+- **The hidden-test destination is per task** (`hidden_tests_dest`, default
+  `tests`). Hard-coding `tests/` assumed a language whose tests live in their own
+  directory; Go tests sit beside the source, so a Go task sets `"."`. *Cost if
+  wrong:* one more key in `task.yaml`.
 - **Hidden tests keep their directory name.** `evaluator/tests/` lands at
   `<worktree>/tests/` because a validator refers to it by path. The first
   implementation walked the subtree and wrote files at the worktree root, which

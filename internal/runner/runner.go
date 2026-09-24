@@ -785,7 +785,10 @@ func copyHiddenTests(task *suite.Task, worktree string) ([]string, error) {
 				return fmt.Errorf("hidden test path %q is not safe", p)
 			}
 		}
-		rel := path.Join("tests", p)
+		rel := p
+		if dest := task.HiddenTestsDest; dest != "" && dest != "." {
+			rel = path.Join(dest, p)
+		}
 		dest := filepath.Join(worktree, filepath.FromSlash(rel))
 		if _, err := os.Stat(dest); err == nil {
 			return fmt.Errorf("hidden test %q would overwrite an existing file", p)

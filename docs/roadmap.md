@@ -16,7 +16,7 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |
 | Task infrastructure — metadata, hidden tests, references, new validators | **done** | `acf0f83`..`6472c50` |
 | Agentic suite — delegation, restraint, project rules, buried fact | **done** | `fb2f025`, evidence `2026-09-24` |
-| Difficulty tiers — standard/hard suites, multi-language fixtures | **not started** | — |
+| Difficulty tiers — `standard` and `hard` suites, Go/JS/SQL fixtures | **done** | `standard`, `hard` suites |
 
 ## Landed: task infrastructure and the agentic suite
 
@@ -42,16 +42,32 @@ Three defects were found while authoring it and are fixed: hidden tests landed
 at the worktree root instead of `tests/`, stale Python bytecode made a fixed
 task still fail, and a `grep` validator read a binary `.pyc` as text.
 
-## Next: difficulty tiers and multi-language fixtures
+## Landed: difficulty tiers and multi-language fixtures
 
-Slice B's remaining half. The current five tasks are all small stdlib Python and
-an inexpensive model passes them in ten seconds, so every profile passes
-everything and only cost and time separate them. To fix that:
+Two new suites, both covered by the honesty test (every task fails untouched
+and passes with its reference):
 
-- **Tiers** — `core` stays as the smoke suite; add `standard` and `hard` suites whose tasks a strong model fails 30–70% of the time.
-- **Realistic fixtures** — medium repositories (20–50 files, several modules, misleading clues), bugs that need a reproduction first, cross-file refactors, dependency and API migrations, flaky-test diagnosis, and performance fixes with a timing validator.
-- **More tooling** — Go, TypeScript/Node, shell and SQL fixtures, not only Python.
-- **Capability coverage** — tasks where a specific skill or MCP server *should* help, so adding one shows up as a measurable difference.
+**`standard`** (`tier: standard`, 600 s default) — tasks that need real
+debugging rather than a one-line fix:
+
+| Task | Language | Shape |
+|---|---|---|
+| `go-slice-bug` | Go | a chunking helper whose loop bound drops the last partial chunk; hidden edge tests for size 1, oversize, and exact multiples |
+| `node-async-bug` | JavaScript | an un-awaited fan-out that loses input order and swallows rejections; hidden tests for rejection and ordering |
+| `sql-report-fix` | SQL (sqlite3) | an inner join that hides customers with no orders; a hidden second dataset catches a fix tuned to the visible seed |
+
+**`hard`** (`tier: hard`, 900 s default) — tasks whose boundary conditions a
+straightforward implementation gets wrong:
+
+| Task | Language | Shape |
+|---|---|---|
+| `go-pager-cursor` | Go | cursor pagination that loses rows when ranks tie; the visible test uses distinct ranks only, the hidden test walks every page size |
+| `js-allocate-cents` | JavaScript | splitting an amount without losing a cent — largest remainder with ties to the left, validated over several totals |
+
+The `tier` field is a declaration, not a measurement: no task here has a
+characterised failure rate, so "a strong model fails it 30–70% of the time" is
+still an intention rather than a fact. Characterising them needs repeated runs
+across models, which is what `experiment` is for.
 
 ## Unscheduled review items
 

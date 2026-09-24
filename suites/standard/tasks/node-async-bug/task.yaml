@@ -1,0 +1,18 @@
+id: node-async-bug
+version: 1
+name: Fix the async fan-out
+difficulty: medium
+capabilities: [debugging, multi-file]
+tags: [javascript, async, debugging]
+timeout: 600
+requires: [node]
+allow_changes: ["lib/**"]
+validators:
+  - kind: command
+    name: node tests
+    command: ["node", "--test"]
+  - kind: diff
+    name: only the library changed
+    required_paths: ["lib/queue.js"]
+    forbidden_paths: ["tests/**"]
+    max_lines: 30

@@ -1,0 +1,19 @@
+id: go-pager-cursor
+version: 1
+name: Fix cursor pagination with tied ranks
+difficulty: hard
+capabilities: [debugging, multi-file]
+tags: [go, algorithms, pagination]
+timeout: 900
+requires: [go]
+hidden_tests_dest: "."
+allow_changes: ["pager.go"]
+validators:
+  - kind: command
+    name: go tests
+    command: ["go", "test", "./..."]
+  - kind: diff
+    name: only pager.go changed
+    required_paths: ["pager.go"]
+    forbidden_paths: ["pager_test.go"]
+    max_lines: 60

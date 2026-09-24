@@ -1,0 +1,19 @@
+id: go-slice-bug
+version: 1
+name: Fix the Go chunking helper
+difficulty: medium
+capabilities: [debugging]
+tags: [go, debugging]
+timeout: 600
+requires: [go]
+hidden_tests_dest: "."
+allow_changes: ["chunk.go"]
+validators:
+  - kind: command
+    name: go tests
+    command: ["go", "test", "./..."]
+  - kind: diff
+    name: only chunk.go changed
+    required_paths: ["chunk.go"]
+    forbidden_paths: ["chunk_test.go"]
+    max_lines: 20
