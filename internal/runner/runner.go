@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,6 +301,12 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 	var validations []evaluation.ValidationResult
 	var validationRows []store.ValidationRow
 	if !cancelledRun {
+		// Hidden tests are copied in only now: after the change set and diff
+		// were computed, and before any validator runs. The agent never saw
+		// them, and they cannot appear as its changes.
+		if _, err := copyHiddenTests(req.Task, worktree); err != nil {
+			return Result{}, fmt.Errorf("copy hidden tests: %w", err)
+		}
 		// Each validator gets the full task timeout, not the remaining budget:
 		// the budget is shared by the agent session and validators are cheap,
 		// so a fixed per-validator bound is simpler and keeps a single validator
@@ -749,4 +756,51 @@ func newUUID() (string, error) {
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
+// copyHiddenTests writes a task's evaluator/tests subtree into the worktree and
+// returns the copied relative paths. It runs after the change set is computed
+// so the copy cannot be mistaken for the agent's work, and it refuses a path
+// that would escape the worktree or overwrite a file the agent can see.
+func copyHiddenTests(task *suite.Task, worktree string) ([]string, error) {
+	if task == nil || task.HiddenTests == nil {
+		return nil, nil
+	}
+	var copied []string
+	err := fs.WalkDir(task.HiddenTests, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		for _, seg := range strings.Split(p, "/") {
+			if seg == ".." || seg == "" {
+				return fmt.Errorf("hidden test path %q is not safe", p)
+			}
+		}
+		dest := filepath.Join(worktree, filepath.FromSlash(p))
+		if _, err := os.Stat(dest); err == nil {
+			return fmt.Errorf("hidden test %q would overwrite an existing file", p)
+		}
+		b, err := fs.ReadFile(task.HiddenTests, p)
+		if err != nil {
+			return fmt.Errorf("read hidden test %q: %w", p, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(dest, b, 0o644); err != nil {
+			return fmt.Errorf("write hidden test %q: %w", p, err)
+		}
+		copied = append(copied, p)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return copied, nil
 }

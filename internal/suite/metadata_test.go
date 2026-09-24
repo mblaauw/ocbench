@@ -1,6 +1,8 @@
 package suite
 
 import (
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,5 +112,42 @@ func TestMetadataAffectsHashButEstimateDoesNot(t *testing.T) {
 	}))
 	if withEstimate.Hash != base.Hash {
 		t.Error("changing expected_tokens changed the suite hash; it is an estimate")
+	}
+}
+
+func TestHiddenTestsAreExposedButNotInTheFixture(t *testing.T) {
+	dir := tempMini(t, func(dir string) {
+		testsDir := filepath.Join(dir, "tasks", "t1", "evaluator", "tests")
+		if err := os.MkdirAll(testsDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(testsDir, "test_thing.py"), "def test_ok():\n    assert True\n")
+	})
+	s := mustLoad(t, dir)
+	task, err := s.Task("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.HiddenTests == nil {
+		t.Fatal("HiddenTests is nil, want the evaluator/tests subtree")
+	}
+	if _, err := fs.ReadFile(task.HiddenTests, "test_thing.py"); err != nil {
+		t.Errorf("read hidden test: %v", err)
+	}
+	// The fixture must not contain the hidden test: it is copied in only after
+	// the agent stops.
+	if _, err := fs.Stat(task.Fixture, "tests/test_thing.py"); err == nil {
+		t.Error("hidden test leaked into the fixture")
+	}
+}
+
+func TestTaskWithoutHiddenTests(t *testing.T) {
+	s := mustLoad(t, tempMini(t, nil))
+	task, err := s.Task("t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.HiddenTests != nil {
+		t.Error("HiddenTests should be nil when evaluator/tests is absent")
 	}
 }

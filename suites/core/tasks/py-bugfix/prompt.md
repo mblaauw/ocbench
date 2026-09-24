@@ -1,13 +1,17 @@
 # Fix the divide operator
 
-`calc.py` implements a small arithmetic helper. Its `divide` function returns
-the wrong result for most inputs because the operator in its body is wrong.
+`calc.py` implements a small arithmetic helper. Its `divide(a, b)` function
+returns the wrong result for most inputs because the operator in its body is
+wrong.
 
-The stdlib `unittest` suite in `tests/` describes the expected behaviour. Fix
-`calc.py` so that
+Expected behaviour:
 
-```
-python3 -m unittest discover -s tests
-```
+- `divide(a, b)` returns `a / b` — an exact float when the division is even
+  (`divide(10, 2) == 5.0`) and the usual float otherwise
+  (`divide(7, 2) ≈ 3.5`).
+- `divide(1, 0)` raises `ZeroDivisionError`.
+- `add(a, b)` is already correct and must not change.
 
-passes. Do not change the tests.
+The fix belongs in `calc.py`; only that file may change. The behaviour above is
+checked after you finish, so make the implementation correct rather than
+tailoring it to any particular caller.

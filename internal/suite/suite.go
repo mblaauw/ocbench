@@ -89,8 +89,12 @@ type Task struct {
 	Dir            string
 	Fixture        fs.FS // subtree of the suite FS at tasks/<id>/fixture
 	Evaluator      map[string][]byte
-	FixtureHash    string
-	SpecHash       string
+	// HiddenTests is the subtree at tasks/<id>/evaluator/tests, or nil. It is
+	// copied into the worktree only after the agent stops, so a task can be
+	// graded by tests the agent never saw (design §7).
+	HiddenTests fs.FS
+	FixtureHash string
+	SpecHash    string
 }
 
 // Validator is a single task validator. Kind is "command", "answer", "diff",

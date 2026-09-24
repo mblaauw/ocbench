@@ -1643,3 +1643,79 @@ func TestRunOmitsScoreWhenEveryValidatorIsSkipped(t *testing.T) {
 		t.Errorf("score present (%v) with every validator skipped", res.Metrics["score"])
 	}
 }
+
+func TestHiddenTestsAreCopiedBeforeValidators(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	f.task.HiddenTests = fstest.MapFS{
+		"test_hidden.py": {Data: []byte("def test_ok():\n    assert True\n")},
+	}
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "hidden test is present", Command: []string{"sh", "-c", "test -f test_hidden.py"}},
+	}
+	res, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != "passed" {
+		t.Fatalf("status = %q, want passed: %+v", res.Status, res.Validations)
+	}
+
+	// The copy must not look like the agent changed anything.
+	for _, p := range res.ChangedFiles {
+		if p == "test_hidden.py" {
+			t.Errorf("hidden test appears in ChangedFiles: %v", res.ChangedFiles)
+		}
+	}
+	runDir := filepath.Join(f.paths.Runs, res.RunID)
+	changedJSON, err := os.ReadFile(filepath.Join(runDir, "changed.json"))
+	if err != nil {
+		t.Fatalf("read changed.json: %v", err)
+	}
+	if strings.Contains(string(changedJSON), "test_hidden.py") {
+		t.Errorf("changed.json mentions the hidden test: %s", changedJSON)
+	}
+}
+
+func TestHiddenTestPathEscapeIsRejected(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	f.task.HiddenTests = fstest.MapFS{
+		"../escape.py": {Data: []byte("nope\n")},
+	}
+	_, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
+	if err == nil {
+		t.Fatal("Run succeeded, want an error for a path escape")
+	}
+	if !strings.Contains(err.Error(), "hidden test") {
+		t.Errorf("error %q does not mention the hidden test", err)
+	}
+}
+
+func TestHiddenTestWillNotOverwrite(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	f.task.HiddenTests = fstest.MapFS{
+		// The fixture already ships this path.
+		"README.md": {Data: []byte("overwritten\n")},
+	}
+	_, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
+	if err == nil {
+		t.Fatal("Run succeeded, want an overwrite error")
+	}
+	if !strings.Contains(err.Error(), "overwrite") {
+		t.Errorf("error %q does not mention the overwrite", err)
+	}
+}
+
+func TestRunWithoutHiddenTestsIsUnaffected(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "ok", Command: []string{"sh", "-c", "exit 0"}},
+	}
+	res, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
+	if err != nil || res.Status != "passed" {
+		t.Fatalf("Run: status=%q err=%v", res.Status, err)
+	}
+}

@@ -150,6 +150,28 @@ func LoadDir(dir string) (*Suite, error) {
 	return s, nil
 }
 
+// loadHiddenTests returns the evaluator/tests subtree, or nil when it is
+// absent. The subtree is deliberately not part of the evaluator map: the map
+// is hashed and used out of band, while these files are copied into the
+// worktree after the agent stops.
+func loadHiddenTests(fsys fs.FS, dir string) (fs.FS, error) {
+	info, err := fs.Stat(fsys, dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("hidden tests %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("hidden tests %s is not a directory", dir)
+	}
+	sub, err := fs.Sub(fsys, dir)
+	if err != nil {
+		return nil, fmt.Errorf("hidden tests %s: %w", dir, err)
+	}
+	return sub, nil
+}
+
 // loadTask loads tasks/<id>/ as a Task. suiteDefault is the suite's
 // defaults.timeout (0 when unset).
 func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
@@ -191,6 +213,11 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 		return nil, fmt.Errorf("task %q: %w", id, err)
 	}
 
+	hidden, err := loadHiddenTests(fsys, path.Join(base, "evaluator", "tests"))
+	if err != nil {
+		return nil, fmt.Errorf("task %q: %w", id, err)
+	}
+
 	t := &Task{
 		ID:             raw.ID,
 		Version:        string(raw.Version),
@@ -205,6 +232,7 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 		Prompt:         string(prompt),
 		Fixture:        fixture,
 		Evaluator:      evaluator,
+		HiddenTests:    hidden,
 		FixtureHash:    fixtureHash,
 	}
 	for i, rv := range raw.Validators {
