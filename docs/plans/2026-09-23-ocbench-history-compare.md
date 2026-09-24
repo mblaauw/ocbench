@@ -1,6 +1,6 @@
 # History and Comparison Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans task-by-task. Steps use checkbox syntax for tracking.
+> **Historical record.** This plan was executed under a workflow that is no longer in use, so the checkboxes below are not a live tracker — see `docs/roadmap.md` for outstanding work. To execute a plan like this one: work through the tasks in order, write the failing test first, run the gates each task names, and commit each task separately.
 
 **Goal:** Add deterministic read-only `ocbench history` and `ocbench compare` commands over persisted runs.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go stdlib, Cobra, modernc SQLite; no new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-09-22-ocbench-design.md` (§§5, 6, 9, 10).
+**Spec:** `docs/design.md` (§§5, 6, 9, 10).
 
 ## Global Constraints
 
@@ -94,7 +94,7 @@ func Compare(ctx context.Context, st *store.Store, left, right string) (Comparis
 ### Task 5: Verification and documentation
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-09-22-ocbench-design.md` only if implementation reveals an ambiguity resolved above.
+- Modify: `docs/design.md` only if implementation reveals an ambiguity resolved above.
 
 - [ ] Run `go test ./... -count=1`, `go vet ./...`, `gofmt -l cmd internal`, and `make cross`.
 - [ ] Run a local temp-home smoke: seed or create two compatible runs, execute `history --json` and `compare latest previous --json`, and verify no network/OpenCode process starts.

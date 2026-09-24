@@ -1,6 +1,6 @@
 # Task Infrastructure Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans task-by-task. Steps use checkbox syntax for tracking.
+> **Historical record.** This plan was executed under a workflow that is no longer in use, so the checkboxes below are not a live tracker — see `docs/roadmap.md` for outstanding work. To execute a plan like this one: work through the tasks in order, write the failing test first, run the gates each task names, and commit each task separately.
 
 **Goal:** Make a task able to declare what it measures, hide its tests until the agent stops, prove itself with a reference solution, and be graded on process as well as outcome.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go stdlib only (existing deps unchanged), modernc SQLite.
 
-**Spec:** `docs/superpowers/specs/2026-09-22-ocbench-design.md` §7 (task layout, metadata, validator kinds, hidden tests, reference solutions), §9 (process metrics, `score`), §14 (capability vocabulary and honesty rules).
+**Spec:** `docs/design.md` §7 (task layout, metadata, validator kinds, hidden tests, reference solutions), §9 (process metrics, `score`), §14 (capability vocabulary and honesty rules).
 
 ## Global Constraints
 
@@ -168,4 +168,4 @@ type Metrics struct { /* existing */; FirstEditMS int64; ToolCallsBeforeFirstEdi
 - [ ] **Step 1: Gates.** `go test ./... -count=1`, `go vet ./...`, `gofmt -l cmd internal web`, `make cross`.
 - [ ] **Step 2: Live smoke on `py-bugfix`** with the isolated OpenCode data dir: confirm the hidden test is absent from the worktree during the run and present at validation time (assert from the run directory and the validator log), and that `score` is recorded.
 - [ ] **Step 3: Confirm the honesty test runs for every core task** and prints one line per task.
-- [ ] **Step 4: Record evidence** under `docs/superpowers/evidence/` with a PASS/FAIL table.
+- [ ] **Step 4: Record evidence** under `docs/evidence/` with a PASS/FAIL table.

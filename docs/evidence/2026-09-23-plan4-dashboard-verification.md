@@ -121,3 +121,10 @@ $ sqlite3 .../ocbench.db "SELECT count(*) FROM runs;" -> 2
 - SIGINT graceful shutdown + listener refusal + store integrity: PASS
 - GET-only / no mutation handlers: PASS (mutation methods 404, not 405 — noted)
 - Unproven: none for the requested Task 4 checks.
+
+---
+
+**Note on paths and process.** This record was written while the project used a
+different workflow and directory layout; mentions of `.superpowers/sdd/` scratch
+files and of a "verifier subagent" describe how the check was run at the time,
+not a process the repository depends on.

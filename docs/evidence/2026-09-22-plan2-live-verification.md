@@ -505,3 +505,10 @@ Run directory `$T11/home/runs/86abe111-efdd-4e88-843b-8f410e3c10cc/`:
 - The adaptive wait (kill as soon as the `opencode run` child appears, at/after
   ~5 s) was required because a fixed 5 s lands during profile discovery; the
   original brief's fixed `~5 s` is not sufficient to exercise an in-flight run.
+
+---
+
+**Note on paths and process.** This record was written while the project used a
+different workflow and directory layout; mentions of `.superpowers/sdd/` scratch
+files and of a "verifier subagent" describe how the check was run at the time,
+not a process the repository depends on.

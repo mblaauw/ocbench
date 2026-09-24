@@ -77,3 +77,10 @@ No real credential value leaks into captures or the database. Redaction `(?i)(ap
 1. **FAIL — bare `ocbench` exits 0 instead of nonzero.** `go run ./cmd/ocbench` (and `/tmp/ocbench-verify`) prints help and returns exit code 0, whereas the Task 9 verification checklist requires help **and a nonzero exit** (and its stdin is piped when invoked programmatically, so a zero exit from a no-argument invocation is easy to miss). Root cause is standard cobra behaviour: the root command defines subcommands and a help template but no `RunE` returning a non-nil error, so cobra prints help and returns nil. Note the design spec §10 does not itself mandate the exit code, so this is a contract mismatch between the verification checklist and the implementation, not a spec violation; it is reported, not repaired, per instructions.
 
 No other counter-evidence. `doctor` degrades cleanly (exit 1, structured JSON, no panic) when the opencode binary is unavailable; unknown flags are rejected with exit 1.
+
+---
+
+**Note on paths and process.** This record was written while the project used a
+different workflow and directory layout; mentions of `.superpowers/sdd/` scratch
+files and of a "verifier subagent" describe how the check was run at the time,
+not a process the repository depends on.

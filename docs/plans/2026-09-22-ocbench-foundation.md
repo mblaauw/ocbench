@@ -1,6 +1,6 @@
 # ocbench Plan 1 — Foundation and Resolved Profile
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical record.** This plan was executed under a workflow that is no longer in use, so the checkboxes below are not a live tracker — see `docs/roadmap.md` for outstanding work. To execute a plan like this one: work through the tasks in order, write the failing test first, run the gates each task names, and commit each task separately.
 
 **Goal:** Produce a runnable `ocbench` binary that can diagnose its environment (`doctor`) and capture, hash, persist and diff the resolved OpenCode execution profile (`snapshot`).
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.26, `github.com/spf13/cobra`, `modernc.org/sqlite`, `gopkg.in/yaml.v3`, stdlib `testing`.
 
-**Spec:** `docs/superpowers/specs/2026-09-22-ocbench-design.md` — read it before starting any task. Sections 3–5, 10 and 11 are load-bearing for this plan.
+**Spec:** `docs/design.md` — read it before starting any task. Sections 3–5, 10 and 11 are load-bearing for this plan.
 
 ## Global Constraints
 

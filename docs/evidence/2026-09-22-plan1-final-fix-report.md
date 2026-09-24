@@ -241,3 +241,10 @@ ok  	mbl/ocbench/internal/version	1.946s
 
 `go vet ./...` → exit 0, no output. `gofmt -l cmd internal` → no files listed,
 exit 0. No `TEMP-RED` markers remain.
+
+---
+
+**Note on paths and process.** This record was written while the project used a
+different workflow and directory layout; mentions of `.superpowers/sdd/` scratch
+files and of a "verifier subagent" describe how the check was run at the time,
+not a process the repository depends on.

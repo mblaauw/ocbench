@@ -144,3 +144,10 @@ over a scripted fake adapter.
 - The two overlays differ only in temperature, and the task is easy, so the
   smoke cannot show a real difference; a discriminating experiment needs the
   harder suites planned for the next slice.
+
+---
+
+**Note on paths and process.** This record was written while the project used a
+different workflow and directory layout; mentions of `.superpowers/sdd/` scratch
+files and of a "verifier subagent" describe how the check was run at the time,
+not a process the repository depends on.

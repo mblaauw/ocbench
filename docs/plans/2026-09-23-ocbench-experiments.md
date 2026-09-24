@@ -1,6 +1,6 @@
 # Experiments and Statistics Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans task-by-task. Steps use checkbox syntax for tracking.
+> **Historical record.** This plan was executed under a workflow that is no longer in use, so the checkboxes below are not a live tracker — see `docs/roadmap.md` for outstanding work. To execute a plan like this one: work through the tasks in order, write the failing test first, run the gates each task names, and commit each task separately.
 
 **Goal:** Add `ocbench experiment run|list|show`: A/B config-overlay experiments with interleaved repeats, aggregate statistics, a regression exit code, and a versioned JSONL export.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go stdlib (`math/rand`, `math`, `crypto/sha256`), Cobra, modernc SQLite. No new dependencies.
 
-**Spec:** `docs/superpowers/specs/2026-09-22-ocbench-design.md` §12 (Experiments), plus the §6 schema, §8 exit codes, §9 metric naming and §10 command surface amendments.
+**Spec:** `docs/design.md` §12 (Experiments), plus the §6 schema, §8 exit codes, §9 metric naming and §10 command surface amendments.
 
 ## Global Constraints
 
@@ -233,4 +233,4 @@ var ErrRegression = errors.New("experiment: measured regression against the base
 - [ ] **Step 1: Gates.** `go test ./... -count=1`, `go vet ./...`, `gofmt -l cmd internal web`, `make cross`.
 - [ ] **Step 2: Live A/B smoke** on the isolated OpenCode data dir: two arm files that differ only in `agent.build.temperature`, `--repeat 3`, one task, asserting interleaving order in the DB, two distinct `profile_hash` values, statistics rendered, and `experiment show --format jsonl` parsing linewise with `jq -e`.
 - [ ] **Step 3: Regression path** exercised with a synthetic store fixture (no model spend) proving exit 3.
-- [ ] **Step 4: Record evidence** under `docs/superpowers/evidence/` and report PASS/FAIL per check.
+- [ ] **Step 4: Record evidence** under `docs/evidence/` and report PASS/FAIL per check.

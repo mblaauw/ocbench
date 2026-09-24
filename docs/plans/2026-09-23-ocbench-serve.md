@@ -1,6 +1,6 @@
 # Read-only Dashboard Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans task-by-task. Steps use checkbox syntax for tracking.
+> **Historical record.** This plan was executed under a workflow that is no longer in use, so the checkboxes below are not a live tracker — see `docs/roadmap.md` for outstanding work. To execute a plan like this one: work through the tasks in order, write the failing test first, run the gates each task names, and commit each task separately.
 
 **Goal:** Add a loopback-only `ocbench serve` dashboard for safe benchmark history, run summaries, profile summaries, and comparisons.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go stdlib `net/http`, `html/template`, `embed`; no JavaScript build, CDN, or new dependency.
 
-**Spec:** `docs/superpowers/specs/2026-09-22-ocbench-design.md` (§§3, 6, 10).
+**Spec:** `docs/design.md` (§§3, 6, 10).
 
 ## Global Constraints
 
@@ -69,7 +69,7 @@
 ### Task 4: End-to-end verification and docs
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-09-22-ocbench-design.md` only if an approved implementation detail differs.
+- Modify: `docs/design.md` only if an approved implementation detail differs.
 
 - [ ] Run `go test ./... -count=1`, `go vet ./...`, `gofmt -l cmd internal web`, and `make cross`.
 - [ ] Start `ocbench serve --listen 127.0.0.1:0` against a temp seeded DB, fetch `/`, `/runs/<id>`, and `/compare`, then cancel it; assert no listener remains.

@@ -96,3 +96,10 @@ agent name, child session id, tokens and cost.
   or the no-delegation fallback, which remain unit-tested only.
 - The smoke task's prompt explicitly requested delegation; a task that
   delegates spontaneously was not observed.
+
+---
+
+**Note on paths and process.** This record was written while the project used a
+different workflow and directory layout; mentions of `.superpowers/sdd/` scratch
+files and of a "verifier subagent" describe how the check was run at the time,
+not a process the repository depends on.

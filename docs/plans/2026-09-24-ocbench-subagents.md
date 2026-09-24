@@ -1,6 +1,6 @@
 # Subagents and Session Capture Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans task-by-task. Steps use checkbox syntax for tracking.
+> **Historical record.** This plan was executed under a workflow that is no longer in use, so the checkboxes below are not a live tracker — see `docs/roadmap.md` for outstanding work. To execute a plan like this one: work through the tasks in order, write the failing test first, run the gates each task names, and commit each task separately.
 
 **Goal:** Capture delegated child sessions, roll their tokens and cost up per agent, and render a run as a timeline with nested subagent spans.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go stdlib only (existing deps unchanged), modernc SQLite, Cobra.
 
-**Spec:** `docs/superpowers/specs/2026-09-22-ocbench-design.md` §13 (Subagents and sessions), plus the §8 pipeline step, §9 metric names and §10 command surface.
+**Spec:** `docs/design.md` §13 (Subagents and sessions), plus the §8 pipeline step, §9 metric names and §10 command surface.
 
 ## Global Constraints
 
@@ -126,4 +126,4 @@ func Build(runID, taskID string, events []evaluation.Event, sessions map[string]
 - [ ] **Step 2: Live delegation smoke** with a throwaway suite under a temp dir (so the prompt can require delegation): one task whose prompt says to use the `task` tool with `subagent_type: explore` and whose validator checks the answer mentions a file from the fixture. Run it with the isolated OpenCode data dir, then assert from the DB that `subagent_sessions >= 1`, `subagent_tokens_total > 0`, `agent.explore.tokens_total > 0`, and that `runs/<id>/sessions/` holds at least one child export.
 - [ ] **Step 3: Trace smoke**: `ocbench trace <run-id>` on that run shows the child nested under the `task` call, and `--json` parses with `jq -e`.
 - [ ] **Step 4: Cross-check sanity**: report the recorded `session_crosscheck_tokens_delta` for that run and state whether the event-derived and session-derived totals agree.
-- [ ] **Step 5: Record evidence** under `docs/superpowers/evidence/` with a PASS/FAIL table and exact commands.
+- [ ] **Step 5: Record evidence** under `docs/evidence/` with a PASS/FAIL table and exact commands.

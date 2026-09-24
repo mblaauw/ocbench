@@ -1,6 +1,6 @@
 # ocbench Plan 2 — Benchmark Suites and the Run Pipeline
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Historical record.** This plan was executed under a workflow that is no longer in use, so the checkboxes below are not a live tracker — see `docs/roadmap.md` for outstanding work. To execute a plan like this one: work through the tasks in order, write the failing test first, run the gates each task names, and commit each task separately.
 
 **Goal:** Deliver `ocbench run`: execute immutable benchmark suites against the resolved OpenCode profile in disposable git worktrees, capture the raw JSONL event stream, run deterministic validators, persist everything, and print a repeatable result report.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** existing Plan 1 stack; no new dependencies. Suite fixtures use Python 3 stdlib only (air-gapped safe); validators declare `requires:` and SKIP when a requirement is absent.
 
-**Spec:** `docs/superpowers/specs/2026-09-22-ocbench-design.md` — §2 (CLI contracts incl. the observed JSONL envelope), §7 (suites/tasks), §8 (runner pipeline, sandbox, exit codes), §9 (metrics), §10 (commands), §11 (verification). Plan 1 is merged to `main`; this plan starts from `main`.
+**Spec:** `docs/design.md` — §2 (CLI contracts incl. the observed JSONL envelope), §7 (suites/tasks), §8 (runner pipeline, sandbox, exit codes), §9 (metrics), §10 (commands), §11 (verification). Plan 1 is merged to `main`; this plan starts from `main`.
 
 ## Global Constraints
 
@@ -452,7 +452,7 @@ Task 5 `code-review`: fixture is a module with three planted defects (an off-by-
 
 ### Task 11: Live end-to-end verification (verifier subagent, no fixes)
 
-**Files:** none; produces `docs/superpowers/evidence/2026-09-22-plan2-live-verification.md`.
+**Files:** none; produces `docs/evidence/2026-09-22-plan2-live-verification.md`.
 
 - [ ] **Step 1:** `go test ./... -count=1`, `go vet ./...`, `gofmt -l cmd internal`, `make cross`.
 - [ ] **Step 2:** `ocbench run core repo-investigation --repeat 2 --model opencode-go/deepseek-v4.1-flash --variant low` (real OpenCode): verify two run rows with `repeat_index` 0/1, `events.jsonl` non-empty and parseable, `session.json` present, validators recorded, metrics plausible (tokens > 0, `steps` > 0), worktree removed.
