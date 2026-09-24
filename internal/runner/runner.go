@@ -785,13 +785,20 @@ func copyHiddenTests(task *suite.Task, worktree string) ([]string, error) {
 				return fmt.Errorf("hidden test path %q is not safe", p)
 			}
 		}
-		rel := p
-		if dest := task.HiddenTestsDest; dest != "" && dest != "." {
-			rel = path.Join(dest, p)
+		// A file stored as name.ext.hidden is copied as name.ext: the suffix
+		// keeps it out of the repository's own Go build.
+		name := strings.TrimSuffix(p, ".hidden")
+		dir := task.HiddenTestsDest
+		if dir == "" {
+			dir = "tests"
+		}
+		rel := name
+		if dir != "." {
+			rel = path.Join(dir, name)
 		}
 		dest := filepath.Join(worktree, filepath.FromSlash(rel))
 		if _, err := os.Stat(dest); err == nil {
-			return fmt.Errorf("hidden test %q would overwrite an existing file", p)
+			return fmt.Errorf("hidden test %q would overwrite an existing file", rel)
 		}
 		b, err := fs.ReadFile(task.HiddenTests, p)
 		if err != nil {

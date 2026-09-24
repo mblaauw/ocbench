@@ -456,7 +456,10 @@ Rules:
   of band; it is never written into the agent worktree, with one deliberate
   exception: `evaluator/tests/` is copied into the worktree at
   `<worktree>/<hidden_tests_dest>` (default `tests`; a language whose tests live
-  beside the source, such as Go, sets it to `.`)
+  beside the source, such as Go, sets it to `.`). A hidden file stored with a
+  `.hidden` suffix is copied without it (`chunk_edge_test.go.hidden` becomes
+  `chunk_edge_test.go`), which keeps a Go test out of the repository's own
+  build while still shipping it to the worktree
   **after the agent has stopped**, immediately before validators run, so a task
   can be graded by tests the agent never saw. The directory keeps its name
   because a validator refers to it by path. The copy happens after the

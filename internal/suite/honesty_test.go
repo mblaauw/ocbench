@@ -81,8 +81,17 @@ func checkTaskHonesty(t *testing.T, task *Task) {
 	if dest := task.HiddenTestsDest; dest != "" && dest != "." {
 		hiddenDir = filepath.Join(dir, filepath.FromSlash(dest))
 	}
-	if _, err := copyFS(task.HiddenTests, hiddenDir); err != nil {
+	placed, err := copyFS(task.HiddenTests, hiddenDir)
+	if err != nil {
 		t.Fatalf("copy hidden tests: %v", err)
+	}
+	// A hidden test that did not land is a test that never runs: assert the
+	// copied path exists under its real name, so a naming mistake fails here
+	// rather than passing quietly.
+	for _, rel := range placed {
+		if _, err := os.Stat(filepath.Join(hiddenDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("hidden test %q did not land: %v", rel, err)
+		}
 	}
 
 	applied, err := copyFS(task.Reference, dir)
@@ -203,14 +212,14 @@ func copyFS(src fs.FS, dst string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(dst, filepath.FromSlash(p))
+		target := filepath.Join(dst, filepath.FromSlash(strings.TrimSuffix(p, ".hidden")))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
 		if err := os.WriteFile(target, data, 0o644); err != nil {
 			return err
 		}
-		written = append(written, p)
+		written = append(written, strings.TrimSuffix(p, ".hidden"))
 		return nil
 	})
 	if err != nil {

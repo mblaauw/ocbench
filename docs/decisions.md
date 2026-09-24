@@ -163,6 +163,11 @@ reasoning and what it costs if the call was wrong. The design itself is
   `tests`). Hard-coding `tests/` assumed a language whose tests live in their own
   directory; Go tests sit beside the source, so a Go task sets `"."`. *Cost if
   wrong:* one more key in `task.yaml`.
+- **A `.hidden` suffix keeps a Go test out of the repository's own build.** Go
+  test files anywhere under the module are compiled by `go vet ./...` and
+  `go test ./...`, so a hidden Go test stored as `_test.go` broke the repository
+  it lives in. Storing it as `_test.go.hidden` and stripping the suffix on copy
+  keeps both properties. *Cost if wrong:* one naming convention to remember.
 - **Hidden tests keep their directory name.** `evaluator/tests/` lands at
   `<worktree>/tests/` because a validator refers to it by path. The first
   implementation walked the subtree and wrote files at the worktree root, which
