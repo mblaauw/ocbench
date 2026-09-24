@@ -16,7 +16,8 @@ Required behaviour:
 - the page holds at most `size` items; `size <= 0` panics with
   `"size must be positive"`;
 - the returned cursor is the `(Rank, ID)` of the last item on the page, or nil
-  when the page is empty or ends the list;
+  when there is nothing after the page — an empty page, or a page that reached
+  the end of the list;
 - walking with the returned cursor visits every item exactly once, even when
   many items share the same `Rank` — this is where the current implementation
   loses rows.

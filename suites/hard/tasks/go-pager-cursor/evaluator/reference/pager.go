@@ -48,6 +48,10 @@ func Page(items []Item, after *Cursor, size int) ([]Item, *Cursor) {
 	if len(page) == 0 {
 		return nil, nil
 	}
+	if end >= len(ordered) {
+		// Nothing follows this page, so there is no cursor to continue from.
+		return page, nil
+	}
 	last := page[len(page)-1]
 	return page, &Cursor{Rank: last.Rank, ID: last.ID}
 }

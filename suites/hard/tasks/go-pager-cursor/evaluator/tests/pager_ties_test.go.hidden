@@ -60,11 +60,22 @@ func TestPageOrdersByRankThenID(t *testing.T) {
 
 func TestPageExactBoundary(t *testing.T) {
 	items := []Item{{"a", 1}, {"b", 2}}
+
+	// A page that consumes the list has nothing to continue from.
 	page, next := Page(items, nil, 2)
-	if len(page) != 2 || next == nil || next.ID != "b" {
-		t.Fatalf("page=%v next=%v", page, next)
+	if len(page) != 2 {
+		t.Fatalf("page=%v", page)
 	}
-	if page, _ := Page(items, next, 2); len(page) != 0 {
-		t.Fatalf("page after the end returned %v", page)
+	if next != nil {
+		t.Fatalf("next=%v, want nil at the end of the list", next)
+	}
+
+	// A full page with items remaining does return a cursor.
+	page, next = Page(items, nil, 1)
+	if len(page) != 1 || next == nil || next.ID != "a" {
+		t.Fatalf("page=%v next=%v, want cursor on a", page, next)
+	}
+	if page, _ := Page(items, next, 1); len(page) != 1 || page[0].ID != "b" {
+		t.Fatalf("second page=%v, want b", page)
 	}
 }
