@@ -1570,3 +1570,76 @@ func TestRunContextValidatorsSeeRunState(t *testing.T) {
 		t.Errorf("output %q does not name the forbidden path", res2.Validations[0].Output)
 	}
 }
+
+func TestScoreOfWeights(t *testing.T) {
+	validations := []evaluation.ValidationResult{
+		{Status: "passed", Kind: "command", Name: "a"},
+		{Status: "failed", Kind: "command", Name: "b"},
+	}
+	got, ok := scoreOf(validations)
+	if !ok || got != 0.5 {
+		t.Fatalf("scoreOf = %v/%v, want 0.5/true (unweighted means 1 each)", got, ok)
+	}
+
+	weighted := []evaluation.ValidationResult{
+		{Status: "passed", Kind: "command", Name: "a", Weight: 2},
+		{Status: "failed", Kind: "command", Name: "b", Weight: 1},
+	}
+	if got, ok := scoreOf(weighted); !ok || got != 2.0/3.0 {
+		t.Fatalf("weighted scoreOf = %v/%v, want 2/3", got, ok)
+	}
+
+	skipped := []evaluation.ValidationResult{
+		{Status: "skipped", Kind: "command", Name: "a"},
+		{Status: "skipped", Kind: "command", Name: "b"},
+	}
+	if _, ok := scoreOf(skipped); ok {
+		t.Error("all-skipped validators must not produce a score")
+	}
+
+	mixed := []evaluation.ValidationResult{
+		{Status: "passed", Kind: "command", Name: "a"},
+		{Status: "skipped", Kind: "command", Name: "b"},
+	}
+	if got, ok := scoreOf(mixed); !ok || got != 1 {
+		t.Errorf("scoreOf with a skipped validator = %v/%v, want 1/true", got, ok)
+	}
+}
+
+func TestRunRecordsWeightedScore(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "important", Command: []string{"sh", "-c", "exit 0"}, Weight: 2},
+		{Kind: "command", Name: "minor", Command: []string{"sh", "-c", "exit 1"}, Weight: 1},
+	}
+	res, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != "failed" {
+		t.Fatalf("status = %q, want failed", res.Status)
+	}
+	if got := res.Metrics["success"]; got != 0 {
+		t.Errorf("success = %v, want 0 (binary)", got)
+	}
+	if got := res.Metrics["score"]; math.Abs(got-2.0/3.0) > 1e-9 {
+		t.Errorf("score = %v, want 2/3", got)
+	}
+}
+
+func TestRunOmitsScoreWhenEveryValidatorIsSkipped(t *testing.T) {
+	useMode(t, "ok")
+	f := setupRunner(t)
+	f.task.Requires = []string{"ocbench-no-such-binary-xyz"}
+	f.task.Validators = []suite.Validator{
+		{Kind: "command", Name: "skipped", Command: []string{"sh", "-c", "exit 0"}},
+	}
+	res, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, present := res.Metrics["score"]; present {
+		t.Errorf("score present (%v) with every validator skipped", res.Metrics["score"])
+	}
+}

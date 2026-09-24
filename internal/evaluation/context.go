@@ -49,7 +49,7 @@ func RunValidatorContext(ctx context.Context, seq int, spec ValidatorSpec, vctx 
 	case "process":
 		return runProcessValidator(seq, spec, vctx.Events)
 	default:
-		res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, Status: "error", ExitCode: -1}
+		res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, Status: "error", ExitCode: -1, Weight: spec.Weight}
 		res.setOutput(fmt.Sprintf("unknown validator kind %q", spec.Kind))
 		return res
 	}
@@ -59,7 +59,7 @@ func RunValidatorContext(ctx context.Context, seq int, spec ValidatorSpec, vctx 
 // globs and, when MaxLines is set, against a ceiling on added plus removed
 // lines.
 func runDiffValidator(seq int, spec ValidatorSpec, vctx ValidatorContext) ValidationResult {
-	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1}
+	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1, Weight: spec.Weight}
 	var problems []string
 
 	for _, glob := range spec.RequiredPaths {
@@ -95,7 +95,7 @@ func runDiffValidator(seq int, spec ValidatorSpec, vctx ValidatorContext) Valida
 // runGrepValidator requires every Present pattern to match somewhere in the
 // worktree and every Absent pattern to match nowhere.
 func runGrepValidator(seq int, spec ValidatorSpec, worktree string) ValidationResult {
-	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1}
+	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1, Weight: spec.Weight}
 
 	compiled, err := compilePatterns(append(append([]string{}, spec.Present...), spec.Absent...))
 	if err != nil {
@@ -142,7 +142,7 @@ func runGrepValidator(seq int, spec ValidatorSpec, worktree string) ValidationRe
 // (tool name, command or description) because a task prompt may phrase the
 // expectation any of those ways.
 func runProcessValidator(seq int, spec ValidatorSpec, events []Event) ValidationResult {
-	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1}
+	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1, Weight: spec.Weight}
 	if spec.ToolPattern == "" {
 		res.Status = "error"
 		res.setOutput("process validator requires tool_pattern")

@@ -359,6 +359,31 @@ func diffLineCounts(diff []byte) (added, removed int) {
 // derivedMetrics builds the spec §9 metrics that come from the runner rather
 // than the event stream. It is only called for a run whose session completed,
 // so every value is computable.
+// scoreOf returns the weighted fraction of validators that passed, and whether
+// there was anything to score. Skipped validators count in neither the
+// numerator nor the denominator: they measure the machine, not the run.
+// success stays binary; this is the partial-credit view.
+func scoreOf(validations []evaluation.ValidationResult) (float64, bool) {
+	var passed, total float64
+	for _, v := range validations {
+		if v.Status == "skipped" {
+			continue
+		}
+		w := v.Weight
+		if w <= 0 {
+			w = 1
+		}
+		total += w
+		if v.Status == "passed" {
+			passed += w
+		}
+	}
+	if total == 0 {
+		return 0, false
+	}
+	return passed / total, true
+}
+
 func derivedMetrics(res Result, capture SessionCapture, changed []string, diff []byte, validations []evaluation.ValidationResult, created, deleted int) map[string]float64 {
 	added, removed := diffLineCounts(diff)
 	failures := 0
@@ -387,6 +412,11 @@ func derivedMetrics(res Result, capture SessionCapture, changed []string, diff [
 		"validator_failures": float64(failures),
 		"success":            success,
 		"first_shot_success": firstShot,
+	}
+	// score is omitted rather than zeroed when every validator was skipped:
+	// "nothing was measured" is not "nothing passed".
+	if score, ok := scoreOf(validations); ok {
+		out["score"] = score
 	}
 	// res.Metrics already holds the event-derived totals, including
 	// tokens_total; pass it through for the event-vs-session cross-check.

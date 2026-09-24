@@ -60,6 +60,9 @@ type ValidationResult struct {
 	DurationMS int64
 	Output     string
 	Excerpt    string
+	// Weight is copied from the validator spec and feeds the weighted score.
+	// Zero means one.
+	Weight float64
 }
 
 // Requirements returns the names in requires that cannot be found on PATH, in
@@ -91,7 +94,7 @@ func RunValidator(ctx context.Context, seq int, spec ValidatorSpec, dir string, 
 // combined output. The child is started in its own process group so a deadline
 // kills the whole tree, not just the direct child.
 func runCommandValidator(ctx context.Context, seq int, spec ValidatorSpec, dir string, env []string, timeout time.Duration) ValidationResult {
-	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1}
+	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1, Weight: spec.Weight}
 	if len(spec.Command) == 0 {
 		res.Status = "error"
 		res.setOutput("command validator requires a non-empty argv")
@@ -163,7 +166,7 @@ func runCommandValidator(ctx context.Context, seq int, spec ValidatorSpec, dir s
 // patterns yield an "error" status; otherwise "all" (the default) requires
 // every pattern and "any" requires at least one.
 func runAnswerValidator(seq int, spec ValidatorSpec, finalAnswer string) ValidationResult {
-	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1}
+	res := ValidationResult{Seq: seq, Kind: spec.Kind, Name: spec.Name, ExitCode: -1, Weight: spec.Weight}
 
 	mode := spec.Mode
 	if mode == "" {
