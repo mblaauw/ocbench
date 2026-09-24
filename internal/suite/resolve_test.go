@@ -45,8 +45,13 @@ func TestEmbeddedCoreSuiteListsTasks(t *testing.T) {
 	if s.Hash == "" {
 		t.Error("Hash is empty")
 	}
-	if s.Version != "1.1.0" {
-		t.Errorf("Version = %q, want 1.1.0", s.Version)
+	// The version is opaque content, not a constant to pin here; the
+	// embedded/on-disk parity test already compares it via the suite hash.
+	if s.Version == "" {
+		t.Error("Version is empty")
+	}
+	if s.Tier != "smoke" {
+		t.Errorf("Tier = %q, want smoke", s.Tier)
 	}
 	got := taskIDs(s.Tasks)
 	want := []string{"code-review", "config-yaml-fix", "multi-file-feature", "py-bugfix", "repo-investigation"}
