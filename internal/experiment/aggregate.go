@@ -12,8 +12,9 @@ import (
 	"mbl/ocbench/internal/store"
 )
 
-// ErrSelector marks a selector that names no arm of an experiment. Callers
-// treat it as a usage error, matching history.ErrSelector.
+// ErrSelector marks a selector that names no arm of an experiment. The CLI
+// rejects an unknown --baseline before calling Summarize, so today this guard
+// is reachable only by direct library callers.
 var ErrSelector = errors.New("invalid selector")
 
 // wilsonZ is the standard-normal quantile for a two-sided 95% interval, the
@@ -495,8 +496,12 @@ type driftField struct {
 	get  func(store.RunRow) string
 }
 
-// driftFields are the seven variables spec §12.3 requires to be named when they
-// differ between arms.
+// driftFields are the variables spec §12.3 requires to be named when they
+// differ between arms. The requested model/agent/variant are constant by
+// construction (one invocation, one set of flags), so those three entries can
+// only fire for a future caller that supplies per-arm overrides; the effective
+// values an overlay produces are the experiment variable and live in each
+// arm's profile hash.
 var driftFields = []driftField{
 	{"model", func(r store.RunRow) string { return r.Model }},
 	{"agent", func(r store.RunRow) string { return r.Agent }},

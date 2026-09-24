@@ -27,7 +27,7 @@
 - Overlay env vars must survive the sandbox for the child process, and must not leak into runs without an overlay.
 - Interleaving must be task-major with arms alternating inside each repeat.
 - The JSONL envelope must stay stable and must emit empty arrays, never null.
-- Drift in model/OpenCode version/suite hash/fixture SHA must suppress significance claims.
+- Drift in OpenCode version, suite hash, task version or fixture SHA must suppress significance claims; the requested model/agent/variant are constant per invocation, and an overlay-driven change to the effective values is the experiment variable, recorded in the arm's profile hash.
 
 ---
 
@@ -195,7 +195,7 @@ func Summarize(ctx context.Context, st *store.Store, experimentID, baseline stri
 func DecideRegression(s ExperimentSummary, alpha float64) RegressionDecision
 ```
 The cost test uses a median-difference permutation (`stats.PermutationPMedian`), so add that helper to `internal/stats` in this task (pooled resample, two-sided, `(count+1)/(iters+1)`, seeded) with its own tests.
-- Drift guard: differing `model`, `agent`, `variant`, `opencode_version`, `suite_hash`, `task_version` or `fixture_sha` across arms adds a `DriftWarnings` entry and sets `SignificanceSuppressed`, in which case `DecideRegression` returns `{false, "significance suppressed: …"}`.
+- Drift guard: differing `opencode_version`, `suite_hash`, `task_version` or `fixture_sha` across arms adds a `DriftWarnings` entry and sets `SignificanceSuppressed`, in which case `DecideRegression` returns `{false, "significance suppressed: …"}`. The requested `model`/`agent`/`variant` are checked too but are constant by construction.
 - `InsufficientData` when any arm/task pair has fewer than three executions; `DecideRegression` then returns `{false, "insufficient data"}`.
 - Regression per spec §12.4, decided from the two `StatTest`s: pass-rate regression when `PassRateTest.Observed > 0` and `P < alpha`; cost regression when the pass-rate test is not significant, `CostTest.Applicable`, `CostTest.P < alpha`, and the arm's median cost per solved task exceeds the baseline's by more than 25%.
 
