@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"sort"
@@ -161,6 +162,15 @@ func (h *handler) handleCompare(w http.ResponseWriter, r *http.Request) {
 
 	cmp, err := history.Compare(r.Context(), h.store, a, b)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Name the likely cause: a selector matched no run, or `previous`
+			// found no compatible earlier run for the same task and suite
+			// version, which is common right after a task is edited.
+			http.Error(w, fmt.Sprintf(
+				"no run matched %q or %q: a selector must name a run id, `latest` or `previous`, and `previous` needs an earlier run of the same task, suite version and fixture",
+				a, b), http.StatusNotFound)
+			return
+		}
 		writeStoreError(w, err)
 		return
 	}
