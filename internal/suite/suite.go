@@ -5,8 +5,45 @@ package suite
 import (
 	"fmt"
 	"io/fs"
+	"slices"
+	"strings"
 	"time"
 )
+
+// difficultyLevels and suiteTiers are the accepted YAML values (design §7).
+var difficultyLevels = []string{"easy", "medium", "hard"}
+var suiteTiers = []string{"smoke", "standard", "hard"}
+
+// CapabilityVocabulary is the closed set from design §14.1. It is closed on
+// purpose: results can be grouped by capability without a schema change only if
+// every task uses the same words.
+var CapabilityVocabulary = []string{
+	"delegation", "planning", "tool-use", "context", "skill-use",
+	"instruction-following", "restraint", "debugging", "multi-file", "search",
+}
+
+func validateDifficulty(v string) error {
+	if v == "" || slices.Contains(difficultyLevels, v) {
+		return nil
+	}
+	return fmt.Errorf("difficulty %q is not one of %s", v, strings.Join(difficultyLevels, ", "))
+}
+
+func validateCapabilities(cs []string) error {
+	for _, c := range cs {
+		if !slices.Contains(CapabilityVocabulary, c) {
+			return fmt.Errorf("capability %q is not one of %s", c, strings.Join(CapabilityVocabulary, ", "))
+		}
+	}
+	return nil
+}
+
+func validateTier(v string) error {
+	if v == "" || slices.Contains(suiteTiers, v) {
+		return nil
+	}
+	return fmt.Errorf("suite tier %q is not one of %s", v, strings.Join(suiteTiers, ", "))
+}
 
 // DefaultTimeoutSeconds is the timeout used when neither the task nor the
 // suite declares one.
@@ -17,7 +54,10 @@ type Suite struct {
 	Name        string
 	Version     string
 	Description string
-	Defaults    struct {
+	// Tier is "smoke", "standard" or "hard" ("" when unset). It says how
+	// discriminating the suite is meant to be, not how it is executed.
+	Tier     string
+	Defaults struct {
 		TimeoutSeconds int
 	} `yaml:"defaults"`
 	Dir   string // absolute dir for on-disk suites; "" for embedded
@@ -28,10 +68,19 @@ type Suite struct {
 
 // Task is a loaded benchmark task.
 type Task struct {
-	ID             string
-	Version        string
-	Name           string
-	Tags           []string
+	ID      string
+	Version string
+	Name    string
+	Tags    []string
+	// Difficulty is "easy", "medium" or "hard" ("" when unset).
+	Difficulty string
+	// Capabilities are the behaviours this task exercises, drawn from the
+	// vocabulary in design §14.1.
+	Capabilities []string
+	// ExpectedTokens is an estimate used to normalise cost per solved task.
+	// It is deliberately excluded from the task hash: retuning an estimate
+	// must not invalidate comparability.
+	ExpectedTokens int
 	TimeoutSeconds int
 	Requires       []string
 	AllowChanges   []string

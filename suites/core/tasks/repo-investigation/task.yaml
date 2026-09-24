@@ -1,6 +1,8 @@
 id: repo-investigation
 version: 1
 name: Identify the defective function
+difficulty: easy
+capabilities: [search]
 tags: [python, investigation, reading]
 timeout: 300
 allow_changes: []

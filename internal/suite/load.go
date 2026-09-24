@@ -33,20 +33,24 @@ type rawSuite struct {
 	Name        string       `yaml:"name"`
 	Version     scalarString `yaml:"version"`
 	Description string       `yaml:"description"`
+	Tier        string       `yaml:"tier"`
 	Defaults    struct {
 		TimeoutSeconds int `yaml:"timeout"`
 	} `yaml:"defaults"`
 }
 
 type rawTask struct {
-	ID           string         `yaml:"id"`
-	Version      scalarString   `yaml:"version"`
-	Name         string         `yaml:"name"`
-	Tags         []string       `yaml:"tags"`
-	Timeout      int            `yaml:"timeout"`
-	Requires     []string       `yaml:"requires"`
-	AllowChanges []string       `yaml:"allow_changes"`
-	Validators   []rawValidator `yaml:"validators"`
+	ID             string         `yaml:"id"`
+	Version        scalarString   `yaml:"version"`
+	Name           string         `yaml:"name"`
+	Tags           []string       `yaml:"tags"`
+	Difficulty     string         `yaml:"difficulty"`
+	Capabilities   []string       `yaml:"capabilities"`
+	ExpectedTokens int            `yaml:"expected_tokens"`
+	Timeout        int            `yaml:"timeout"`
+	Requires       []string       `yaml:"requires"`
+	AllowChanges   []string       `yaml:"allow_changes"`
+	Validators     []rawValidator `yaml:"validators"`
 }
 
 type rawValidator struct {
@@ -80,11 +84,15 @@ func LoadFS(fsys fs.FS, root string) (*Suite, error) {
 	if raw.Name == "" || raw.Version == "" {
 		return nil, fmt.Errorf("suite.yaml: name and version are required")
 	}
+	if err := validateTier(raw.Tier); err != nil {
+		return nil, fmt.Errorf("suite.yaml: %w", err)
+	}
 
 	s := &Suite{
 		Name:        raw.Name,
 		Version:     string(raw.Version),
 		Description: raw.Description,
+		Tier:        raw.Tier,
 		FS:          sub,
 	}
 	s.Defaults.TimeoutSeconds = raw.Defaults.TimeoutSeconds
@@ -146,6 +154,16 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 		return nil, fmt.Errorf("task %q: task.yaml id %q does not match directory", id, raw.ID)
 	}
 
+	if err := validateDifficulty(raw.Difficulty); err != nil {
+		return nil, fmt.Errorf("task %q: %w", id, err)
+	}
+	if err := validateCapabilities(raw.Capabilities); err != nil {
+		return nil, fmt.Errorf("task %q: %w", id, err)
+	}
+	if raw.ExpectedTokens < 0 {
+		return nil, fmt.Errorf("task %q: expected_tokens must not be negative, got %d", id, raw.ExpectedTokens)
+	}
+
 	prompt, err := fs.ReadFile(fsys, path.Join(base, "prompt.md"))
 	if err != nil {
 		return nil, fmt.Errorf("task %q: read prompt.md: %w", id, err)
@@ -166,6 +184,9 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 		Version:        string(raw.Version),
 		Name:           raw.Name,
 		Tags:           raw.Tags,
+		Difficulty:     raw.Difficulty,
+		Capabilities:   raw.Capabilities,
+		ExpectedTokens: raw.ExpectedTokens,
 		TimeoutSeconds: resolveTimeout(raw.Timeout, suiteDefault),
 		Requires:       raw.Requires,
 		AllowChanges:   raw.AllowChanges,

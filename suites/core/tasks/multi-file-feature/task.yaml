@@ -1,6 +1,8 @@
 id: multi-file-feature
 version: 1
 name: Implement the summarize feature
+difficulty: easy
+capabilities: [multi-file]
 tags: [python, feature, multi-file]
 timeout: 300
 requires: [python3]

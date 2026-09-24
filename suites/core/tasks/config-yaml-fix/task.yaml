@@ -1,6 +1,8 @@
 id: config-yaml-fix
 version: 1
 name: Fix the misspelled config key
+difficulty: easy
+capabilities: [debugging]
 tags: [python, config, yaml]
 timeout: 300
 requires: [python3]

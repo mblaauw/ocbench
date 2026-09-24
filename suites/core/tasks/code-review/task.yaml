@@ -1,6 +1,8 @@
 id: code-review
 version: 1
 name: Review the batch module
+difficulty: easy
+capabilities: [instruction-following]
 tags: [python, review, reading]
 timeout: 300
 allow_changes: []

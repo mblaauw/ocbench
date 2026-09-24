@@ -11,8 +11,12 @@ import (
 // the struct declaration order; canon.JSON only re-sorts map keys, so every
 // producer must use this same type.
 type taskSpec struct {
-	ID              string          `json:"id"`
-	Version         string          `json:"version"`
+	ID      string `json:"id"`
+	Version string `json:"version"`
+	// omitempty keeps a task without metadata hashing exactly as it did
+	// before these fields existed, so historical runs stay comparable.
+	Difficulty      string          `json:"difficulty,omitempty"`
+	Capabilities    []string        `json:"capabilities,omitempty"`
 	Timeout         int             `json:"timeout"`
 	Requires        []string        `json:"requires"`
 	AllowChanges    []string        `json:"allow_changes"`
@@ -62,6 +66,8 @@ func taskSpecOf(t *Task) taskSpec {
 	return taskSpec{
 		ID:              t.ID,
 		Version:         t.Version,
+		Difficulty:      t.Difficulty,
+		Capabilities:    nonNil(t.Capabilities),
 		Timeout:         t.TimeoutSeconds,
 		Requires:        nonNil(t.Requires),
 		AllowChanges:    nonNil(t.AllowChanges),

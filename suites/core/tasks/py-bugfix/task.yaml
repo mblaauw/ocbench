@@ -1,6 +1,8 @@
 id: py-bugfix
 version: 1
 name: Fix the divide operator
+difficulty: easy
+capabilities: [debugging]
 tags: [python, debugging, bugfix]
 timeout: 300
 requires: [python3]
