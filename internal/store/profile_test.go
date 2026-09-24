@@ -268,3 +268,39 @@ func TestInsertProfileChangesRoundTrip(t *testing.T) {
 		t.Fatalf("missing changes = %+v, %v", empty, err)
 	}
 }
+
+func TestListProfilesReturnsAllNewestFirst(t *testing.T) {
+	st := profileStore(t)
+	ctx := context.Background()
+
+	first, _ := sampleProfile("p1", "hash-one")
+	second, _ := sampleProfile("p2", "hash-two")
+	second.CreatedAt = "2026-02-01T00:00:00Z"
+	first.CreatedAt = "2026-01-01T00:00:00Z"
+
+	if err := st.InsertProfile(ctx, first, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertProfile(ctx, second, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.ListProfiles(ctx)
+	if err != nil {
+		t.Fatalf("ListProfiles: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("profiles = %d, want 2", len(got))
+	}
+	if got[0].ProfileHash != "hash-two" {
+		t.Errorf("newest first expected, got %s", got[0].ProfileHash)
+	}
+
+	empty, err := profileStore(t).ListProfiles(ctx)
+	if err != nil {
+		t.Fatalf("empty ListProfiles: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("empty store returned %d profiles", len(empty))
+	}
+}

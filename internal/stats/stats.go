@@ -178,3 +178,54 @@ func mean(xs []float64) float64 {
 	}
 	return sum / float64(len(xs))
 }
+
+// DefaultBootstrapIters is the resample count used when a caller passes a
+// non-positive iteration count. It is large enough for a stable 95% interval on
+// the handful of tasks a suite holds, and small enough to run on every request.
+const DefaultBootstrapIters = 2000
+
+// BootstrapCI returns the 95% percentile interval of the mean of samples,
+// resampled with replacement. The seed makes the interval deterministic, so the
+// same data always renders the same numbers.
+//
+// ok is false when there is nothing to resample: an interval over no data would
+// be a fabrication.
+func BootstrapCI(samples []float64, iters int, seed int64) (lo, hi float64, ok bool) {
+	if len(samples) == 0 {
+		return 0, 0, false
+	}
+	if iters <= 0 {
+		iters = DefaultBootstrapIters
+	}
+	if len(samples) == 1 {
+		return samples[0], samples[0], true
+	}
+
+	rng := rand.New(rand.NewSource(seed))
+	means := make([]float64, iters)
+	for i := range means {
+		var total float64
+		for range samples {
+			total += samples[rng.Intn(len(samples))]
+		}
+		means[i] = total / float64(len(samples))
+	}
+	sort.Float64s(means)
+	return percentile(means, 0.025), percentile(means, 0.975), true
+}
+
+// percentile returns the value at p (0..1) using nearest-rank on a sorted
+// slice.
+func percentile(sorted []float64, p float64) float64 {
+	if len(sorted) == 0 {
+		return 0
+	}
+	idx := int(p * float64(len(sorted)))
+	if idx >= len(sorted) {
+		idx = len(sorted) - 1
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	return sorted[idx]
+}

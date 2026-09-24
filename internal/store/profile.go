@@ -255,3 +255,28 @@ func rfc3339UTC(ts string) string {
 	}
 	return ts
 }
+
+// ListProfiles returns every persisted profile, newest first. The dashboard
+// lists all of them, including profiles that have no runs yet.
+func (s *Store) ListProfiles(ctx context.Context) ([]ProfileRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, profile_hash, opencode_version, ocbench_version, canonical_json, created_at
+		FROM profiles ORDER BY created_at DESC, id DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list profiles: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ProfileRow
+	for rows.Next() {
+		var r ProfileRow
+		if err := rows.Scan(&r.ID, &r.ProfileHash, &r.OpenCodeVersion, &r.OCBenchVersion, &r.CanonicalJSON, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan profile: %w", err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list profiles: %w", err)
+	}
+	return out, nil
+}

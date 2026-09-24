@@ -166,3 +166,44 @@ func TestDefaultAlpha(t *testing.T) {
 		t.Fatalf("DefaultAlpha = %v, want 0.05", DefaultAlpha)
 	}
 }
+
+func TestBootstrapCIDeterministicAndBounded(t *testing.T) {
+	samples := []float64{0.2, 0.6, 0.8, 1.0, 0.4}
+
+	lo1, hi1, ok1 := BootstrapCI(samples, 500, 42)
+	lo2, hi2, ok2 := BootstrapCI(samples, 500, 42)
+	if !ok1 || !ok2 {
+		t.Fatal("expected an interval for non-empty samples")
+	}
+	if lo1 != lo2 || hi1 != hi2 {
+		t.Errorf("same seed gave different intervals: %v..%v vs %v..%v", lo1, hi1, lo2, hi2)
+	}
+	if lo1 > hi1 {
+		t.Errorf("interval inverted: %v..%v", lo1, hi1)
+	}
+	mean := 0.0
+	for _, s := range samples {
+		mean += s
+	}
+	mean /= float64(len(samples))
+	if mean < lo1 || mean > hi1 {
+		t.Errorf("mean %v outside its own interval %v..%v", mean, lo1, hi1)
+	}
+	if lo1 < 0.2-1e-9 || hi1 > 1.0+1e-9 {
+		t.Errorf("interval %v..%v escapes the sample range", lo1, hi1)
+	}
+}
+
+func TestBootstrapCIEdgeCases(t *testing.T) {
+	if _, _, ok := BootstrapCI(nil, 100, 1); ok {
+		t.Error("an empty sample must not produce an interval")
+	}
+	lo, hi, ok := BootstrapCI([]float64{0.75}, 100, 1)
+	if !ok || lo != 0.75 || hi != 0.75 {
+		t.Errorf("single sample = %v..%v ok=%v, want 0.75..0.75", lo, hi, ok)
+	}
+	// A default iteration count must still work.
+	if _, _, ok := BootstrapCI([]float64{0.1, 0.9}, 0, 7); !ok {
+		t.Error("non-positive iters should fall back to the default")
+	}
+}
