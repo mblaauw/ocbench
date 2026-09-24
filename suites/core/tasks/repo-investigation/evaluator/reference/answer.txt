@@ -1,0 +1,1 @@
+The defective function is maximum. It initialises result correctly but compares with `value < result`, so it keeps the smallest value instead of the largest. The comparison should use `>` (greater than) so that maximum returns the largest value.

@@ -218,6 +218,11 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 		return nil, fmt.Errorf("task %q: %w", id, err)
 	}
 
+	reference, err := loadHiddenTests(fsys, path.Join(base, "evaluator", "reference"))
+	if err != nil {
+		return nil, fmt.Errorf("task %q: %w", id, err)
+	}
+
 	t := &Task{
 		ID:             raw.ID,
 		Version:        string(raw.Version),
@@ -233,6 +238,7 @@ func loadTask(fsys fs.FS, id string, suiteDefault int) (*Task, error) {
 		Fixture:        fixture,
 		Evaluator:      evaluator,
 		HiddenTests:    hidden,
+		Reference:      reference,
 		FixtureHash:    fixtureHash,
 	}
 	for i, rv := range raw.Validators {

@@ -209,6 +209,9 @@ func worktreeFiles(root string) ([]string, error) {
 		if err != nil || info.Size() > maxGrepFileBytes {
 			return nil
 		}
+		if isBinary(p) {
+			return nil
+		}
 		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return nil
@@ -333,4 +336,18 @@ func DiffLineCounts(diff []byte) (added, removed int) {
 		}
 	}
 	return added, removed
+}
+
+// isBinary reports whether a file looks binary, using the same heuristic git
+// does: a NUL byte in the first few kilobytes. Bytecode and images are skipped
+// so a grep validator only ever reads text.
+func isBinary(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return true // unreadable is treated as not-greppable
+	}
+	defer f.Close()
+	buf := make([]byte, 8192)
+	n, _ := f.Read(buf)
+	return bytes.IndexByte(buf[:n], 0) >= 0
 }

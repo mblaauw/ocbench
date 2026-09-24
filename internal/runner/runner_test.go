@@ -1651,7 +1651,7 @@ func TestHiddenTestsAreCopiedBeforeValidators(t *testing.T) {
 		"test_hidden.py": {Data: []byte("def test_ok():\n    assert True\n")},
 	}
 	f.task.Validators = []suite.Validator{
-		{Kind: "command", Name: "hidden test is present", Command: []string{"sh", "-c", "test -f test_hidden.py"}},
+		{Kind: "command", Name: "hidden test is present", Command: []string{"sh", "-c", "test -f tests/test_hidden.py"}},
 	}
 	res, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
 	if err != nil {
@@ -1663,7 +1663,7 @@ func TestHiddenTestsAreCopiedBeforeValidators(t *testing.T) {
 
 	// The copy must not look like the agent changed anything.
 	for _, p := range res.ChangedFiles {
-		if p == "test_hidden.py" {
+		if p == "tests/test_hidden.py" {
 			t.Errorf("hidden test appears in ChangedFiles: %v", res.ChangedFiles)
 		}
 	}
@@ -1692,19 +1692,27 @@ func TestHiddenTestPathEscapeIsRejected(t *testing.T) {
 	}
 }
 
-func TestHiddenTestWillNotOverwrite(t *testing.T) {
-	useMode(t, "ok")
-	f := setupRunner(t)
-	f.task.HiddenTests = fstest.MapFS{
-		// The fixture already ships this path.
-		"README.md": {Data: []byte("overwritten\n")},
+func TestCopyHiddenTestsRefusesToOverwrite(t *testing.T) {
+	worktree := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(worktree, "tests"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	_, err := Run(context.Background(), newScriptedAdapter(t), f.st, runnerRequest(f))
+	if err := os.WriteFile(filepath.Join(worktree, "tests", "existing.py"), []byte("agent wrote this\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	task := &suite.Task{HiddenTests: fstest.MapFS{
+		"existing.py": {Data: []byte("hidden\n")},
+	}}
+	_, err := copyHiddenTests(task, worktree)
 	if err == nil {
-		t.Fatal("Run succeeded, want an overwrite error")
+		t.Fatal("copyHiddenTests succeeded, want an overwrite error")
 	}
 	if !strings.Contains(err.Error(), "overwrite") {
 		t.Errorf("error %q does not mention the overwrite", err)
+	}
+	b, readErr := os.ReadFile(filepath.Join(worktree, "tests", "existing.py"))
+	if readErr != nil || string(b) != "agent wrote this\n" {
+		t.Errorf("existing file was modified: %q err=%v", b, readErr)
 	}
 }
 

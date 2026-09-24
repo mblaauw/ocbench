@@ -93,6 +93,11 @@ type Task struct {
 	// copied into the worktree only after the agent stops, so a task can be
 	// graded by tests the agent never saw (design §7).
 	HiddenTests fs.FS
+	// Reference is the subtree at tasks/<id>/evaluator/reference, or nil: the
+	// solution that must make the validators pass. It is never materialised
+	// into a worktree; a suite test uses it to prove the task measures
+	// something (design §7).
+	Reference   fs.FS
 	FixtureHash string
 	SpecHash    string
 }

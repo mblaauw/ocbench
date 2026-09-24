@@ -18,12 +18,16 @@ var envAllowlist = []string{
 }
 
 // envOverrides are always set in both modes, overriding any inherited value.
+// PYTHONDONTWRITEBYTECODE keeps a run from leaving __pycache__ behind: stray
+// bytecode would otherwise show up as created files and could be picked up by
+// a grep validator as if it were source.
 var envOverrides = []string{
 	"GIT_TERMINAL_PROMPT=0",
 	"GIT_PAGER=cat",
 	"PAGER=cat",
 	"NO_COLOR=1",
 	"OCBENCH=1",
+	"PYTHONDONTWRITEBYTECODE=1",
 }
 
 // BuildEnv merges base with the policy into the sorted child environment.

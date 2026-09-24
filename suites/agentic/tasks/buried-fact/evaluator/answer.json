@@ -1,0 +1,7 @@
+{
+  "patterns": [
+    "(?i)\\b7\\b",
+    "(?i)services/retry/config\\.py|retry/config\\.py|retry\\s+config"
+  ],
+  "mode": "all"
+}

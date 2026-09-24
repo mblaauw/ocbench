@@ -1,0 +1,22 @@
+id: rules-compliance
+version: 1
+name: Follow the project rules while implementing
+difficulty: medium
+capabilities: [instruction-following, multi-file]
+tags: [python, rules, instructions]
+timeout: 300
+requires: [python3]
+allow_changes: ["names.py"]
+validators:
+  - kind: command
+    name: unit tests
+    command: ["python3", "-m", "unittest", "discover", "-s", "tests"]
+  - kind: command
+    name: public function is documented
+    command: ["python3", "-c", "import inspect, names; assert inspect.getdoc(names.format_name), 'format_name needs a docstring'"]
+  - kind: grep
+    name: no tabs in python sources
+    absent: ["\\t"]
+  - kind: diff
+    name: changelog untouched
+    forbidden_paths: ["CHANGELOG.md"]

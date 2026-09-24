@@ -1,0 +1,6 @@
+name: agentic
+version: "1.0.0"
+description: "Tasks that exercise agentic behaviour — delegation, restraint, project rules and search."
+tier: standard
+defaults:
+  timeout: 300

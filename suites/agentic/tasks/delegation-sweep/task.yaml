@@ -1,0 +1,14 @@
+id: delegation-sweep
+version: 1
+name: Sweep three packages
+difficulty: medium
+capabilities: [delegation, search]
+tags: [python, delegation, investigation]
+timeout: 300
+allow_changes: []
+validators:
+  - kind: process
+    name: delegated to a subagent
+    tool_pattern: "^task\\b"
+  - kind: answer
+    name: all three retention values

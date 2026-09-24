@@ -1,0 +1,11 @@
+id: buried-fact
+version: 1
+name: Find the scheduler's retry limit
+difficulty: medium
+capabilities: [search, context]
+tags: [python, search, investigation]
+timeout: 300
+allow_changes: []
+validators:
+  - kind: answer
+    name: retry limit and its file

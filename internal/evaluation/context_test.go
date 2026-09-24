@@ -206,3 +206,18 @@ func parseEvents(t *testing.T, lines ...string) []Event {
 	}
 	return out
 }
+
+func TestGrepValidatorSkipsBinaryFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, map[string]string{"src/app.py": "clean\n"})
+	// A bytecode-like artefact containing a tab must not be read as text.
+	pyc := append([]byte("\x00\x00\x00\x00"), []byte("\tTAB-IN-BINARY\n")...)
+	if err := os.WriteFile(filepath.Join(dir, "app.pyc"), pyc, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := runSpec(t, ValidatorSpec{Kind: "grep", Name: "no tabs", Absent: []string{"\t"}},
+		ValidatorContext{Worktree: dir})
+	if res.Status != "passed" {
+		t.Fatalf("status = %q, want passed (binary files must be skipped): %s", res.Status, res.Output)
+	}
+}

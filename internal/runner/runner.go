@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -758,10 +759,12 @@ func newUUID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
-// copyHiddenTests writes a task's evaluator/tests subtree into the worktree and
-// returns the copied relative paths. It runs after the change set is computed
-// so the copy cannot be mistaken for the agent's work, and it refuses a path
-// that would escape the worktree or overwrite a file the agent can see.
+// copyHiddenTests writes a task's evaluator/tests subtree into the worktree at
+// <worktree>/tests/ and returns the copied relative paths. The directory keeps
+// its name because a task's validator refers to it by path (for example
+// `python3 -m unittest discover -s tests`). The copy runs after the change set
+// is computed so it cannot be mistaken for the agent's work, and it refuses a
+// path that would escape the worktree or overwrite a file the agent can see.
 func copyHiddenTests(task *suite.Task, worktree string) ([]string, error) {
 	if task == nil || task.HiddenTests == nil {
 		return nil, nil
@@ -782,7 +785,8 @@ func copyHiddenTests(task *suite.Task, worktree string) ([]string, error) {
 				return fmt.Errorf("hidden test path %q is not safe", p)
 			}
 		}
-		dest := filepath.Join(worktree, filepath.FromSlash(p))
+		rel := path.Join("tests", p)
+		dest := filepath.Join(worktree, filepath.FromSlash(rel))
 		if _, err := os.Stat(dest); err == nil {
 			return fmt.Errorf("hidden test %q would overwrite an existing file", p)
 		}
@@ -794,9 +798,9 @@ func copyHiddenTests(task *suite.Task, worktree string) ([]string, error) {
 			return err
 		}
 		if err := os.WriteFile(dest, b, 0o644); err != nil {
-			return fmt.Errorf("write hidden test %q: %w", p, err)
+			return fmt.Errorf("write hidden test %q: %w", rel, err)
 		}
-		copied = append(copied, p)
+		copied = append(copied, rel)
 		return nil
 	})
 	if err != nil {

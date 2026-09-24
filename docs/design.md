@@ -453,10 +453,12 @@ Rules:
   baseline commit SHA (survives agents that commit).
 - Hidden evaluator data lives in `evaluator/` and is passed to validators out
   of band; it is never written into the agent worktree, with one deliberate
-  exception: `evaluator/tests/` is copied into the worktree **after the agent
-  has stopped**, immediately before validators run, so a task can be graded by
-  tests the agent never saw. The copy happens after the changed-file set and
-  `diff.patch` are computed, so hidden tests never appear as agent changes.
+  exception: `evaluator/tests/` is copied into the worktree at `<worktree>/tests/`
+  **after the agent has stopped**, immediately before validators run, so a task
+  can be graded by tests the agent never saw. The directory keeps its name
+  because a validator refers to it by path. The copy happens after the
+  changed-file set and `diff.patch` are computed, so hidden tests never appear
+  as agent changes.
 - A task's expected behaviour is proven by an automated fail-before /
   pass-after check: `evaluator/reference/` holds a reference solution tree that
   is copied over a scratch copy of the fixture. Validators must fail on the
@@ -501,7 +503,9 @@ run request
 Environment sandbox: allowlist by default. Always kept: `HOME`, `PATH`,
 `LANG`/`LC_*`, `TZ`, `TERM`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `TEMP`,
 `TMP`, plus any `LC_*`. Always set: `GIT_TERMINAL_PROMPT=0`, `GIT_PAGER=cat`,
-`PAGER=cat`, `NO_COLOR=1`, `OCBENCH=1`. Dropped: everything else, notably
+`PAGER=cat`, `NO_COLOR=1`, `OCBENCH=1`, `PYTHONDONTWRITEBYTECODE=1` (stray
+bytecode would count as created files and could be read by a grep validator).
+Dropped: everything else, notably
 `KUBECONFIG`, `AWS_*`, `AZURE_*`, `GOOGLE_*`, `GITLAB_TOKEN`,
 `SSH_AUTH_SOCK`. Additional names may be forwarded via
 `config.sandbox.pass_env`. `GIT_TERMINAL_PROMPT=0` always set.

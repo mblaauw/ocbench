@@ -1,0 +1,5 @@
+Review of batch.py; three defects found:
+
+1. chunks: off-by-one in the range step — `range(0, len(values), size - 1)` walks with a step of size - 1; it should be `size`.
+2. parse_ints: swallowed exception — `except ValueError: pass` silently ignores bad input instead of letting the error propagate, so a caller never learns the value was invalid.
+3. take: wrong default — the docstring says the limit defaults to 3, but `DEFAULT_LIMIT = 10` is used; the default should be 3.

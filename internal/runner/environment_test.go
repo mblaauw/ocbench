@@ -78,7 +78,7 @@ func TestBuildEnvPassEnvForwardsExactlyNamedVars(t *testing.T) {
 	want := map[string]bool{
 		"HOME": true, "PASS_ME": true, "ALSO_PASS": true,
 		"GIT_TERMINAL_PROMPT": true, "GIT_PAGER": true, "PAGER": true,
-		"NO_COLOR": true, "OCBENCH": true,
+		"NO_COLOR": true, "OCBENCH": true, "PYTHONDONTWRITEBYTECODE": true,
 	}
 	for name := range m {
 		if !want[name] {
@@ -176,8 +176,8 @@ func TestBuildEnvSafeOnEmptyBaseAndNilPassEnv(t *testing.T) {
 	for _, base := range [][]string{nil, {}} {
 		got := BuildEnv(base, EnvPolicy{PassEnv: nil})
 		m := envMap(t, got)
-		if len(m) != 5 {
-			t.Errorf("empty base produced %d keys, want 5 always-set: %v", len(m), got)
+		if len(m) != len(envOverrides) {
+			t.Errorf("empty base produced %d keys, want %d always-set: %v", len(m), len(envOverrides), got)
 		}
 		if !sort.StringsAreSorted(got) {
 			t.Errorf("BuildEnv output not sorted: %v", got)
@@ -245,7 +245,7 @@ func TestEnvNamesSortedAndValueFree(t *testing.T) {
 	env := BuildEnv(base, EnvPolicy{})
 
 	names := EnvNames(env)
-	want := []string{"GIT_PAGER", "GIT_TERMINAL_PROMPT", "HOME", "LC_ALL", "NO_COLOR", "OCBENCH", "PAGER", "PATH"}
+	want := []string{"GIT_PAGER", "GIT_TERMINAL_PROMPT", "HOME", "LC_ALL", "NO_COLOR", "OCBENCH", "PAGER", "PATH", "PYTHONDONTWRITEBYTECODE"}
 	if !reflect.DeepEqual(names, want) {
 		t.Errorf("EnvNames = %v, want %v", names, want)
 	}
