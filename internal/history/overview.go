@@ -230,7 +230,7 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 			tasks[key] = acc
 		}
 		acc.runs++
-		acc.scoreSum += values["score"]
+		acc.scoreSum += scoreOf(values)
 		acc.passSum += values["success"]
 		if values["success"] == 1 {
 			acc.solved++
@@ -376,6 +376,17 @@ func loadProfile(ctx context.Context, st *store.Store, hash string) (*profile.Pr
 		return nil, err
 	}
 	return profile.FromRows(row, comps)
+}
+
+// scoreOf reads a run's weighted validator score, falling back to its binary
+// success when the run predates the score metric. Without the fallback a run
+// recorded before scoring existed would read as 0.00 and drag a profile's score
+// down for a reason that has nothing to do with the configuration.
+func scoreOf(values map[string]float64) float64 {
+	if score, ok := values["score"]; ok {
+		return score
+	}
+	return values["success"]
 }
 
 func metricValues(metrics []store.MetricRow) map[string]float64 {

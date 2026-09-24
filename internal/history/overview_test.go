@@ -196,3 +196,27 @@ func TestOverviewEmptyStore(t *testing.T) {
 		t.Error("empty store should have no significance result")
 	}
 }
+
+func TestOverviewFallsBackToSuccessWithoutScoreMetric(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+
+	// A run recorded before the score metric existed: only success is present.
+	old := baseRun("r-old", "2026-03-01T10:00:00Z", "p1", "hash-a")
+	old.SuiteName, old.SuiteHash = "core", "hash-core"
+	seedRun(t, st, old)
+	if err := st.InsertRunMetrics(context.Background(), "r-old", map[string]float64{
+		"success": 1, "tokens_total": 100, "cost": 0.01,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if got := ov.Profiles[0].Score; got != 1.0 {
+		t.Errorf("score = %v, want 1.0: a passed run without a score metric must not read as 0", got)
+	}
+}

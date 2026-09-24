@@ -70,7 +70,9 @@ func describeComponent(v View, kind, name string) string {
 			return strings.TrimSpace(shortModel(a.Model) + " " + a.Variant)
 		}
 	case "skill", "mcp", "plugin":
-		return kind
+		// The component name already says what it is; repeating the kind in the
+		// note column adds nothing.
+		return ""
 	case "instructions":
 		return "instruction file"
 	case "permissions":

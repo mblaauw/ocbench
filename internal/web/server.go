@@ -25,7 +25,7 @@ const defaultListLimit = 20
 // contentSecurityPolicy is deliberately restrictive: no scripts, no external
 // origins, no framing and no form submissions. Styles are the only same-origin
 // resource the dashboard loads.
-const contentSecurityPolicy = "default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+const contentSecurityPolicy = "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // handler serves the dashboard from an immutable store handle.
 type handler struct {

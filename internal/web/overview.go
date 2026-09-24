@@ -32,28 +32,30 @@ func (h *handler) page(r *http.Request, current, crumb, title, sub string) layou
 
 // leaderRow is one line of the leaderboard.
 type leaderRow struct {
-	Rank          int
-	First         bool
-	Label         string
-	Hash          string
-	ShortHash     string
-	Architecture  string
-	Href          string
-	HasRuns       bool
-	ScoreText     string
-	ScorePercent  int
-	CILowPercent  int
-	CIHighPercent int
-	PassText      string
-	CostText      string
-	TokensText    string
-	Runs          int
+	Rank           int
+	First          bool
+	Label          string
+	Hash           string
+	ShortHash      string
+	Architecture   string
+	Href           string
+	HasRuns        bool
+	ScoreText      string
+	ScorePercent   int
+	CILowPercent   int
+	CIDeltaPercent int
+	PassText       string
+	CostText       string
+	TokensText     string
+	Runs           int
 }
 
-// matrixCell is one profile-by-suite score.
+// matrixCell is one profile-by-suite score. Tint is a 0..5 band so the cell
+// colour comes from a class rather than an inline style, which the dashboard's
+// Content-Security-Policy forbids.
 type matrixCell struct {
-	Text  string
-	Style string
+	Text string
+	Tint int
 }
 
 // matrixRow is one profile across the suites.
@@ -64,10 +66,13 @@ type matrixRow struct {
 
 // scatterDot positions one profile on the score-against-cost chart.
 type scatterDot struct {
-	X     float64
-	Y     float64
-	Label string
-	First bool
+	X      float64
+	Y      float64
+	LabelX float64
+	LabelY float64
+	Anchor string
+	Label  string
+	First  bool
 }
 
 // diffNote is one explained component difference.
@@ -90,6 +95,7 @@ type overviewPage struct {
 	Scatter      []scatterDot
 	ScatterXMax  string
 	HeroDiff     []diffNote
+	HeroDiffMore int
 	Significance *significanceView
 	ExcludedRuns int
 	TotalRuns    int
@@ -99,6 +105,9 @@ type significanceView struct {
 	Distinguishable bool
 	Note            string
 }
+
+// heroDiffLimit caps the "what the leader changes" panel.
+const heroDiffLimit = 6
 
 // handleOverview renders the profile-first front page: who scores best, by how
 // much, and at what cost.
@@ -128,8 +137,15 @@ func (h *handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 	page.Rows = leaderRows(ov.Profiles)
 	page.Matrix = matrixRows(ov.Profiles, ov.Suites)
 	page.Scatter = scatterDots(ov.Scatter)
-	page.ScatterXMax = fmt.Sprintf("$%.2f", scatterMax(ov.Scatter))
-	for _, n := range ov.HeroDiff {
+	page.ScatterXMax = moneyTick(scatterMax(ov.Scatter))
+	// The panel is a summary, not a full inventory: show the first few and
+	// count the rest, so a profile that differs in forty skills does not push
+	// the leaderboard off the page.
+	for i, n := range ov.HeroDiff {
+		if i == heroDiffLimit {
+			page.HeroDiffMore = len(ov.HeroDiff) - heroDiffLimit
+			break
+		}
 		page.HeroDiff = append(page.HeroDiff, diffNote{
 			Sign: n.Sign, Class: signClass(n.Sign), Change: n.Change,
 			What: n.Kind + "/" + n.Name, Note: n.Note,
@@ -189,7 +205,7 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 		if p.HasRuns {
 			row.ScoreText = fmt.Sprintf("%.2f", p.Score)
 			row.ScorePercent = band(p.Score)
-			row.CILowPercent, row.CIHighPercent = ciPercents(p.ScoreCI)
+			row.CILowPercent, row.CIDeltaPercent = ciSpan(p.ScoreCI)
 			row.PassText = fmt.Sprintf("%.0f%%", p.PassRate*100)
 			if p.CostPerSolvedOK {
 				row.CostText = fmt.Sprintf("$%.3f", p.CostPerSolved)
@@ -220,14 +236,14 @@ func matrixRows(profiles []history.ProfileScore, suites []string) []matrixRow {
 				continue
 			}
 			row.Cells = append(row.Cells, matrixCell{
-				Text:  fmt.Sprintf("%.2f", score),
-				Style: cellStyle(score),
+				Text: fmt.Sprintf("%.2f", score),
+				Tint: tint(score),
 			})
 		}
 		// The overall column is the profile's scope score.
 		row.Cells = append(row.Cells, matrixCell{
-			Text:  fmt.Sprintf("%.2f", p.Score),
-			Style: cellStyle(p.Score),
+			Text: fmt.Sprintf("%.2f", p.Score),
+			Tint: tint(p.Score),
 		})
 		rows = append(rows, row)
 	}
@@ -244,12 +260,27 @@ func scatterDots(points []history.ScatterPoint) []scatterDot {
 	}
 	dots := make([]scatterDot, 0, len(points))
 	for i, p := range points {
-		dots = append(dots, scatterDot{
-			X:     20 + (p.CostPerSolved/maxCost)*280,
+		x := 20 + (p.CostPerSolved/maxCost)*280
+		dot := scatterDot{
+			X:     x,
 			Y:     210 - math.Min(1, math.Max(0, p.Score))*190,
 			Label: shortHash(p.Hash),
 			First: i == 0,
-		})
+		}
+		// A label near the right edge would be clipped, so it moves to the
+		// left of its dot and anchors to the end.
+		if x > 240 {
+			dot.LabelX, dot.Anchor = x-8, "end"
+		} else {
+			dot.LabelX, dot.Anchor = x+8, "start"
+		}
+		// Profiles that tie on score share a y, so their labels would collide:
+		// stagger them above and below the dot.
+		dot.LabelY = dot.Y + 3
+		if i%2 == 1 {
+			dot.LabelY = dot.Y + 14
+		}
+		dots = append(dots, dot)
 	}
 	return dots
 }
@@ -269,35 +300,36 @@ func band(score float64) int {
 	return int(math.Round(math.Min(1, math.Max(0, score)) * 100))
 }
 
-// ciPercents clamps an interval to the bar's 0..100 range.
-func ciPercents(ci [2]float64) (int, int) {
-	lo := band(ci[0])
-	hi := band(ci[1])
+// ciSpan renders an interval as a start offset and a width, both on the 0..100
+// scale the bar uses.
+func ciSpan(ci [2]float64) (left, width int) {
+	lo, hi := band(ci[0]), band(ci[1])
 	if hi < lo {
 		lo, hi = hi, lo
 	}
-	return lo, hi
+	return lo, hi - lo
 }
 
-// cellStyle tints a matrix cell by score, from the panel colour towards the
-// accent, so the grid reads at a glance without a chart.
-func cellStyle(score float64) string {
+// tint maps a 0..1 score to one of six colour bands.
+func tint(score float64) int {
 	t := math.Min(1, math.Max(0, score))
-	// Blend #171b16 (panel2) towards #7ee787 (the accent green).
-	from := [3]int{0x17, 0x1b, 0x16}
-	to := [3]int{0x7e, 0xe7, 0x87}
-	mix := func(a, b int) int { return a + int(float64(b-a)*t) }
-	return fmt.Sprintf("background:#%02x%02x%02x;color:%s",
-		mix(from[0], to[0]), mix(from[1], to[1]), mix(from[2], to[2]),
-		inkOn(t))
+	return int(t * 5.999)
 }
 
-// inkOn picks a readable foreground for the blended cell.
-func inkOn(t float64) string {
-	if t > 0.55 {
-		return "#0a0c0a"
+// moneyTick renders an axis label with enough precision to be useful: a few
+// tenths of a cent per solved task is typical, so two decimals would read
+// "$0.00" and mean nothing.
+func moneyTick(v float64) string {
+	switch {
+	case v == 0:
+		return "$0"
+	case v < 0.01:
+		return fmt.Sprintf("$%.4f", v)
+	case v < 1:
+		return fmt.Sprintf("$%.3f", v)
+	default:
+		return fmt.Sprintf("$%.2f", v)
 	}
-	return "var(--ink)"
 }
 
 func signClass(sign string) string {

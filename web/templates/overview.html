@@ -49,6 +49,14 @@
       <span class="note">{{.Note}}</span>
     </div>
     {{end}}
+    {{if .HeroDiffMore}}
+    <div class="row">
+      <span class="sign"></span>
+      <span class="change"></span>
+      <span class="what muted">… and {{.HeroDiffMore}} more</span>
+      <span class="note"></span>
+    </div>
+    {{end}}
   </div>
 </section>
 {{end}}
@@ -82,10 +90,11 @@
           <div class="score-cell">
             <span class="value">{{.ScoreText}}</span>
             {{if .HasRuns}}
-            <span class="bar{{if .First}} first{{end}}">
-              <span style="width: {{.ScorePercent}}%"></span>
-              <span class="ci" style="left: {{.CILowPercent}}%; width: {{.CIHighPercent}}%"></span>
-            </span>
+            <svg class="bar{{if .First}} first{{end}}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">
+              <rect class="track" x="0" y="0" width="100" height="8"></rect>
+              <rect class="fill" x="0" y="0" width="{{.ScorePercent}}" height="8"></rect>
+              <rect class="ci" x="{{.CILowPercent}}" y="3" width="{{.CIDeltaPercent}}" height="2"></rect>
+            </svg>
             {{end}}
           </div>
         </td>
@@ -105,19 +114,23 @@
       <h2>Score by suite</h2>
       <span class="muted">weighted task score, 0–1</span>
     </header>
-    <div class="matrix">
-      <div class="row head" style="grid-template-columns: minmax(120px, 1.4fr) repeat({{len .Suites}}, minmax(0, 1fr)) 1fr">
-        <span></span>
-        {{range .Suites}}<span>{{.}}</span>{{end}}
-        <span>all</span>
-      </div>
-      {{range .Matrix}}
-      <div class="row" style="grid-template-columns: minmax(120px, 1.4fr) repeat({{len $.Suites}}, minmax(0, 1fr)) 1fr">
-        <span class="rowname">{{.Label}}</span>
-        {{range .Cells}}<span class="cell" style="{{.Style}}">{{.Text}}</span>{{end}}
-      </div>
-      {{end}}
-    </div>
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th></th>
+          {{range .Suites}}<th>{{.}}</th>{{end}}
+          <th class="overall">all</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Matrix}}
+        <tr>
+          <th class="rowname">{{.Label}}</th>
+          {{range .Cells}}<td class="cell tint-{{.Tint}}">{{.Text}}</td>{{end}}
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
   </section>
 
   <section class="card">
@@ -138,7 +151,7 @@
         <text x="270" y="224">{{.ScatterXMax}}</text>
         {{range .Scatter}}
         <circle class="dot{{if not .First}} other{{end}}" cx="{{printf "%.1f" .X}}" cy="{{printf "%.1f" .Y}}" r="4"></circle>
-        <text class="label" x="{{printf "%.1f" .X}}" y="{{printf "%.1f" .Y}}" dx="7" dy="3">{{.Label}}</text>
+        <text class="label" x="{{printf "%.1f" .LabelX}}" y="{{printf "%.1f" .LabelY}}" text-anchor="{{.Anchor}}">{{.Label}}</text>
         {{end}}
       </svg>
     </div>
