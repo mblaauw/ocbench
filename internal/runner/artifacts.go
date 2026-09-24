@@ -183,7 +183,7 @@ func existingArtifacts(runDir string) map[string]string {
 			out[rel] = filepath.Join(runDir, rel)
 		}
 	}
-	for _, dir := range []string{"untracked", "validation"} {
+	for _, dir := range []string{"untracked", "validation", "sessions"} {
 		if info, err := os.Stat(filepath.Join(runDir, dir)); err == nil && info.IsDir() {
 			out[dir] = filepath.Join(runDir, dir)
 		}

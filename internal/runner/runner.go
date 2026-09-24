@@ -16,6 +16,7 @@ import (
 	"mbl/ocbench/internal/evaluation"
 	"mbl/ocbench/internal/opencode"
 	"mbl/ocbench/internal/profile"
+	"mbl/ocbench/internal/session"
 	"mbl/ocbench/internal/store"
 	"mbl/ocbench/internal/suite"
 	"mbl/ocbench/internal/version"
@@ -254,6 +255,13 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		return Result{}, fmt.Errorf("write session.json: %w", err)
 	}
 
+	// Capture delegated child sessions from the stored event stream (re-read
+	// from disk, never the in-memory drain) before validators run. Capture is
+	// best-effort: export and write failures are counted inside captureSessions
+	// and never fail the run. Task 3 consumes the returned capture for the
+	// per-agent roll-up.
+	_ = captureSessions(postCtx, a, runDir, res.SessionID, readStoredEvents(filepath.Join(runDir, "events.jsonl")))
+
 	changed, err := ChangedFiles(postCtx, worktree, baseline.SHA)
 	if err != nil {
 		return Result{}, err
@@ -405,6 +413,119 @@ func drainEvents(path string, events <-chan []byte, metrics *evaluation.Metrics)
 		metrics.ObserveLine(line)
 	}
 	return nil
+}
+
+// maxSessionDepth bounds recursive child-session discovery: at most five levels
+// below the primary session.
+const maxSessionDepth = 5
+
+// SessionCapture is the result of capturing a run's session tree: the parsed
+// primary export plus every delegated child export written under sessions/.
+// Failures counts export, parse and write errors; they never fail the run.
+type SessionCapture struct {
+	Primary  *session.Session
+	Children []*session.Session
+	Failures int
+}
+
+// captureSessions exports every delegated child session referenced by the
+// stored event stream, writing runs/<id>/sessions/<child>.json. Discovery is
+// recursive, bounded by maxSessionDepth and a visited set, and the primary
+// session is never re-exported. Every failure increments Failures and is
+// otherwise ignored so the run continues; no error is ever returned.
+func captureSessions(ctx context.Context, a opencode.Adapter, runDir, primarySessionID string, events []evaluation.Event) SessionCapture {
+	var capture SessionCapture
+	// The primary export already lives at session.json; a missing or malformed
+	// primary is not a capture failure.
+	if data, err := os.ReadFile(filepath.Join(runDir, "session.json")); err == nil {
+		if s, perr := session.ParseExport(data); perr == nil {
+			capture.Primary = s
+		}
+	}
+
+	visited := make(map[string]bool)
+	if primarySessionID != "" {
+		visited[primarySessionID] = true
+	}
+	sessionsDir := filepath.Join(runDir, "sessions")
+
+	level := session.DiscoverChildren(events)
+	for depth := 0; depth < maxSessionDepth && len(level) > 0; depth++ {
+		var next []session.ChildRef
+		for _, ref := range level {
+			id := ref.SessionID
+			if id == "" || visited[id] {
+				continue
+			}
+			visited[id] = true
+			// OpenCode ids are ses_…; reject anything that could escape the
+			// sessions directory rather than write outside runDir.
+			if strings.Contains(id, "/") || strings.Contains(id, "..") {
+				capture.Failures++
+				continue
+			}
+			data, err := a.Export(ctx, id)
+			if err != nil {
+				capture.Failures++
+				continue
+			}
+			child, perr := session.ParseExport(data)
+			if perr != nil {
+				capture.Failures++
+				continue
+			}
+			if err := os.MkdirAll(sessionsDir, 0o755); err != nil {
+				capture.Failures++
+				continue
+			}
+			if err := os.WriteFile(filepath.Join(sessionsDir, id+".json"), data, 0o644); err != nil {
+				capture.Failures++
+				continue
+			}
+			capture.Children = append(capture.Children, child)
+			next = append(next, discoverChildrenInExport(child)...)
+		}
+		level = next
+	}
+	return capture
+}
+
+// readStoredEvents parses the written events.jsonl back into events. A line
+// that fails to parse is skipped, never fatal; a missing file yields no events.
+func readStoredEvents(path string) []evaluation.Event {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var events []evaluation.Event
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		e, perr := evaluation.ParseLine([]byte(line))
+		if perr != nil {
+			continue
+		}
+		events = append(events, e)
+	}
+	return events
+}
+
+// discoverChildrenInExport extracts `task` child references from a captured
+// session export by re-presenting its raw message parts as events, so the same
+// metadata rule reaches children of children.
+func discoverChildrenInExport(s *session.Session) []session.ChildRef {
+	if s == nil {
+		return nil
+	}
+	var events []evaluation.Event
+	for _, m := range s.Messages {
+		for _, part := range m.RawParts {
+			events = append(events, evaluation.Event{Type: "tool_use", Part: part})
+		}
+	}
+	return session.DiscoverChildren(events)
 }
 
 // runValidators executes every task validator, writing each result's full

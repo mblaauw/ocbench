@@ -23,11 +23,14 @@ type ToolCall struct {
 }
 
 // Message is one exported message with its agent, cost, tokens and tool calls.
+// RawParts retains each part's raw JSON so delegated `task` parts can be
+// re-discovered from a captured child export.
 type Message struct {
-	Agent  string
-	Cost   float64
-	Tokens Tokens
-	Tools  []ToolCall
+	Agent    string
+	Cost     float64
+	Tokens   Tokens
+	Tools    []ToolCall
+	RawParts []json.RawMessage
 }
 
 // Session is a parsed session export: the session info plus its messages.
@@ -108,8 +111,8 @@ type exportState struct {
 }
 
 type exportMessage struct {
-	Info  exportInfo   `json:"info"`
-	Parts []exportPart `json:"parts"`
+	Info  exportInfo        `json:"info"`
+	Parts []json.RawMessage `json:"parts"`
 }
 
 type exportFile struct {
@@ -134,11 +137,16 @@ func ParseExport(data []byte) (*Session, error) {
 	}
 	for _, m := range exp.Messages {
 		msg := Message{
-			Agent:  m.Info.Agent,
-			Cost:   m.Info.Cost,
-			Tokens: m.Info.Tokens.toTokens(),
+			Agent:    m.Info.Agent,
+			Cost:     m.Info.Cost,
+			Tokens:   m.Info.Tokens.toTokens(),
+			RawParts: m.Parts,
 		}
-		for _, p := range m.Parts {
+		for _, raw := range m.Parts {
+			var p exportPart
+			if err := json.Unmarshal(raw, &p); err != nil {
+				continue
+			}
 			if p.Type != "tool" {
 				continue
 			}

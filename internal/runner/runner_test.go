@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"mbl/ocbench/internal/config"
+	"mbl/ocbench/internal/evaluation"
 	"mbl/ocbench/internal/opencode"
 	"mbl/ocbench/internal/profile"
 	"mbl/ocbench/internal/store"
@@ -42,8 +43,17 @@ const (
 {"type":"tool_use","timestamp":2,"sessionID":"ses_test","part":{"type":"tool","tool":"read","callID":"c1","state":{"status":"completed"}}}
 {"type":"tool_use","timestamp":3,"sessionID":"ses_test","part":{"type":"tool","tool":"gitlab_search","callID":"c2","state":{"status":"completed"}}}
 {"type":"text","timestamp":4,"sessionID":"ses_test","part":{"type":"text","text":"the retry logic is off-by-one"}}
-{"type":"step_finish","timestamp":5,"sessionID":"ses_test","part":{"type":"step-finish","reason":"stop","tokens":{"total":15,"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.01}}
+	{"type":"step_finish","timestamp":5,"sessionID":"ses_test","part":{"type":"step-finish","reason":"stop","tokens":{"total":15,"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.01}}
 `
+
+	// fakeTaskEvents is a stream whose only tool call is a `task` delegation to
+	// a child session, used by the child-capture tests.
+	fakeTaskEvents = `{"type":"step_start","timestamp":1,"sessionID":"ses_test","part":{"type":"step-start"}}
+{"type":"tool_use","timestamp":2,"sessionID":"ses_test","part":{"type":"tool","tool":"task","callID":"t1","state":{"status":"completed","title":"delegate","metadata":{"sessionId":"ses_child","parentSessionId":"ses_test"}}}}
+{"type":"step_finish","timestamp":3,"sessionID":"ses_test","part":{"type":"step-finish","reason":"stop","tokens":{"total":15,"input":10,"output":5,"reasoning":0,"cache":{"read":0,"write":0}},"cost":0.01}}
+`
+
+	fakeChildExportJSON = `{"info":{"id":"ses_child","agent":"explore","cost":0.000511764,"tokens":{"total":42}},"messages":[]}`
 )
 
 // TestRunnerHelperProcess impersonates opencode for the runner tests. It only
@@ -87,6 +97,12 @@ func TestRunnerHelperProcess(t *testing.T) {
 			_ = os.WriteFile("untracked.txt", []byte("hello untracked\n"), 0o644)
 			time.Sleep(500 * time.Millisecond)
 			os.Exit(0)
+		case "task":
+			// Emit a stream that delegates to a child session; the capture
+			// tests override Export to return the child export.
+			fmt.Fprint(os.Stdout, fakeTaskEvents)
+			_ = os.WriteFile("src/main.go", []byte("package main // changed by agent\n"), 0o644)
+			os.Exit(0)
 		}
 		// Emit the canned stream and mutate the worktree (cwd is the worktree).
 		fmt.Fprint(os.Stdout, fakeEvents)
@@ -113,6 +129,9 @@ type scriptedAdapter struct {
 	opencode.Adapter
 	startErr  error
 	exportErr error
+	// exportFunc, when set, overrides Export per session id. It is how the
+	// child-session capture tests return distinct parent and child exports.
+	exportFunc func(id string) ([]byte, error)
 
 	mu     sync.Mutex
 	starts []opencode.RunRequest
@@ -129,6 +148,9 @@ func (a *scriptedAdapter) Start(ctx context.Context, req opencode.RunRequest) (*
 }
 
 func (a *scriptedAdapter) Export(ctx context.Context, id string) ([]byte, error) {
+	if a.exportFunc != nil {
+		return a.exportFunc(id)
+	}
 	if a.exportErr != nil {
 		return nil, a.exportErr
 	}
@@ -1023,5 +1045,288 @@ func TestRunPersistsArmID(t *testing.T) {
 	}
 	if got2.ArmID != nil {
 		t.Errorf("ArmID = %v, want nil (NULL)", *got2.ArmID)
+	}
+}
+
+// captureAdapter is a minimal Adapter whose only behaviour is a scripted Export;
+// captureSessions never calls the other methods.
+type captureAdapter struct {
+	opencode.Adapter
+	exports map[string][]byte
+	fail    map[string]error
+
+	mu    sync.Mutex
+	calls []string
+}
+
+func (a *captureAdapter) Export(_ context.Context, id string) ([]byte, error) {
+	a.mu.Lock()
+	a.calls = append(a.calls, id)
+	a.mu.Unlock()
+	if err := a.fail[id]; err != nil {
+		return nil, err
+	}
+	data, ok := a.exports[id]
+	if !ok {
+		return nil, fmt.Errorf("unexpected export %q", id)
+	}
+	return data, nil
+}
+
+// taskEvent builds a `task` tool event that delegates to child from parent.
+func taskEvent(child, parent string) evaluation.Event {
+	part := fmt.Sprintf(
+		`{"type":"tool","tool":"task","state":{"title":"delegate","metadata":{"sessionId":%q,"parentSessionId":%q}}}`,
+		child, parent)
+	return evaluation.Event{Type: "tool_use", SessionID: parent, Part: json.RawMessage(part)}
+}
+
+// exportWithChild builds a raw session export whose messages contain one `task`
+// part delegating to childID, so recursive capture can be exercised.
+func exportWithChild(id, childID string) []byte {
+	return []byte(fmt.Sprintf(
+		`{"info":{"id":%q},"messages":[{"info":{},"parts":[{"type":"tool","tool":"task","state":{"title":"nested","metadata":{"sessionId":%q,"parentSessionId":%q}}}]}]}`,
+		id, childID, id))
+}
+
+// TestCaptureSessions covers child discovery, export, recursion and the
+// best-effort failure contract of captureSessions.
+func TestCaptureSessions(t *testing.T) {
+	const primaryID = "ses_test"
+	primaryExport := []byte(fakeExportJSON)
+
+	t.Run("captures child and leaves session.json intact", func(t *testing.T) {
+		runDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(runDir, "session.json"), primaryExport, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		a := &captureAdapter{exports: map[string][]byte{"ses_child": []byte(fakeChildExportJSON)}}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID,
+			[]evaluation.Event{taskEvent("ses_child", primaryID)})
+
+		if cap.Failures != 0 {
+			t.Fatalf("Failures = %d, want 0", cap.Failures)
+		}
+		if cap.Primary == nil || cap.Primary.ID != primaryID {
+			t.Fatalf("Primary = %+v, want id %q", cap.Primary, primaryID)
+		}
+		if len(cap.Children) != 1 || cap.Children[0].ID != "ses_child" {
+			t.Fatalf("Children = %+v, want one ses_child", cap.Children)
+		}
+		data, err := os.ReadFile(filepath.Join(runDir, "sessions", "ses_child.json"))
+		if err != nil {
+			t.Fatalf("sessions/ses_child.json: %v", err)
+		}
+		if string(data) != fakeChildExportJSON {
+			t.Fatalf("child file = %q, want %q", data, fakeChildExportJSON)
+		}
+		// The primary export stays at session.json, byte-for-byte.
+		got, err := os.ReadFile(filepath.Join(runDir, "session.json"))
+		if err != nil || string(got) != string(primaryExport) {
+			t.Fatalf("session.json changed: %q, %v", got, err)
+		}
+	})
+
+	t.Run("child export failure increments Failures and is ignored", func(t *testing.T) {
+		runDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(runDir, "session.json"), primaryExport, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		a := &captureAdapter{fail: map[string]error{"ses_child": errors.New("boom")}}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID,
+			[]evaluation.Event{taskEvent("ses_child", primaryID)})
+
+		if cap.Failures != 1 {
+			t.Fatalf("Failures = %d, want 1", cap.Failures)
+		}
+		if len(cap.Children) != 0 {
+			t.Fatalf("Children = %+v, want none", cap.Children)
+		}
+		if _, err := os.Stat(filepath.Join(runDir, "sessions", "ses_child.json")); !os.IsNotExist(err) {
+			t.Fatalf("child file written despite export failure: %v", err)
+		}
+	})
+
+	t.Run("self session is not exported", func(t *testing.T) {
+		runDir := t.TempDir()
+		a := &captureAdapter{exports: map[string][]byte{primaryID: primaryExport}}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID,
+			[]evaluation.Event{taskEvent(primaryID, primaryID)})
+
+		if cap.Failures != 0 || len(cap.Children) != 0 {
+			t.Fatalf("capture = %+v, want no children and no failures", cap)
+		}
+		if len(a.calls) != 0 {
+			t.Fatalf("Export calls = %v, want none", a.calls)
+		}
+	})
+
+	t.Run("task part without metadata is ignored", func(t *testing.T) {
+		runDir := t.TempDir()
+		a := &captureAdapter{}
+		ev := evaluation.Event{
+			Type: "tool_use",
+			Part: json.RawMessage(`{"type":"tool","tool":"task","state":{"title":"no metadata"}}`),
+		}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID, []evaluation.Event{ev})
+
+		if cap.Failures != 0 || len(cap.Children) != 0 {
+			t.Fatalf("capture = %+v, want no children and no failures", cap)
+		}
+		if len(a.calls) != 0 {
+			t.Fatalf("Export calls = %v, want none", a.calls)
+		}
+	})
+
+	t.Run("unsafe child id is rejected as a failure", func(t *testing.T) {
+		runDir := t.TempDir()
+		a := &captureAdapter{exports: map[string][]byte{"../evil": []byte(fakeChildExportJSON)}}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID,
+			[]evaluation.Event{taskEvent("../evil", primaryID)})
+
+		if cap.Failures != 1 || len(cap.Children) != 0 {
+			t.Fatalf("capture = %+v, want one failure and no children", cap)
+		}
+		if len(a.calls) != 0 {
+			t.Fatalf("Export called with unsafe id: %v", a.calls)
+		}
+		if _, err := os.Stat(filepath.Join(runDir, "evil.json")); !os.IsNotExist(err) {
+			t.Fatalf("file escaped the sessions dir: %v", err)
+		}
+	})
+
+	t.Run("duplicate children are exported once", func(t *testing.T) {
+		runDir := t.TempDir()
+		a := &captureAdapter{exports: map[string][]byte{"ses_child": []byte(fakeChildExportJSON)}}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID, []evaluation.Event{
+			taskEvent("ses_child", primaryID),
+			taskEvent("ses_child", primaryID),
+		})
+
+		if cap.Failures != 0 || len(cap.Children) != 1 {
+			t.Fatalf("capture = %+v, want one child and no failures", cap)
+		}
+		if len(a.calls) != 1 {
+			t.Fatalf("Export calls = %v, want one", a.calls)
+		}
+	})
+
+	t.Run("captures grandchildren recursively", func(t *testing.T) {
+		runDir := t.TempDir()
+		a := &captureAdapter{exports: map[string][]byte{
+			"ses_child": exportWithChild("ses_child", "ses_grand"),
+			"ses_grand": []byte(`{"info":{"id":"ses_grand","agent":"explore"},"messages":[]}`),
+		}}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID,
+			[]evaluation.Event{taskEvent("ses_child", primaryID)})
+
+		if cap.Failures != 0 {
+			t.Fatalf("Failures = %d, want 0", cap.Failures)
+		}
+		var ids []string
+		for _, s := range cap.Children {
+			ids = append(ids, s.ID)
+		}
+		if !reflect.DeepEqual(ids, []string{"ses_child", "ses_grand"}) {
+			t.Fatalf("Children ids = %v, want [ses_child ses_grand]", ids)
+		}
+	})
+
+	t.Run("recursion stops at depth five", func(t *testing.T) {
+		runDir := t.TempDir()
+		exports := map[string][]byte{}
+		const chain = 7
+		for i := 0; i < chain; i++ {
+			id := fmt.Sprintf("ses_c%d", i)
+			next := fmt.Sprintf("ses_c%d", i+1)
+			exports[id] = exportWithChild(id, next)
+		}
+		exports[fmt.Sprintf("ses_c%d", chain)] = []byte(`{"info":{"id":"ses_leaf"},"messages":[]}`)
+		a := &captureAdapter{exports: exports}
+
+		cap := captureSessions(context.Background(), a, runDir, primaryID,
+			[]evaluation.Event{taskEvent("ses_c0", primaryID)})
+
+		if cap.Failures != 0 {
+			t.Fatalf("Failures = %d, want 0", cap.Failures)
+		}
+		if len(cap.Children) != 5 {
+			t.Fatalf("Children = %d, want 5 (depth limit)", len(cap.Children))
+		}
+		if cap.Children[4].ID != "ses_c4" {
+			t.Fatalf("deepest captured = %q, want ses_c4", cap.Children[4].ID)
+		}
+	})
+}
+
+// TestRunCapturesChildSessions proves the capture is wired into Run: a task
+// event yields a sessions/<child>.json artifact, session.json is intact, the
+// run completes and result.json reports the sessions directory.
+func TestRunCapturesChildSessions(t *testing.T) {
+	useMode(t, "task")
+	f := setupRunner(t)
+	a := newScriptedAdapter(t)
+	a.exportFunc = func(id string) ([]byte, error) {
+		if id == "ses_child" {
+			return []byte(fakeChildExportJSON), nil
+		}
+		return []byte(fakeExportJSON), nil
+	}
+
+	res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	artifact(t, res.ArtifactsDir, "result.json")
+	artifact(t, res.ArtifactsDir, "sessions/ses_child.json")
+
+	data, err := os.ReadFile(filepath.Join(res.ArtifactsDir, "session.json"))
+	if err != nil {
+		t.Fatalf("session.json: %v", err)
+	}
+	if string(data) != fakeExportJSON {
+		t.Fatalf("session.json = %q, want the primary export", data)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(res.ArtifactsDir, "result.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rf resultFile
+	if err := json.Unmarshal(raw, &rf); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rf.Artifacts["sessions"]; !ok {
+		t.Fatalf("result.json artifacts missing sessions/: %v", rf.Artifacts)
+	}
+}
+
+// TestRunContinuesOnChildExportFailure proves a child export error does not
+// fail the run: result.json is still written and no child file appears.
+func TestRunContinuesOnChildExportFailure(t *testing.T) {
+	useMode(t, "task")
+	f := setupRunner(t)
+	a := newScriptedAdapter(t)
+	a.exportFunc = func(id string) ([]byte, error) {
+		if id == "ses_child" {
+			return nil, errors.New("child export boom")
+		}
+		return []byte(fakeExportJSON), nil
+	}
+
+	res, err := Run(context.Background(), a, f.st, runnerRequest(f))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	artifact(t, res.ArtifactsDir, "result.json")
+	if _, err := os.Stat(filepath.Join(res.ArtifactsDir, "sessions", "ses_child.json")); !os.IsNotExist(err) {
+		t.Fatalf("child file exists despite export failure: %v", err)
 	}
 }
