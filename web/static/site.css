@@ -388,3 +388,6 @@ details.detail[open] summary { margin-bottom: 10px; }
 .tag.off { color: var(--ink3); border-color: var(--line); }
 .sign { color: var(--ink2); font-weight: 600; }
 .runs td.name { color: var(--ink); }
+
+/* A sample too thin to rank: dimmed so a score is not read as evidence. */
+.runs .thin, table .thin { color: var(--ink3); }

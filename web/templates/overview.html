@@ -29,6 +29,7 @@
     <div>
       <span class="tag {{if .Distinguishable}}good{{else}}warn{{end}}">{{if .Distinguishable}}distinguishable{{else}}not distinguishable{{end}}</span>
       <span class="dim">{{.Note}}</span>
+      <div class="dim">gap {{.GapText}} · smallest resolvable {{.MDEText}} over {{.TasksText}} task(s)</div>
     </div>
     {{end}}
   </div>
@@ -75,6 +76,8 @@
         <th>Pass</th>
         <th>Cost / solved</th>
         <th>Tokens</th>
+        <th>Tasks</th>
+        <th>Resolves</th>
         <th>Runs</th>
       </tr>
     </thead>
@@ -101,6 +104,8 @@
         <td class="metric">{{.PassText}}</td>
         <td class="metric">{{.CostText}}</td>
         <td class="metric">{{.TokensText}}</td>
+        <td class="metric{{if not .EvidenceStrong}} thin{{end}}">{{.TaskCount}}</td>
+        <td class="metric{{if not .EvidenceStrong}} thin{{end}}">{{.MDEText}}</td>
         <td class="metric">{{.Runs}}</td>
       </tr>
       {{end}}

@@ -48,6 +48,12 @@ type leaderRow struct {
 	CostText       string
 	TokensText     string
 	Runs           int
+	// TaskCount is the sample size behind the score; MDEText is the smallest
+	// difference that sample could resolve. Together they say whether the
+	// ranking means anything.
+	TaskCount      int
+	MDEText        string
+	EvidenceStrong bool
 }
 
 // matrixCell is one profile-by-suite score. Tint is a 0..5 band so the cell
@@ -104,7 +110,25 @@ type overviewPage struct {
 type significanceView struct {
 	Distinguishable bool
 	Note            string
+	GapText         string
+	MDEText         string
+	TasksText       string
 }
+
+// mdeText renders a detectable effect, or a dash when the scores did not vary
+// enough for one to be estimated. Printing 0.00 would read as "detects
+// everything", which is the opposite of what an unmeasurable spread means.
+func mdeText(mde float64) string {
+	if mde <= 0 {
+		return "—"
+	}
+	return fmt.Sprintf("%.2f", mde)
+}
+
+// minRankableTasks is the task count below which a profile's score is shown as
+// thin evidence. It matches the variance report's threshold: with fewer than
+// two tasks no difference can be distinguished from noise.
+const minRankableTasks = 2
 
 // heroDiffLimit caps the "what the leader changes" panel.
 const heroDiffLimit = 6
@@ -155,6 +179,9 @@ func (h *handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		page.Significance = &significanceView{
 			Distinguishable: ov.Significance.Distinguishable,
 			Note:            ov.Significance.Note,
+			GapText:         fmt.Sprintf("%.2f", ov.Significance.Gap),
+			MDEText:         mdeText(ov.Significance.MDE),
+			TasksText:       fmt.Sprintf("%d", ov.Significance.TasksMax),
 		}
 	}
 	render(w, overviewTmpl, page)
@@ -201,9 +228,18 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 			HasRuns:      p.HasRuns,
 			Runs:         p.Runs,
 			TokensText:   tokensText(p.MedianTokens),
+			TaskCount:    p.TaskCount,
 		}
 		if p.HasRuns {
 			row.ScoreText = fmt.Sprintf("%.2f", p.Score)
+			if p.ScoreMDE > 0 {
+				row.MDEText = fmt.Sprintf("±%.2f", p.ScoreMDE)
+			} else {
+				row.MDEText = "—"
+			}
+			// Evidence is strong once a profile has been scored on enough
+			// tasks for the interval to mean something.
+			row.EvidenceStrong = p.TaskCount >= minRankableTasks
 			row.ScorePercent = band(p.Score)
 			row.CILowPercent, row.CIDeltaPercent = ciSpan(p.ScoreCI)
 			row.PassText = fmt.Sprintf("%.0f%%", p.PassRate*100)
