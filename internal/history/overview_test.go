@@ -315,3 +315,40 @@ func TestOverviewGatesOnTheDetectableEffectNotJustThePValue(t *testing.T) {
 		t.Errorf("note = %q", ov.Significance.Note)
 	}
 }
+
+// The profile's cache hit rate pools prompt tokens across runs, so a cheap run
+// cannot weigh as much as an expensive one.
+func TestOverviewPoolsTheCacheHitRate(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+	// One run with 900 of 1000 prompt tokens cached, one with none.
+	for i, id := range []string{"c1", "c2"} {
+		r := baseRun(id, "2026-03-01T10:0"+string(rune('0'+i))+":00Z", "p1", "hash-a")
+		r.SuiteName, r.TaskID = suiteName, "task-"+id
+		seedRun(t, st, r)
+	}
+	if err := st.InsertRunMetrics(context.Background(), "c1", map[string]float64{
+		"score": 1, "success": 1, "tokens_cache_read": 900, "tokens_input": 100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertRunMetrics(context.Background(), "c2", map[string]float64{
+		"score": 1, "success": 1, "tokens_cache_read": 0, "tokens_input": 900,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	p := ov.Profiles[0]
+	if !p.CacheHitRateOK {
+		t.Fatal("no cache hit rate reported")
+	}
+	// 900 of 1900 prompt tokens: a mean of the two per-run rates would say 45%.
+	if p.CacheHitRate < 0.47 || p.CacheHitRate > 0.48 {
+		t.Errorf("CacheHitRate = %v, want ~0.474 pooled across prompt tokens", p.CacheHitRate)
+	}
+}

@@ -158,3 +158,24 @@ func TestOverviewSecurityHeaders(t *testing.T) {
 		t.Error("overview must not emit script tags")
 	}
 }
+
+// The leaderboard shows the cache hit rate beside the token figure it explains.
+func TestOverviewShowsCacheHitRate(t *testing.T) {
+	st := testStore(t)
+	seedScoredProfile(t, st, "cache", "core", "task-a", 1, 1, 0.001)
+	// InsertRunMetrics upserts, so the cache counters can be added to the run
+	// the helper already recorded.
+	if err := st.InsertRunMetrics(context.Background(), "run-cache-task-a", map[string]float64{
+		"tokens_cache_read": 800, "tokens_input": 200,
+	}); err != nil {
+		t.Fatalf("metrics: %v", err)
+	}
+
+	body := get(t, web.NewHandler(st), "/").Body.String()
+	if !strings.Contains(body, "<th>Cache hit</th>") {
+		t.Errorf("no cache hit column")
+	}
+	if !strings.Contains(body, "80%") {
+		t.Errorf("cache hit rate not rendered")
+	}
+}

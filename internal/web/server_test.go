@@ -605,3 +605,43 @@ func TestArchitectureIndexListsProfiles(t *testing.T) {
 		t.Errorf("GET /profiles = %d, want 404", rec.Code)
 	}
 }
+
+// The run aside reports the cache hit rate and states plainly that cache writes
+// are not reported, rather than showing a zero the provider never measured.
+func TestRunPageShowsCacheHitRateAndDisclaimsCacheWrites(t *testing.T) {
+	st := testStore(t)
+	seedRun(t, st, "run-cache", "py-bugfix")
+	if err := st.InsertRunMetrics(context.Background(), "run-cache", map[string]float64{
+		"score": 1, "success": 1, "tokens_total": 1000,
+		"tokens_cache_read": 750, "tokens_input": 250,
+	}); err != nil {
+		t.Fatalf("metrics: %v", err)
+	}
+
+	body := get(t, web.NewHandler(st), "/runs/run-cache").Body.String()
+	if !strings.Contains(body, "Cache hit") || !strings.Contains(body, "75%") {
+		t.Errorf("cache hit rate not rendered:\n%s", body)
+	}
+	if !strings.Contains(body, "Cache writes are not reported by OpenCode") {
+		t.Errorf("cache-write disclaimer missing")
+	}
+}
+
+// A run with no prompt tokens has no hit rate; the cell must be a dash rather
+// than a zero that reads as a total miss.
+func TestRunPageCacheHitIsAbsentWithoutPromptTokens(t *testing.T) {
+	st := testStore(t)
+	seedRun(t, st, "run-nocache", "py-bugfix")
+	if err := st.InsertRunMetrics(context.Background(), "run-nocache", map[string]float64{
+		"score": 1, "success": 1, "tokens_output": 100,
+	}); err != nil {
+		t.Fatalf("metrics: %v", err)
+	}
+	body := get(t, web.NewHandler(st), "/runs/run-nocache").Body.String()
+	if !strings.Contains(body, "Cache hit") {
+		t.Fatal("cache hit cell missing")
+	}
+	if strings.Contains(body, "<span class=\"v\">0%</span>") {
+		t.Errorf("a missing hit rate rendered as 0%%")
+	}
+}

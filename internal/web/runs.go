@@ -298,12 +298,18 @@ func (h *handler) newRunAside(detail history.RunDetail) *runAside {
 	if _, ok := detail.Metrics["score"]; !ok {
 		score = detail.Metrics["success"]
 	}
+	cacheHit := "—"
+	if rate, ok := history.CacheHitRate(detail.Metrics); ok {
+		cacheHit = fmt.Sprintf("%.0f%%", rate*100)
+	}
 	aside.Stats = []statCell{
 		{"Score", fmt.Sprintf("%.2f", score)},
 		{"Duration", duration},
 		{"Tokens", tokensText(int64(detail.Metrics["tokens_total"]))},
-		{"Tool calls", fmt.Sprintf("%.0f", detail.Metrics["tool_calls_total"])},
+		{"Cache hit", cacheHit},
+		{"Tools", fmt.Sprintf("%.0f", detail.Metrics["tool_calls_total"])},
 		{"Files", fmt.Sprintf("%.0f", detail.Metrics["files_changed"])},
+		{"Subagents", fmt.Sprintf("%.0f", detail.Metrics["subagent_calls"])},
 		{"Cost", fmt.Sprintf("$%.4f", detail.Metrics["cost"])},
 	}
 

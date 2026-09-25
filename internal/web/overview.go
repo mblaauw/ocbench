@@ -54,6 +54,9 @@ type leaderRow struct {
 	TaskCount      int
 	MDEText        string
 	EvidenceStrong bool
+	// CacheText is the share of prompt tokens served from cache, which is what
+	// explains a token figure as much as the token figure itself.
+	CacheText string
 }
 
 // matrixCell is one profile-by-suite score. Tint is a 0..5 band so the cell
@@ -229,6 +232,7 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 			Runs:         p.Runs,
 			TokensText:   tokensText(p.MedianTokens),
 			TaskCount:    p.TaskCount,
+			CacheText:    "—",
 		}
 		if p.HasRuns {
 			row.ScoreText = fmt.Sprintf("%.2f", p.Score)
@@ -240,6 +244,9 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 			// Evidence is strong once a profile has been scored on enough
 			// tasks for the interval to mean something.
 			row.EvidenceStrong = p.TaskCount >= minRankableTasks
+			if p.CacheHitRateOK {
+				row.CacheText = fmt.Sprintf("%.0f%%", p.CacheHitRate*100)
+			}
 			row.ScorePercent = band(p.Score)
 			row.CILowPercent, row.CIDeltaPercent = ciSpan(p.ScoreCI)
 			row.PassText = fmt.Sprintf("%.0f%%", p.PassRate*100)

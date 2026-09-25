@@ -76,6 +76,7 @@
         <th>Pass</th>
         <th>Cost / solved</th>
         <th>Tokens</th>
+        <th>Cache hit</th>
         <th>Tasks</th>
         <th>Resolves</th>
         <th>Runs</th>
@@ -104,6 +105,7 @@
         <td class="metric">{{.PassText}}</td>
         <td class="metric">{{.CostText}}</td>
         <td class="metric">{{.TokensText}}</td>
+        <td class="metric">{{.CacheText}}</td>
         <td class="metric{{if not .EvidenceStrong}} thin{{end}}">{{.TaskCount}}</td>
         <td class="metric{{if not .EvidenceStrong}} thin{{end}}">{{.MDEText}}</td>
         <td class="metric">{{.Runs}}</td>

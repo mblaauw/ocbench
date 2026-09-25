@@ -57,6 +57,12 @@ type ProfileScore struct {
 	CostPerSolvedOK bool
 	MedianTokens    int64
 
+	// CacheHitRate is the share of this profile's prompt tokens served from
+	// the provider's cache, pooled across its runs. CacheHitRateOK is false
+	// when the runs used no prompt tokens, so there is no rate to report.
+	CacheHitRate   float64
+	CacheHitRateOK bool
+
 	// TaskCount is how many distinct tasks this profile was scored on: the
 	// sample size behind Score.
 	TaskCount int
@@ -258,6 +264,10 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 	ps := ProfileScore{Hash: hash, Runs: len(runs), HasRuns: len(runs) > 0, PerSuite: map[string]float64{}}
 
 	tasks := map[[2]string]*taskAcc{}
+	// Prompt tokens are pooled across runs so the profile's cache hit rate is
+	// a rate over its whole spend rather than a mean of per-run rates, which
+	// would let a cheap run weigh as much as an expensive one.
+	var cacheRead, cacheInput float64
 	for _, r := range runs {
 		metrics, err := st.GetRunMetrics(ctx, r.ID)
 		if err != nil {
@@ -279,6 +289,8 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 		}
 		acc.cost += values["cost"]
 		acc.tokens = append(acc.tokens, int64(values["tokens_total"]))
+		cacheRead += values["tokens_cache_read"]
+		cacheInput += values["tokens_input"]
 
 		if ts, err := time.Parse(time.RFC3339, r.StartedAt); err == nil && ts.After(ps.LastRun) {
 			ps.LastRun = ts
@@ -323,6 +335,11 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 
 	ps.Score = weightedScore(ps.PerSuite, suiteCounts)
 	ps.ScoreCI, ps.ScoreCIOK = ci(allScores)
+	if rate, ok := CacheHitRate(map[string]float64{
+		"tokens_cache_read": cacheRead, "tokens_input": cacheInput,
+	}); ok {
+		ps.CacheHitRate, ps.CacheHitRateOK = rate, true
+	}
 
 	if totalRuns > 0 {
 		ps.PassRate = float64(totalSolved) / float64(totalRuns)
