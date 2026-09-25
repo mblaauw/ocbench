@@ -12,7 +12,7 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | Runner — suite loader, core suite, fixtures, worktrees, sandbox, metrics, validators, sessions, `run` | **done** | `2efb13c`..`48d41b9` |
 | History and comparison — store read model, `history`, `compare` | **done** | `882b7e1`..`806f30b` |
 | Dashboard — embedded web, safe routes, `serve` | **done** | `10b5a9d`..`42a8330` |
-| Dashboard — profile-first Overview and Runs pages | **done** | `d25fc42`..`7d4b4fb` |
+| Dashboard — profile-first Overview, Runs and Architecture pages | **done** | `d25fc42`..`bbc758a` |
 | Experiments — arms, overlays, statistics, regression gate, JSONL export | **done** | `2db8b81`..`a29748a` |
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |
 | Task infrastructure — metadata, hidden tests, references, new validators | **done** | `acf0f83`..`6472c50` |
@@ -92,8 +92,8 @@ with the selected run's validators and per-agent roll-up beside it.
 |---|---|---|
 | Overview | `/` | hero, profile leaderboard, suite matrix, score/cost scatter |
 | Runs | `/runs`, `/runs/{id}` | status and profile filters, runs table, selected-run aside with validators and architecture |
-| Architecture | `/profiles/{hash}` | planned — needs the capture reader for instruction text |
-| Suites and tasks | — | planned — needs task metadata persisted with the run |
+| Architecture | `/arch`, `/arch/{hash}` | agents, prompts, instruction text, skills, MCP, permissions, subagent tree, profile comparison |
+| Suites and tasks | `/suites`, `/suites/{name}` | planned — needs task metadata persisted with the run |
 
 Scoring rules, all derived at read time: a task's score is the mean of its runs'
 `score` metric (falling back to `success` for runs recorded before that metric
@@ -103,8 +103,16 @@ overall figure is weighted by task count (core 5 · standard 3 · hard 2 · agen
 suite is scored only from runs carrying its most recent recorded `suite_hash`,
 with the older runs counted and disclosed as excluded.
 
+The Architecture page reads the capture files beside a profile
+(`profiles/<hash>/agents.json`, `skills.json`, `instructions.json`) for the text
+the fingerprint keeps only as a hash. Those files use a different shape from the
+component JSON — the model is an object, not a string — so they are parsed
+separately. Its comparison view renders component diffs as meaning
+(`tools +lsp -remote_exec`) rather than as hashes.
+
 Verification, including the defects the browser exposed:
-[evidence/2026-09-24-dashboard-phases-1-2.md](evidence/2026-09-24-dashboard-phases-1-2.md).
+[phases 1-2](evidence/2026-09-24-dashboard-phases-1-2.md),
+[phase 3](evidence/2026-09-25-dashboard-phase-3.md).
 
 ## Unscheduled review items
 
@@ -116,7 +124,9 @@ deterministic score, and tasks that exercise a specific skill or MCP server so
 adding one shows up as a measurable difference. Hidden tests, reference
 solutions, task metadata and the `diff`/`grep`/`process` validators are done.
 
-**Capture depth** — split the catch-all `config` profile component into
+**Capture depth** — the Architecture page consumes `agents.json`,
+`instructions.json` and `skills.json`; the remaining item is to split the
+catch-all `config` profile component into
 `command/<name>`, `lsp/<lang>`, `formatter/<name>`, `provider/<id>`,
 `mode/<name>`, `compaction`, `share`, `autoupdate`, `instructions` globs and
 `tools` toggles (#16); capture the full agent definition including prompt text
@@ -125,9 +135,10 @@ MCP server's tool list and schema hash (#19); estimate the context budget a
 profile spends before any work starts (#20); add `profile lint` for dangling
 skill paths, unreachable subagents and conflicting permissions (#21).
 
-**Architecture graph** — a static graph of primary agents, the subagents they
-may call, and the skills and MCP servers attached to each (#22), plus a graph
-diff between two profiles (#23), served at `/profiles/{hash}/graph` and as
+**Architecture graph** — the Architecture page now lists the primary-agent to
+subagent edges and renders a profile-against-profile diff. Still open from #22
+and #23: an actual graph (rather than a list) with skills and MCP servers
+attached to each node, a visual graph diff, a `/arch/{hash}/graph` route, and
 `ocbench graph --format mermaid|dot`.
 
 **Observed behaviour across runs** — an observed call graph ("`explore` called

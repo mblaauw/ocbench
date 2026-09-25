@@ -242,6 +242,24 @@ reasoning and what it costs if the call was wrong. The design itself is
   test and belong on screen. Events, sessions, worktrees and untracked files are
   large, noisy and can contain the user's own content. *Cost if wrong:* the
   architecture page cannot show a raw event excerpt.
+- **The Architecture page reads the capture files, not just the database.** The
+  fingerprint is deliberately lossy — a prompt is a hash, a model is a string —
+  so the page that explains a profile has to read `profiles/<hash>/*.json`
+  beside it. The reader tolerates a missing directory and fails on a malformed
+  file, because an absent capture is a profile the database alone can still
+  describe, while a corrupt one must not silently render as an empty prompt.
+  *Cost if wrong:* a profile recorded on another machine has no text to show.
+- **Skill bodies are not rendered; their names, descriptions, locations and
+  content hashes are.** 39 skills carry about 326 KB of library text that barely
+  differs between profiles, so rendering it would triple the page size to show
+  content that does not explain a score difference. design.md §15.3 asks for
+  "skills" while asking explicitly for agents' instruction text, which are
+  rendered in full. *Cost if wrong:* a reader must open the capture file to see a
+  skill's body.
+- **The page is served at `/arch`, not `/profiles`.** design.md §15.1 names the
+  page Architecture at `/arch` and `/arch/{hash}`, so the inherited route was
+  corrected rather than kept as an alias. *Cost if wrong:* a bookmark to the
+  earlier route 404s, which is acceptable because it was never published.
 - **The sidebar states stored facts only.** Run and profile counts come from the
   store, so opening a page cannot touch the machine being benchmarked and cannot
   disagree with the tables below it. *Cost if wrong:* a stale OpenCode version in
