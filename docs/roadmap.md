@@ -12,6 +12,7 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | Runner — suite loader, core suite, fixtures, worktrees, sandbox, metrics, validators, sessions, `run` | **done** | `2efb13c`..`48d41b9` |
 | History and comparison — store read model, `history`, `compare` | **done** | `882b7e1`..`806f30b` |
 | Dashboard — embedded web, safe routes, `serve` | **done** | `10b5a9d`..`42a8330` |
+| Dashboard — profile-first Overview and Runs pages | **done** | `d25fc42`..`7d4b4fb` |
 | Experiments — arms, overlays, statistics, regression gate, JSONL export | **done** | `2db8b81`..`a29748a` |
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |
 | Task infrastructure — metadata, hidden tests, references, new validators | **done** | `acf0f83`..`6472c50` |
@@ -77,6 +78,34 @@ usually fails". Making the tiers real is task authoring — the machinery
 (hidden tests, reference proofs, `diff`/`grep`/`process` validators, partial
 credit) is in place, but the fixtures are still small and mostly single-file.
 
+## Landed: the profile-first dashboard
+
+The dashboard answers one question — *did this configuration change help?* — from
+the stored runs, without a live probe of the machine it renders on. Direction C
+of the prototype: JetBrains Mono throughout, zero corner radius, dark only.
+
+Two of the four planned pages are done, and they are a vertical slice rather than
+a scaffold: Overview scores every profile that has runs, and Runs lists every run
+with the selected run's validators and per-agent roll-up beside it.
+
+| Page | Route | State |
+|---|---|---|
+| Overview | `/` | hero, profile leaderboard, suite matrix, score/cost scatter |
+| Runs | `/runs`, `/runs/{id}` | status and profile filters, runs table, selected-run aside with validators and architecture |
+| Architecture | `/profiles/{hash}` | planned — needs the capture reader for instruction text |
+| Suites and tasks | — | planned — needs task metadata persisted with the run |
+
+Scoring rules, all derived at read time: a task's score is the mean of its runs'
+`score` metric (falling back to `success` for runs recorded before that metric
+existed); a suite's score is the mean over its tasks *that have runs*; the
+overall figure is weighted by task count (core 5 · standard 3 · hard 2 · agentic
+4); cost per solved task divides total cost by runs with `success = 1`; and a
+suite is scored only from runs carrying its most recent recorded `suite_hash`,
+with the older runs counted and disclosed as excluded.
+
+Verification, including the defects the browser exposed:
+[evidence/2026-09-24-dashboard-phases-1-2.md](evidence/2026-09-24-dashboard-phases-1-2.md).
+
 ## Unscheduled review items
 
 Numbering is from the original external review, kept so nothing is lost.
@@ -105,10 +134,12 @@ diff between two profiles (#23), served at `/profiles/{hash}/graph` and as
 3.2×/run, 41% of tokens") (#26) and a skill/MCP usage heatmap (#27), both built
 on the per-agent metrics that now exist.
 
-**Dashboard and reporting** — inline SVG charts (pass rate over time, cost
-against success, task × profile heatmap) (#28), a task × profile matrix (#29), a
-richer run detail page with an opt-in `--show-artifacts` view (#30), and
-shareable `ocbench report <experiment> --format md|html` (#31).
+**Dashboard and reporting** — the Overview now carries a score/cost scatter and
+a profile × suite matrix, and Runs carries the selected run's validators and
+per-agent roll-up, which covers most of #28, #29 and #30. Still open: pass rate
+over time, a skill/MCP usage heatmap, a task × profile (rather than suite)
+matrix, an opt-in `--show-artifacts` view for raw material, and shareable
+`ocbench report <experiment> --format md|html` (#31).
 
 **Operations** — `ocbench suite list|export|add` and task scaffolding (#33);
 parallel task execution with cost and token ceilings (#34); enforced network
@@ -132,14 +163,19 @@ Deferred during implementation, grouped by area. None blocks current use.
 - **OpenCode adapter** — `Session.Wait` can pick the cancellation branch when a process exits cleanly in the same tick; `Kill` has a small PID-reuse window; the non-unix build-tag split is incomplete; temp-file removal on every path is unasserted; a directly constructed `Real` with a zero timeout gets a zero-deadline context.
 - **Runner (further)** — an external signal that kills a validator is classified `error` rather than `failed`; the group-kill test is timing-sensitive; `BuildEnv` sorts full `KEY=VALUE` strings rather than keys; the allowlist test asserts membership rather than the exact set; ignored files are invisible to `ChangedFiles`; `git diff` is captured without `--binary`; fixture lock recovery and remote-clone locking are absent.
 - **CLI** — an unknown suite exits `1` while an unknown task exits `2`; a cancelled run suppresses the partial report even though the rows were persisted; `experiment run --json` uses Go field names rather than snake_case.
-- **Web** — no charts or trace page yet; `experiment list` issues one arm query per experiment.
+- **Web** — no trace page yet, and the runs table renders every persisted run
+  rather than paging; the dashboard has not been checked below ~1100px wide;
+  `experiment list` issues one arm query per experiment.
 - **Statistics** — the median-difference permutation is degenerate for a constant cost shift; "worst arm" ordering across incomparable pass-rate and cost p-values is untested.
 
 ## Known limitations
 
-- **The tasks are too easy to separate profiles.** Until the standard and hard tiers exist, a config change can only show up as cost or time, never as quality.
+- **The tasks separate profiles only weakly.** The `standard` and `hard` tiers
+  exist now, but 14 tasks is still few enough that a config change usually shows
+  up as cost or time rather than as a quality difference.
 - **`compare` is n=1.** One run against one run is mostly noise; use `experiment` with repeats for anything you intend to act on.
 - **Network access is not enforced.** Tasks are trusted to be offline; the sandbox restricts the environment, not the network.
 - **Subagent capture is proven for one level.** Grandchild sessions are unit-tested, not live-tested, and a `task` inside a child renders as a tool call rather than a nested span.
 - **The OpenCode event format is not a stable API.** The parser and its golden fixture are pinned to OpenCode 1.18.32; a version change needs a re-probe.
 - **`serve` is loopback-only and read-only by design.** There is no authentication, so it refuses to bind anywhere else.
+- **The dashboard renders configuration, never run raw material.** Events, sessions, worktrees and untracked files stay on disk; the profile is shown in full, including instruction text and permission rules.

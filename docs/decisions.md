@@ -204,3 +204,45 @@ reasoning and what it costs if the call was wrong. The design itself is
 - **Evidence records are kept verbatim**, with a footer noting that process
   names and scratch paths reflect the workflow in use at the time. *Cost if
   wrong:* a reader may look for a scratch directory that no longer exists.
+
+## Dashboard
+
+- **Profile-first, not run-first.** The landing page ranks profiles rather than
+  listing runs, because the question is "which configuration is better", and a
+  run list answers it only by proxy. *Cost if wrong:* the newest run takes one
+  more click.
+- **Two pages, rendered from one vertical slice.** Overview and Runs were built
+  end to end before Architecture and Suites and tasks, so the scoring rules and
+  the layout are exercised against real data early. *Cost if wrong:* two pages
+  are missing while the implemented two are useful.
+- **A suite is scored only from its most recent `suite_hash`.** Runs from an
+  older suite revision measure a different thing, so mixing them would silently
+  average two benchmarks. They are counted and disclosed as `ExcludedRuns`
+  instead. *Cost if wrong:* after editing a suite, its older runs stop counting
+  until it is re-run.
+- **A task's score is the mean of its runs' `score`, falling back to `success`.**
+  Partial credit is what separates configurations that both eventually pass.
+  The fallback keeps runs recorded before the metric existed from reading as
+  zero. *Cost if wrong:* a run whose metrics were never written scores 0.
+- **Intervals come from a seeded bootstrap**, not a normal approximation, so the
+  same store renders the same interval on every page load and in every test.
+  *Cost if wrong:* the interval is not what a textbook formula would give.
+- **Nothing is computed at write time.** Scores, weights, intervals and
+  exclusions are derived when a page is rendered, so a new statistic applies to
+  runs recorded last month. *Cost if wrong:* a page render does more work than a
+  stored figure would.
+- **The dashboard is inert: no JavaScript, no CDN, no inline style.** The
+  content security policy is `default-src 'none'` with only `style-src`,
+  `font-src` and `img-src` limited to self, and it is enforced by the browser
+  rather than by convention — which is why dynamic geometry is SVG attributes and
+  the fonts are vendored. *Cost if wrong:* no interactive filtering, and a chart
+  that needs a computed pixel must use an attribute or a discrete class.
+- **The profile is rendered in full; run raw material never is.** Instruction
+  text, permission rules, skills and MCP servers are the configuration under
+  test and belong on screen. Events, sessions, worktrees and untracked files are
+  large, noisy and can contain the user's own content. *Cost if wrong:* the
+  architecture page cannot show a raw event excerpt.
+- **The sidebar states stored facts only.** Run and profile counts come from the
+  store, so opening a page cannot touch the machine being benchmarked and cannot
+  disagree with the tables below it. *Cost if wrong:* a stale OpenCode version in
+  the sidebar is not noticed until a run is started.
