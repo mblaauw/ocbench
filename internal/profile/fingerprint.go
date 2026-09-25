@@ -24,6 +24,27 @@ var consumedKeys = []string{
 	"plugin", "plugin_origins", "skills", "small_model", "username",
 }
 
+// splitMapConfigKeys are promoted out of the catch-all and split per entry when
+// their value is a map, so adding a command or retuning one provider names that
+// entry instead of reporting the whole configuration as changed.
+var splitMapConfigKeys = []string{"command", "formatter", "lsp", "mode", "provider"}
+
+// singletonConfigKeys are promoted whole: each describes one setting, so a
+// change to it is a change to that setting and nothing finer.
+var singletonConfigKeys = []string{"autoupdate", "compaction", "share", "tools"}
+
+// Promoting a config key is the difference between knowing a configuration
+// changed and knowing which knob to turn. It re-hashes every profile, so it
+// landed as one deliberate re-baseline rather than an incremental change.
+func containsKey(keys []string, key string) bool {
+	for _, k := range keys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
 // Fingerprint turns a Sources plus Options into an immutable, content-addressed
 // Profile. It reads skill and local-plugin files from disk to compute their
 // files/local hashes; everything else is a deterministic function of Sources
@@ -111,7 +132,7 @@ func Fingerprint(s *Sources, opts Options) (*Profile, error) {
 		}
 	}
 
-	components["config"] = configCatchAll(cfg)
+	configComponents(components, cfg)
 
 	snapshot := map[string]any{
 		"schema":           schemaVersion,
@@ -441,15 +462,35 @@ func buildPlugin(spec string, origin any, home string) (map[string]any, error) {
 }
 
 // configCatchAll removes the componentised keys from the resolved config.
-func configCatchAll(cfg map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range cfg {
-		if isConsumed(k) {
+// configComponents projects the resolved config into components. Promoted keys
+// become a component of their own — split per entry for the ones that name a
+// collection — and whatever is left stays in the catch-all `config` component,
+// which is omitted entirely when nothing is left.
+func configComponents(components map[string]any, cfg map[string]any) {
+	rest := map[string]any{}
+	for key, value := range cfg {
+		if isConsumed(key) {
 			continue
 		}
-		out[k] = v
+		entries, isMap := value.(map[string]any)
+		switch {
+		case containsKey(splitMapConfigKeys, key) && isMap && len(entries) > 0:
+			for name, entry := range entries {
+				components[key+"/"+name] = entry
+			}
+		case containsKey(splitMapConfigKeys, key) && isMap:
+			// An empty collection carries no information, so it produces no
+			// component rather than one that says nothing.
+		case containsKey(splitMapConfigKeys, key) || containsKey(singletonConfigKeys, key):
+			// A scalar (or an empty collection) is one setting with one value.
+			components[key] = value
+		default:
+			rest[key] = value
+		}
 	}
-	return out
+	if len(rest) > 0 {
+		components["config"] = rest
+	}
 }
 
 func isConsumed(key string) bool {

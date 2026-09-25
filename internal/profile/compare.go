@@ -1,7 +1,10 @@
 package profile
 
 import (
+	"encoding/json"
+	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -79,6 +82,9 @@ func describeComponent(v View, kind, name string) string {
 		return "permission rules"
 	case "config":
 		return "configuration"
+	case "compaction", "share", "autoupdate", "formatter", "lsp", "tools":
+		// The component name is the setting, so the note carries its value.
+		return scalarText(v.Settings[kind])
 	}
 	return ""
 }
@@ -116,8 +122,89 @@ func describeChange(refView, subView View, kind, name string) string {
 		return "plugin"
 	case "config":
 		return "configuration"
+	case "compaction", "share", "autoupdate", "formatter", "lsp", "tools":
+		return describeSetting(kind, refView.Settings[kind], subView.Settings[kind])
+	case "command":
+		return "command definition"
+	case "provider":
+		return "provider options"
+	case "mode":
+		return "mode definition"
 	}
 	return ""
+}
+
+// describeSetting explains what changed about one promoted config setting. A
+// scalar shows its two values; a map names the keys that differ, which is the
+// attribution the split exists to provide — reporting the whole object as
+// "changed" would be barely better than the catch-all it replaced.
+func describeSetting(name string, ref, sub any) string {
+	refMap, refIsMap := ref.(map[string]any)
+	subMap, subIsMap := sub.(map[string]any)
+	if refIsMap || subIsMap {
+		changed := changedSettingKeys(refMap, subMap)
+		if len(changed) == 0 {
+			return name + " changed"
+		}
+		return name + ": " + strings.Join(changed, ", ")
+	}
+	return name + ": " + scalarText(ref) + "→" + scalarText(sub)
+}
+
+// changedSettingKeys lists, in sorted order, the keys whose value differs
+// between two settings objects. Values are compared by their JSON encoding,
+// which sorts map keys, so iteration order cannot make the result flaky.
+func changedSettingKeys(ref, sub map[string]any) []string {
+	seen := map[string]bool{}
+	var keys []string
+	for k := range ref {
+		if !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
+		}
+	}
+	for k := range sub {
+		if !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	var out []string
+	for _, k := range keys {
+		if jsonText(ref[k]) != jsonText(sub[k]) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// jsonText renders a setting value for comparison.
+func jsonText(v any) string {
+	if v == nil {
+		return ""
+	}
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(encoded)
+}
+
+// scalarText renders a setting value for display, keeping it short.
+func scalarText(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "unset"
+	case string:
+		return t
+	case bool:
+		return strconv.FormatBool(t)
+	case float64:
+		return strconv.FormatFloat(t, 'g', -1, 64)
+	default:
+		return jsonText(v)
+	}
 }
 
 // toolsChange lists tool toggles that differ, e.g. "+bash −webfetch".

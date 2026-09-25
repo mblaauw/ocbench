@@ -22,6 +22,17 @@ type View struct {
 	Plugins       []Plugin
 	Config        map[string]any
 	SubagentDepth int
+
+	// Settings holds the singleton config components — the residual `config`
+	// catch-all plus the promoted settings (compaction, share, autoupdate,
+	// formatter, lsp, tools) — so a diff can show the value that changed
+	// rather than naming the component twice.
+	Settings map[string]any
+	// Commands, Providers and Modes name the entries of the config maps that
+	// are split per entry.
+	Commands  []string
+	Providers []string
+	Modes     []string
 }
 
 // Primary is the profile's default model selection.
@@ -81,6 +92,20 @@ type Plugin struct {
 	Spec string
 }
 
+// setSetting records one singleton config component's decoded value. A promoted
+// setting may be a scalar (share: "disabled") or an object (compaction: {...}),
+// so the value is kept as-is rather than forced into a shape.
+func (v *View) setSetting(kind string, data []byte) {
+	var raw any
+	if json.Unmarshal(data, &raw) != nil {
+		return
+	}
+	if v.Settings == nil {
+		v.Settings = map[string]any{}
+	}
+	v.Settings[kind] = raw
+}
+
 // NewView decodes a profile's components into a View. Undecodable components are
 // skipped rather than failing: a profile written by an older version must still
 // render what it has.
@@ -123,6 +148,15 @@ func NewView(p *Profile) View {
 			if json.Unmarshal(c.CanonicalJSON, &raw) == nil {
 				v.Config = raw
 			}
+			v.setSetting(c.Kind, c.CanonicalJSON)
+		case "compaction", "share", "autoupdate", "formatter", "lsp", "tools":
+			v.setSetting(c.Kind, c.CanonicalJSON)
+		case "command":
+			v.Commands = append(v.Commands, c.Name)
+		case "provider":
+			v.Providers = append(v.Providers, c.Name)
+		case "mode":
+			v.Modes = append(v.Modes, c.Name)
 		}
 	}
 

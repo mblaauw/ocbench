@@ -480,13 +480,15 @@ func TestFingerprintComponentKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// `command` and `provider` are promoted out of the catch-all, and this
+	// fixture has nothing left over, so there is no `config` component at all.
 	want := []string{
-		"agent/build", "agent/plan", "config", "environment",
+		"agent/build", "agent/plan", "command/review", "environment",
 		"instructions/global:AGENTS.md", "instructions/project:AGENTS.md",
 		"mcp/gitlab", "mcp/local-tool", "permissions",
 		"plugin/file://~/.config/opencode/plugins/hello.js",
 		"plugin/superpowers@git+https://github.com/obra/superpowers.git",
-		"primary", "skill/docs", "skill/ruff",
+		"primary", "provider/anthropic", "skill/docs", "skill/ruff",
 	}
 	got := componentKeys(p)
 	sort.Strings(got)
@@ -503,18 +505,23 @@ func TestFingerprintComponentKeys(t *testing.T) {
 	}) {
 		t.Fatalf("components not sorted: %v", componentKeys(p))
 	}
-	// The config catch-all must not repeat componentised keys.
-	var cfg map[string]any
-	if err := json.Unmarshal(componentByKey(t, p, "config").CanonicalJSON, &cfg); err != nil {
-		t.Fatal(err)
-	}
-	for _, consumed := range []string{"model", "small_model", "default_agent", "agent", "mcp", "plugin", "plugin_origins", "skills", "permission", "username", "$schema"} {
-		if _, ok := cfg[consumed]; ok {
-			t.Fatalf("config component still contains consumed key %q", consumed)
+	// No component may repeat a key owned by another, whether the owner is a
+	// dedicated component or a promoted config setting.
+	if c, ok := findComponent(p, "config"); ok {
+		var cfg map[string]any
+		if err := json.Unmarshal(c.CanonicalJSON, &cfg); err != nil {
+			t.Fatal(err)
 		}
-	}
-	if _, ok := cfg["provider"]; !ok {
-		t.Fatalf("config component dropped unknown key provider: %v", cfg)
+		for _, owned := range []string{
+			"model", "small_model", "default_agent", "agent", "mcp", "plugin",
+			"plugin_origins", "skills", "permission", "username", "$schema",
+			"command", "provider", "compaction", "share", "autoupdate",
+			"formatter", "lsp", "mode", "tools",
+		} {
+			if _, ok := cfg[owned]; ok {
+				t.Fatalf("config component still contains key %q owned by another component", owned)
+			}
+		}
 	}
 }
 
@@ -571,4 +578,145 @@ func copyDir(src, dst string) error {
 		}
 		return os.WriteFile(target, b, 0o644)
 	})
+}
+
+// findComponent returns a component by kind, reporting whether it exists.
+func findComponent(p *Profile, kind string) (Component, bool) {
+	for _, c := range p.Components {
+		if c.Kind == kind {
+			return c, true
+		}
+	}
+	return Component{}, false
+}
+
+// sourcesWithConfig builds test sources whose resolved config is the fixture
+// with mutate applied, so a test can add or change a config key without editing
+// the shared fixture.
+func sourcesWithConfig(t *testing.T, mutate func(cfg map[string]any)) *Sources {
+	t.Helper()
+	s := loadTestSources(t)
+	var cfg map[string]any
+	if err := json.Unmarshal(s.ResolvedConfig, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	mutate(cfg)
+	encoded, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ResolvedConfig = encoded
+	return s
+}
+
+// A change to one tunable setting must be attributable to that setting rather
+// than reported as a change to "configuration". This is the whole point of
+// promoting config keys out of the catch-all.
+func TestFingerprintConfigSettingsAreAttributable(t *testing.T) {
+	before, err := Fingerprint(sourcesWithConfig(t, func(cfg map[string]any) {
+		cfg["share"] = "disabled"
+		cfg["compaction"] = map[string]any{"auto": true, "prune": false}
+	}), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := Fingerprint(sourcesWithConfig(t, func(cfg map[string]any) {
+		cfg["share"] = "enabled"
+		cfg["compaction"] = map[string]any{"auto": true, "prune": true}
+	}), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if before.Hash == after.Hash {
+		t.Fatal("changing share and compaction did not change the fingerprint")
+	}
+
+	notes := DiffNotes(before, after)
+	var kinds []string
+	for _, n := range notes {
+		kinds = append(kinds, n.Kind)
+	}
+	if len(notes) == 0 {
+		t.Fatal("no diff notes for a config change")
+	}
+	for _, n := range notes {
+		if n.Kind == "config" {
+			t.Errorf("config change was attributed to the catch-all: %+v", n)
+		}
+	}
+	// Both settings are named, and the note says what changed about them.
+	byKind := map[string]ChangeNote{}
+	for _, n := range notes {
+		byKind[n.Kind] = n
+	}
+	share, ok := byKind["share"]
+	if !ok {
+		t.Fatalf("share not named in the diff: %v", kinds)
+	}
+	if !strings.Contains(share.Note, "disabled") || !strings.Contains(share.Note, "enabled") {
+		t.Errorf("share note = %q, want the two values", share.Note)
+	}
+	comp, ok := byKind["compaction"]
+	if !ok {
+		t.Fatalf("compaction not named in the diff: %v", kinds)
+	}
+	if !strings.Contains(comp.Note, "prune") {
+		t.Errorf("compaction note = %q, want the changed key", comp.Note)
+	}
+	if strings.Contains(comp.Note, "auto") {
+		t.Errorf("compaction note names an unchanged key: %q", comp.Note)
+	}
+}
+
+// Adding a command must name that command, not report the whole configuration.
+func TestFingerprintAddedCommandIsNamed(t *testing.T) {
+	before, err := Fingerprint(sourcesWithConfig(t, func(cfg map[string]any) {
+		cfg["command"] = map[string]any{"review": map[string]any{"template": "one"}}
+	}), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := Fingerprint(sourcesWithConfig(t, func(cfg map[string]any) {
+		cfg["command"] = map[string]any{
+			"review": map[string]any{"template": "one"},
+			"deploy": map[string]any{"template": "two"},
+		}
+	}), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findComponent(after, "command"); !ok {
+		t.Fatal("no command component after adding one")
+	}
+	var added []string
+	for _, n := range DiffNotes(before, after) {
+		if n.Kind == "command" {
+			added = append(added, n.Name+" "+n.Change)
+		}
+	}
+	if len(added) != 1 || added[0] != "deploy added" {
+		t.Errorf("command diff = %v, want exactly \"deploy added\"", added)
+	}
+}
+
+// A key nobody has promoted still lands in the catch-all, which is what keeps
+// the split honest about what it does not yet understand.
+func TestFingerprintUnsplitKeyStaysInTheCatchAll(t *testing.T) {
+	before, err := Fingerprint(sourcesWithConfig(t, func(cfg map[string]any) {
+		cfg["watcher"] = map[string]any{"ignore": []any{"**/.git/**"}}
+	}), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := Fingerprint(sourcesWithConfig(t, func(cfg map[string]any) {
+		cfg["watcher"] = map[string]any{"ignore": []any{"**/.git/**", "**/dist/**"}}
+	}), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := DiffNotes(before, after)
+	if len(notes) != 1 || notes[0].Kind != "config" {
+		t.Fatalf("unsplit key diff = %+v, want one config note", notes)
+	}
 }
