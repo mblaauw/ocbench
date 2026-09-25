@@ -49,7 +49,7 @@ func navItems(current string, hints map[string]string) []navItem {
 	order := []struct{ key, label, href string }{
 		{"overview", "Overview", "/"},
 		{"runs", "Runs", "/runs"},
-		{"profiles", "Profiles", "/profiles"},
+		{"profiles", "Architecture", "/arch"},
 	}
 	out := make([]navItem, 0, len(order))
 	for _, o := range order {

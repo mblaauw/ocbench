@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"mbl/ocbench/internal/config"
 	"mbl/ocbench/internal/history"
 	"mbl/ocbench/internal/profile"
 	"mbl/ocbench/internal/store"
@@ -30,22 +31,38 @@ const contentSecurityPolicy = "default-src 'none'; style-src 'self'; font-src 's
 // handler serves the dashboard from an immutable store handle.
 type handler struct {
 	store *store.Store
+	// paths locates the per-profile capture files. It is optional: without it
+	// the dashboard renders everything except the captured text.
+	paths config.Paths
+}
+
+// Option adjusts the handler the dashboard is served with.
+type Option func(*handler)
+
+// WithPaths tells the handler where the profile capture files live, which is
+// what lets the architecture page show prompt and instruction text.
+func WithPaths(paths config.Paths) Option {
+	return func(h *handler) { h.paths = paths }
 }
 
 // NewHandler returns the read-only dashboard handler backed by st. It exposes
 // `GET /` (the profile leaderboard), `GET /runs`, `GET /runs/{id}`,
-// `GET /compare`, `GET /profiles/{hash}`, the embedded `/static/` assets and a
-// 404 for everything else. It never serves raw artifacts or arbitrary
-// filesystem paths.
-func NewHandler(st *store.Store) http.Handler {
+// `GET /compare`, `GET /arch`, `GET /arch/{hash}`, the embedded `/static/`
+// assets and a 404 for everything else. It never serves raw artifacts or
+// arbitrary filesystem paths.
+func NewHandler(st *store.Store, opts ...Option) http.Handler {
 	h := &handler{store: st}
+	for _, opt := range opts {
+		opt(h)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", h.handleOverview)
 	mux.HandleFunc("GET /runs", h.handleList)
 	mux.HandleFunc("GET /runs/{id}", h.handleRun)
 	mux.HandleFunc("GET /compare", h.handleCompare)
-	mux.HandleFunc("GET /profiles/{hash}", h.handleProfile)
+	mux.HandleFunc("GET /arch", h.handleProfiles)
+	mux.HandleFunc("GET /arch/{hash}", h.handleProfile)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
 	mux.HandleFunc("/", http.NotFound)
 
@@ -146,27 +163,6 @@ func (h *handler) handleCompare(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleProfile renders a redacted profile view: hash, version and the kind,
-// name and hash of each component, never the canonical JSON.
-func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
-	if h.store == nil {
-		http.Error(w, "store unavailable", http.StatusInternalServerError)
-		return
-	}
-	row, comps, err := h.store.GetProfileByHash(r.Context(), r.PathValue("hash"))
-	if err != nil {
-		writeStoreError(w, err)
-		return
-	}
-
-	render(w, profileTmpl, profilePage{
-		layout:          h.page(r, "profiles", "Profiles", "Profile "+shortHash(row.ProfileHash), row.OpenCodeVersion),
-		ProfileHash:     row.ProfileHash,
-		OpenCodeVersion: row.OpenCodeVersion,
-		Components:      componentRowViews(comps),
-	})
-}
-
 // render executes a page template into a buffer first, so a template error
 // yields a clean 500 instead of a partially written body.
 func render(w http.ResponseWriter, tmpl *template.Template, data any) {
@@ -190,15 +186,6 @@ type comparePage struct {
 	Validations    []validationDeltaView
 	ProfileChanges []changeView
 	Warning        string
-}
-
-// profilePage backs a redacted profile view.
-type profilePage struct {
-	layout
-	ProfileHash     string
-	OpenCodeVersion string
-	Components      []componentView
-	Changes         []changeView
 }
 
 // runSummary is the explicit, safe projection of a run for every view. It
@@ -335,18 +322,6 @@ func validationViews(vals []store.ValidationRow) []validationView {
 			DurationMS:    v.DurationMS,
 			OutputExcerpt: v.OutputExcerpt,
 		})
-	}
-	return out
-}
-
-// componentViews projects a profile's components onto their redacted summary.
-func componentViews(p *profile.Profile) []componentView {
-	if p == nil {
-		return nil
-	}
-	out := make([]componentView, 0, len(p.Components))
-	for _, c := range p.Components {
-		out = append(out, componentView{Kind: c.Kind, Name: c.Name, Hash: c.Hash})
 	}
 	return out
 }

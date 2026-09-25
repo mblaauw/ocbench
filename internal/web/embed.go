@@ -22,8 +22,9 @@ var listTmpl = mustParsePage("templates/runs.html")
 // dashboard routes task wires up. Parsing them here means a malformed template
 // fails at startup rather than per request.
 var (
-	compareTmpl = mustParsePage("templates/compare.html")
-	profileTmpl = mustParsePage("templates/profile.html")
+	compareTmpl  = mustParsePage("templates/compare.html")
+	profileTmpl  = mustParsePage("templates/profile.html")
+	profilesTmpl = mustParsePage("templates/profiles.html")
 )
 
 // staticFS is the embedded static/ subtree.

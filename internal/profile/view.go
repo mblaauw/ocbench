@@ -39,6 +39,8 @@ type Agent struct {
 	Model       string
 	Variant     string
 	TopP        float64
+	Temperature *float64
+	Options     map[string]any
 	Steps       int
 	Native      bool
 	Tools       map[string]bool
@@ -297,22 +299,25 @@ func decodePrimary(data []byte) Primary {
 
 func decodeAgent(name string, data []byte) (Agent, bool) {
 	var raw struct {
-		Mode       string          `json:"mode"`
-		Model      string          `json:"model"`
-		Variant    string          `json:"variant"`
-		TopP       float64         `json:"top_p"`
-		Steps      int             `json:"steps"`
-		Native     bool            `json:"native"`
-		PromptSHA  string          `json:"prompt_sha256"`
-		Tools      map[string]bool `json:"tools"`
-		Descripion string          `json:"description"`
+		Mode        string          `json:"mode"`
+		Model       string          `json:"model"`
+		Variant     string          `json:"variant"`
+		TopP        float64         `json:"top_p"`
+		Temperature *float64        `json:"temperature"`
+		Options     map[string]any  `json:"options"`
+		Steps       int             `json:"steps"`
+		Native      bool            `json:"native"`
+		PromptSHA   string          `json:"prompt_sha256"`
+		Tools       map[string]bool `json:"tools"`
+		Descripion  string          `json:"description"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return Agent{}, false
 	}
 	return Agent{
 		Name: name, Mode: raw.Mode, Model: raw.Model, Variant: raw.Variant,
-		TopP: raw.TopP, Steps: raw.Steps, Native: raw.Native, PromptSHA: raw.PromptSHA,
+		TopP: raw.TopP, Temperature: raw.Temperature, Options: raw.Options,
+		Steps: raw.Steps, Native: raw.Native, PromptSHA: raw.PromptSHA,
 		Tools: raw.Tools, Description: raw.Descripion,
 	}, true
 }

@@ -357,3 +357,34 @@ pre.excerpt {
 .fingerprint .row { display: flex; justify-content: space-between; gap: 8px; }
 .fingerprint b { font-weight: 400; color: var(--ink); }
 .empty.small { padding: 10px; font-size: 12px; }
+
+/* ----------------------------------------------------------- architecture */
+
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 12px; }
+.card-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.card-head .muted { font-size: 11px; }
+
+.notice {
+  padding: 10px 14px; border: 1px solid var(--warn); color: var(--ink2);
+  font-size: 12px; background: var(--panel);
+}
+
+.tree { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tree li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.tree .node { padding: 3px 8px; border: 1px solid var(--accent); color: var(--ink); }
+.tree .node.sub { border-color: var(--line); color: var(--ink2); }
+.tree .arrow { color: var(--ink3); }
+
+details.detail { border-top: 1px solid var(--line); padding: 10px 0 0; margin-top: 10px; }
+details.detail summary { cursor: pointer; font-size: 13px; color: var(--ink); }
+details.detail summary::marker { color: var(--ink3); }
+details.detail[open] summary { margin-bottom: 10px; }
+
+.kv { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 10px; padding: 6px 0; font-size: 12px; }
+.kv .k { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink3); }
+.kv .v { color: var(--ink2); }
+.kv .v.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.tag.off { color: var(--ink3); border-color: var(--line); }
+.sign { color: var(--ink2); font-weight: 600; }
+.runs td.name { color: var(--ink); }

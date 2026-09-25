@@ -377,6 +377,12 @@ func shortModelName(model string) string {
 	return model
 }
 
+// shortDate renders just the date part of an RFC3339 stamp.
+func shortDate(stamp string) string {
+	date, _ := shortTime(stamp)
+	return date
+}
+
 // statusClass maps a status onto the badge classes the stylesheet defines.
 func statusClass(status string) string {
 	switch status {

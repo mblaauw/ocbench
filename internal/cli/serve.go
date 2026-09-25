@@ -57,7 +57,7 @@ func newServeCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("listen %s: %w", addr, err)
 			}
-			srv := &http.Server{Addr: addr, Handler: web.NewHandler(st)}
+			srv := &http.Server{Addr: addr, Handler: web.NewHandler(st, web.WithPaths(resolved.Paths))}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "ocbench dashboard listening on http://%s\n", ln.Addr())
 			return serveHTTP(cmd.Context(), srv, ln)

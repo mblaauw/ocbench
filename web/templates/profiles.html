@@ -1,0 +1,25 @@
+{{define "content"}}
+{{if not .Rows}}
+<section class="card"><div class="empty">No profiles have been fingerprinted yet. Run a task to record one.</div></section>
+{{else}}
+<section class="card">
+  <table class="runs">
+    <thead>
+      <tr><th>Profile</th><th>Architecture</th><th>OpenCode</th><th>Components</th><th>Runs</th><th>Created</th></tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td><a class="status" href="{{.Href}}">{{.ShortHash}}</a></td>
+        <td>{{.Summary}}</td>
+        <td class="metric">{{.OpenCode}}</td>
+        <td class="metric">{{.ComponentCount}}</td>
+        <td class="metric">{{.RunCount}}</td>
+        <td class="metric muted">{{.Created}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+{{end}}

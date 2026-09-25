@@ -1,24 +1,150 @@
 {{define "content"}}
-<dl class="meta">
-  <dt>Profile hash</dt><dd class="hash">{{.ProfileHash}}</dd>
-  <dt>OpenCode</dt><dd>{{.OpenCodeVersion}}</dd>
-</dl>
+<div class="filters">
+  <div class="scope">
+    {{range .CompareChips}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+  </div>
+  <span class="muted">{{.ComponentCount}} components</span>
+</div>
 
-<h2>Components</h2>
-{{if .Components}}
-<table class="profile">
-  <thead><tr><th>Component</th><th>Hash</th></tr></thead>
-  <tbody>{{range .Components}}<tr><td>{{.Kind}}/{{.Name}}</td><td class="hash">{{.Hash}}</td></tr>{{end}}</tbody>
-</table>
-{{else}}
-<p>No components recorded.</p>
+{{if .Against}}
+<section class="card">
+  <div class="card-head"><h2>Changes vs {{.AgainstShort}}</h2><span class="muted">reference → this profile</span></div>
+  {{if .Changes}}
+  <table class="runs">
+    <thead><tr><th></th><th>Component</th><th>Change</th><th>Meaning</th></tr></thead>
+    <tbody>
+      {{range .Changes}}
+      <tr>
+        <td class="sign">{{.Sign}}</td>
+        <td><span class="dim">{{.Kind}}</span> {{.Name}}</td>
+        <td class="dim">{{.Change}}</td>
+        <td>{{.Note}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">These two profiles are identical.</div>
+  {{end}}
+</section>
 {{end}}
 
-{{if .Changes}}
-<h2>Changes</h2>
-<table class="profile">
-  <thead><tr><th>Component</th><th>Change</th><th>From</th><th>To</th></tr></thead>
-  <tbody>{{range .Changes}}<tr><td>{{.Kind}}/{{.Name}}</td><td>{{.Change}}</td><td class="hash">{{.From}}</td><td class="hash">{{.To}}</td></tr>{{end}}</tbody>
-</table>
-{{end}}
+{{if .CaptureNote}}<div class="notice">{{.CaptureNote}}</div>{{end}}
+
+<section class="card">
+  <div class="card-head"><h2>Subagent tree</h2><span class="muted">which primary agent may call which subagent</span></div>
+  {{if .Edges}}
+  <ul class="tree">
+    {{range .Edges}}<li><span class="node">{{.From}}</span><span class="arrow">→</span><span class="node sub">{{.To}}</span></li>{{end}}
+  </ul>
+  {{else}}
+  <div class="empty">No agent may call a subagent: no <code>task</code> permission allows one.</div>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Agents</h2><span class="muted">{{len .Agents}} configured</span></div>
+  <table class="runs">
+    <thead><tr><th>Agent</th><th>Mode</th><th>Model</th><th>Steps</th><th>Temp</th><th>Tools</th></tr></thead>
+    <tbody>
+      {{range .Agents}}
+      <tr>
+        <td><span class="name">{{.Name}}</span>{{if .Primary}} <span class="tag">primary</span>{{end}}</td>
+        <td class="dim">{{.Mode}}</td>
+        <td class="metric">{{.Model}} {{.Variant}}</td>
+        <td class="metric">{{.Steps}}</td>
+        <td class="metric">{{if .Temperature}}{{.Temperature}}{{else}}—{{end}}</td>
+        <td class="metric">{{len .Tools}} on · {{len .ToolOff}} off</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  {{range .Agents}}
+  <details class="detail">
+    <summary>{{.Name}}{{if .Description}} — {{.Description}}{{end}}</summary>
+    {{if .Tools}}
+    <div class="kv"><span class="k">Tools on</span><span class="v chips">{{range .Tools}}<span class="tag">{{.}}</span>{{end}}</span></div>
+    {{end}}
+    {{if .ToolOff}}
+    <div class="kv"><span class="k">Tools off</span><span class="v chips">{{range .ToolOff}}<span class="tag off">{{.}}</span>{{end}}</span></div>
+    {{end}}
+    {{if .Options}}
+    <div class="kv"><span class="k">Model options</span><span class="v">
+      {{range .Options}}<div>{{.Name}} = {{.Value}}</div>{{end}}
+    </span></div>
+    {{end}}
+    {{if .TaskRules}}
+    <div class="kv"><span class="k">Task rules</span><span class="v">{{range .TaskRules}}<div>{{.}}</div>{{end}}</span></div>
+    {{end}}
+    {{if .Permissions}}
+    <div class="kv"><span class="k">Permissions</span><span class="v">
+      {{range .Permissions}}<div>{{.Permission}} · {{.Pattern}} · {{.Action}}</div>{{end}}
+    </span></div>
+    {{end}}
+    {{if .Prompt}}
+    <div class="kv"><span class="k">Prompt</span><span class="v"><pre class="excerpt">{{.Prompt}}</pre></span></div>
+    {{end}}
+  </details>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Instructions</h2><span class="muted">the text the fingerprint reduced to a hash</span></div>
+  {{if .Instructions}}
+  {{range .Instructions}}
+  <details class="detail">
+    <summary>{{.Scope}} <span class="muted">{{.Path}}</span></summary>
+    {{if .Captured}}
+    <pre class="excerpt">{{.Text}}</pre>
+    {{else}}
+    <div class="empty small">Text not captured. Hash <span class="hash">{{.SHA}}</span></div>
+    {{end}}
+  </details>
+  {{end}}
+  {{else}}
+  <div class="empty">No instruction files are configured.</div>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Skills</h2><span class="muted">{{len .Skills}} available to the agent</span></div>
+  {{if .Skills}}
+  <table class="runs">
+    <thead><tr><th>Skill</th><th>Description</th><th>Location</th><th>Content hash</th></tr></thead>
+    <tbody>
+      {{range .Skills}}
+      <tr><td class="name">{{.Name}}</td><td class="dim">{{.Description}}</td><td class="dim">{{.Location}}</td><td class="hash">{{.SHA}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No skills are installed for this profile.</div>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>MCP servers and plugins</h2></div>
+  {{if .MCP}}
+  <table class="runs">
+    <thead><tr><th>Server</th><th>Configuration keys</th></tr></thead>
+    <tbody>{{range .MCP}}<tr><td class="name">{{.Name}}</td><td class="dim">{{.Keys}}</td></tr>{{end}}</tbody>
+  </table>
+  {{else}}
+  <div class="empty small">No MCP servers are configured.</div>
+  {{end}}
+  {{if .Plugins}}
+  <div class="kv"><span class="k">Plugins</span><span class="v">{{range .Plugins}}<div class="dim">{{.}}</div>{{end}}</span></div>
+  {{end}}
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Fingerprint</h2><span class="muted">component hashes — any change here is a new profile</span></div>
+  <table class="runs">
+    <thead><tr><th>Component</th><th>Hash</th></tr></thead>
+    <tbody>
+      {{range .Components}}<tr><td><span class="dim">{{.Kind}}</span> {{.Name}}</td><td class="hash">{{.Hash}}</td></tr>{{end}}
+    </tbody>
+  </table>
+</section>
 {{end}}

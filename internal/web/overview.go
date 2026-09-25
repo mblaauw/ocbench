@@ -197,7 +197,7 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 			Hash:         p.Hash,
 			ShortHash:    shortHash(p.Hash),
 			Architecture: p.Architecture,
-			Href:         "/profiles/" + p.Hash,
+			Href:         "/arch/" + p.Hash,
 			HasRuns:      p.HasRuns,
 			Runs:         p.Runs,
 			TokensText:   tokensText(p.MedianTokens),

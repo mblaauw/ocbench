@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
 
+	"mbl/ocbench/internal/config"
 	"mbl/ocbench/internal/store"
 	"mbl/ocbench/internal/web"
 )
@@ -308,7 +310,7 @@ func TestProfilePageRedactsComponents(t *testing.T) {
 		{Kind: "agent", Name: "build", Hash: "h-build", CanonicalJSON: `{"mode":"primary","secret":"x"}`},
 	})
 
-	rec := get(t, web.NewHandler(st), "/profiles/hash-1")
+	rec := get(t, web.NewHandler(st), "/arch/hash-1")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -459,5 +461,147 @@ func TestRunPageUnknownIDIs404(t *testing.T) {
 	// A run that does exist still renders.
 	if rec := get(t, web.NewHandler(st), "/runs?run=run-1"); rec.Code != http.StatusOK {
 		t.Errorf("GET /runs?run=run-1 = %d, want 200", rec.Code)
+	}
+}
+
+// seedArchProfile writes a profile with a primary agent, two subagents, an
+// instruction file and a skill, which is what the architecture page renders.
+func seedArchProfile(t *testing.T, st *store.Store, hash string) {
+	t.Helper()
+	seedProfile(t, st, "profile-"+hash, hash, []store.ComponentRow{
+		{Kind: "primary", Name: "primary", Hash: "h0", CanonicalJSON: `{"default_agent":"build"}`},
+		{Kind: "agent", Name: "build", Hash: "h1", CanonicalJSON: `{"mode":"primary","model":"opencode-go/deepseek-v4.1-flash",
+			"variant":"high","steps":60,"native":true,"temperature":0.1,"options":{"reasoning":"high"},
+			"tools":{"bash":true,"edit":true,"task":true}}`},
+		{Kind: "permissions", Name: "permissions", Hash: "h8", CanonicalJSON: `{"by_agent":{"build":[
+			{"permission":"task","pattern":"explore","action":"allow"},
+			{"permission":"task","pattern":"*","action":"ask"}]}}`},
+		{Kind: "agent", Name: "explore", Hash: "h2", CanonicalJSON: `{"mode":"subagent","model":"opencode-go/deepseek-v4.1-flash","tools":{"read":true}}`},
+		{Kind: "agent", Name: "architect", Hash: "h3", CanonicalJSON: `{"mode":"subagent","model":"openai/gpt-5.6-sol","variant":"high"}`},
+		{Kind: "instructions", Name: "global:AGENTS.md", Hash: "h4", CanonicalJSON: `{"path":"~/.config/opencode/AGENTS.md","sha256":"abc123"}`},
+		{Kind: "skill", Name: "pentest", Hash: "h5", CanonicalJSON: `{"description":"Run a non-destructive pentest"}`},
+		{Kind: "mcp", Name: "playwright", Hash: "h6", CanonicalJSON: `{"command":"npx","args":["-y","@playwright/mcp"]}`},
+		{Kind: "plugin", Name: "superpowers", Hash: "h7", CanonicalJSON: `{}`},
+	})
+}
+
+// seedCaptures writes capture files for hash under a temp profiles root and
+// returns the root, so the handler can be built with WithPaths.
+func seedCaptures(t *testing.T, hash string, files map[string]string) config.Paths {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, hash)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	return config.Paths{Profiles: root}
+}
+
+func TestArchitecturePageRendersAgentsTreeAndCapturedText(t *testing.T) {
+	st := testStore(t)
+	seedArchProfile(t, st, "hash-arch")
+	paths := seedCaptures(t, "hash-arch", map[string]string{
+		"agents.json": `[{"name":"build","mode":"primary","model":{"providerID":"opencode-go","modelID":"deepseek-v4.1-flash"},
+			"prompt":"You are the build agent.","permission":[{"permission":"task","pattern":"*","action":"ask"}]}]`,
+		"instructions.json": `{"global:AGENTS.md":"Never touch the user's data directory."}`,
+		"skills.json":       `[{"name":"pentest","description":"Run a non-destructive pentest","location":"~/.config/opencode/skills/pentest","content":"# Pentest","content_sha256":"deadbeef"}]`,
+	})
+
+	rec := get(t, web.NewHandler(st, web.WithPaths(paths)), "/arch/hash-arch")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"Subagent tree", "Agents", "Instructions", "Skills", "Fingerprint",
+		"build", "explore", "architect", // the agents
+		"You are the build agent.", // captured agent prompt
+		// The apostrophe is escaped by html/template, so assert on a
+		// fragment that survives escaping.
+		"Never touch the user",          // captured instruction text
+		"Run a non-destructive pentest", // skill description
+		"deadbeef",                      // skill content hash
+		"reasoning", "high",             // model options
+		"opencode-go/deepseek-v4.1-flash", // model id
+		"playwright", "superpowers",       // mcp + plugin
+		"0.1", // temperature
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing %q", want)
+		}
+	}
+	// The subagent tree is the permission edge build → explore.
+	if !strings.Contains(body, `class="arrow"`) {
+		t.Errorf("subagent tree edges not rendered")
+	}
+}
+
+// A profile that exists only in the database has no capture files. The page must
+// still render, saying so, rather than failing or implying empty text.
+func TestArchitecturePageWithoutCapturesSaysSo(t *testing.T) {
+	st := testStore(t)
+	seedArchProfile(t, st, "hash-nocap")
+
+	rec := get(t, web.NewHandler(st), "/arch/hash-nocap")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "No capture files") {
+		t.Errorf("missing capture disclosure")
+	}
+	if !strings.Contains(body, "abc123") {
+		t.Errorf("instruction hash not shown when text is unavailable")
+	}
+}
+
+func TestArchitecturePageComparesTwoProfiles(t *testing.T) {
+	st := testStore(t)
+	seedArchProfile(t, st, "hash-a")
+	seedProfile(t, st, "profile-hash-b", "hash-b", []store.ComponentRow{
+		{Kind: "agent", Name: "build", Hash: "h1", CanonicalJSON: `{"mode":"primary","model":"opencode-go/deepseek-v4.1-flash"}`},
+		{Kind: "skill", Name: "extra", Hash: "h9", CanonicalJSON: `{"description":"A skill only b has"}`},
+	})
+
+	body := get(t, web.NewHandler(st), "/arch/hash-b?against=hash-a").Body.String()
+	if !strings.Contains(body, "Changes vs") {
+		t.Fatalf("comparison section missing")
+	}
+	// b has a skill a does not, and a has agents b does not.
+	for _, want := range []string{"extra", "architect"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("comparison missing %q", want)
+		}
+	}
+	// Without ?against there is no comparison section.
+	plain := get(t, web.NewHandler(st), "/arch/hash-b").Body.String()
+	if strings.Contains(plain, "Changes vs") {
+		t.Errorf("comparison rendered without ?against")
+	}
+}
+
+func TestArchitectureIndexListsProfiles(t *testing.T) {
+	st := testStore(t)
+	seedArchProfile(t, st, "hash-idx")
+	seedRun(t, st, "run-idx", "py-bugfix")
+
+	rec := get(t, web.NewHandler(st), "/arch")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"hash-idx", "/arch/hash-idx", "Architecture"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("index missing %q", want)
+		}
+	}
+	// The old /profiles route is gone rather than left as a dead alias.
+	if rec := get(t, web.NewHandler(st), "/profiles"); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /profiles = %d, want 404", rec.Code)
 	}
 }
