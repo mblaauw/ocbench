@@ -13,6 +13,7 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | History and comparison — store read model, `history`, `compare` | **done** | `882b7e1`..`806f30b` |
 | Dashboard — embedded web, safe routes, `serve` | **done** | `10b5a9d`..`42a8330` |
 | Dashboard — profile-first Overview, Runs and Architecture pages | **done** | `d25fc42`..`bbc758a` |
+| Measurement validity — noise floor, effect size, config attribution | **in progress** | `9e25b2b`..`277c80d` |
 | Experiments — arms, overlays, statistics, regression gate, JSONL export | **done** | `2db8b81`..`a29748a` |
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |
 | Task infrastructure — metadata, hidden tests, references, new validators | **done** | `acf0f83`..`6472c50` |
@@ -113,6 +114,37 @@ separately. Its comparison view renders component diffs as meaning
 Verification, including the defects the browser exposed:
 [phases 1-2](evidence/2026-09-24-dashboard-phases-1-2.md),
 [phase 3](evidence/2026-09-25-dashboard-phase-3.md).
+
+## Landed: measurement validity (in progress)
+
+Plan [2026-09-25-ocbench-measurement-validity.md](plans/2026-09-25-ocbench-measurement-validity.md).
+A sanity check over the live store found the harness faithful but the corpus and
+the attribution unable to answer the question it exists for: quality was
+saturated (10 of 11 scored runs at 1.00), six of nine tasks had been measured
+once, and every config change hashed into one `config` component whose diff read
+only `"configuration"`.
+
+Done so far:
+
+- **`ocbench variance`** — the run-to-run noise floor of each task, measured from
+  runs that repeated the same configuration on it, and the repeats needed to
+  detect a 5% or 10% effect. Tasks without repeats are reported as having no
+  estimate rather than being averaged. Thin spreads (fewer than five
+  observations) are flagged, because a spread from two or three runs is itself
+  uncertain by 35% or more. `stats` gained `MDE`, `RepeatsForSD` and `ZFor`.
+- **The leaderboard states its own evidence** — each profile carries its task
+  count and the smallest difference that sample could resolve, and the ranking
+  verdict is gated on the effect size rather than on a p-value alone.
+- **Config attribution** — `command`, `formatter`, `lsp`, `mode` and `provider`
+  are split per entry; `autoupdate`, `compaction`, `share` and `tools` are
+  promoted whole. A change to one setting is now named
+  (`share: disabled→enabled`, `compaction: prune`) instead of reported as
+  `configuration`. **This re-hashes every profile**, so the recorded corpus is
+  now a legacy cohort and must be re-run before the leaderboard is meaningful.
+
+Remaining from the plan: cache hit rate (D), the discriminative-power screen and
+corpus calibration (E), harvesting tasks from real session history (F), and
+confirmation by replication (G).
 
 ## Unscheduled review items
 

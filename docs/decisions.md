@@ -264,3 +264,40 @@ reasoning and what it costs if the call was wrong. The design itself is
   store, so opening a page cannot touch the machine being benchmarked and cannot
   disagree with the tables below it. *Cost if wrong:* a stale OpenCode version in
   the sidebar is not noticed until a run is started.
+
+## Measurement validity
+
+- **A ranking is gated on the effect its sample could detect, not on a p-value
+  alone.** A leaderboard that names a winner from seven tasks whose scores never
+  varied is worse than one that says nothing. The verdict distinguishes "too few
+  tasks", "no spread to size an experiment against", and a gap that genuinely
+  exceeds what the data could resolve. *Cost if wrong:* a real but small
+  difference is reported as unmeasurable until more runs exist.
+- **Noise is measured only from repeats of one configuration on one task.**
+  Running three configurations once each is not repetition, and treating it as
+  such would invent a spread. A task with no repeats is reported as having no
+  estimate. *Cost if wrong:* most of a young corpus has no noise figure at all.
+- **The spread is pooled within groups, each normalised by its own mean.**
+  Concatenating groups instead would understate the spread, because duplicating
+  each group's deviations inflates the denominator without adding information —
+  a bug the first implementation had and a test caught. *Cost if wrong:* noise is
+  under-reported and small differences look real.
+- **A spread from fewer than five observations is marked indicative.** The
+  relative standard error of a sample standard deviation is about
+  `1/sqrt(2*dof)`, so two or three runs put the spread itself out by 50–70%.
+  *Cost if wrong:* a provisional figure is read as a constant.
+- **Config keys are promoted out of the catch-all, and this re-hashes every
+  profile.** `command`, `formatter`, `lsp`, `mode` and `provider` split per
+  entry; `autoupdate`, `compaction`, `share` and `tools` are promoted whole.
+  Attribution is the whole point of fingerprinting a config, and it cannot be
+  had without changing the hash. *Cost if wrong:* the recorded corpus became a
+  legacy cohort and must be re-run once.
+- **An unsplit key still lands in `config`.** The promotion covers the keys whose
+  changes are individually actionable; `watcher`, `tool_output`, `attachment`,
+  `enabled_providers` and `subagent_depth` remain together. Claiming finer
+  attribution than exists would be worse than admitting the residual. *Cost if
+  wrong:* a change to one of those still reads as `configuration`.
+- **`tokens_cache_write` is not reported by OpenCode.** The raw events carry
+  `"cache":{"write":0,…}`, so the field is present and always zero. The harness
+  parses it correctly; the provider does not populate it. *Cost if wrong:* cache
+  write economics cannot be measured on this OpenCode version at all.
