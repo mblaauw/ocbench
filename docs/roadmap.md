@@ -13,7 +13,7 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | History and comparison — store read model, `history`, `compare` | **done** | `882b7e1`..`806f30b` |
 | Dashboard — embedded web, safe routes, `serve` | **done** | `10b5a9d`..`42a8330` |
 | Dashboard — profile-first Overview, Runs and Architecture pages | **done** | `d25fc42`..`bbc758a` |
-| Measurement validity — noise floor, effect size, config attribution | **in progress** | `9e25b2b`..`277c80d` |
+| Measurement validity — noise floor, effect size, attribution, calibration | **in progress** | `9e25b2b`..`2c790e9` |
 | Experiments — arms, overlays, statistics, regression gate, JSONL export | **done** | `2db8b81`..`a29748a` |
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |
 | Task infrastructure — metadata, hidden tests, references, new validators | **done** | `acf0f83`..`6472c50` |
@@ -142,9 +142,22 @@ Done so far:
   `configuration`. **This re-hashes every profile**, so the recorded corpus is
   now a legacy cohort and must be re-run before the leaderboard is meaningful.
 
-Remaining from the plan: cache hit rate (D), the discriminative-power screen and
-corpus calibration (E), harvesting tasks from real session history (F), and
-confirmation by replication (G).
+- **`ocbench calibrate`** — classifies each task by pass rate (informative,
+  saturated, always-fail, or unclassified when measured once) and by whether
+  configurations actually behaved differently on it, from the distinct process
+  signatures observed. Against the live corpus it reports that **one task of nine
+  can show a quality difference**: two are saturated and six have been measured
+  once.
+- **Cache hit rate** — the share of prompt tokens served from the provider's
+  cache, derived at read time and shown per run and per profile. The leaderboard
+  now separates two profiles that were identical on score and pass rate but
+  differ by 15 points of cache hit rate. `tokens_cache_write` is reported as not
+  populated by OpenCode rather than as a zero.
+
+Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-validity.md).
+
+Remaining from the plan: a `regression` tier for saturated tasks, harvesting
+tasks from real session history (F), and confirmation by replication (G).
 
 ## Unscheduled review items
 
