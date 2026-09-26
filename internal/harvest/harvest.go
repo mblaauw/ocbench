@@ -28,6 +28,9 @@ import (
 // not describe the work.
 const DefaultMinPrompt = 24
 
+// SplitCommit asks for one candidate per commit rather than one per user turn.
+const SplitCommit = "commit"
+
 // Options controls a harvest.
 type Options struct {
 	// DBPath is the OpenCode session database. It is opened read-only.
@@ -44,6 +47,12 @@ type Options struct {
 	MaxCommits int
 	MaxFiles   int
 	MaxLines   int
+	// Split, when SplitCommit, proposes each commit in a turn's window as its
+	// own candidate rather than the whole turn. A turn that produced twenty
+	// commits is twenty units of work, and proposing it as one task produces
+	// something too large to finish in a sitting. The prompt is the turn's,
+	// because that is what asked for the work; only the change set differs.
+	Split string
 }
 
 // Commit is one commit that landed in a user turn's window.
@@ -70,6 +79,11 @@ type Candidate struct {
 	// TestsChanged is true when any changed path looks like a test file. A task
 	// whose work included tests can often be graded by them.
 	TestsChanged bool
+	// ReferenceFiles counts the changed paths that are not test files. A task
+	// needs at least one: the tests go into the fixture and the implementation
+	// becomes the reference, so a change confined to test files has nothing to
+	// apply and cannot be graded.
+	ReferenceFiles int
 }
 
 // Candidates pairs user turns with the commits that followed them.
@@ -118,24 +132,36 @@ func Candidates(ctx context.Context, opts Options) ([]Candidate, error) {
 			if len(inWindow) == 0 {
 				continue
 			}
-			c := Candidate{
+			base := Candidate{
 				SessionID:    s.id,
 				SessionTitle: s.title,
 				Repo:         s.repo,
 				Prompt:       turn.text,
 				AskedAt:      turn.at,
 				EndedAt:      end,
-				Commits:      inWindow,
 			}
-			if err := attachStats(ctx, &c); err != nil {
-				// Stats are a convenience; a candidate without them is still
-				// worth proposing, and an unmeasurable one is not filtered by
-				// size because its size is unknown.
-				c.FilesChanged, c.LinesAdded, c.LinesRemoved, c.TestsChanged = 0, 0, 0, false
-			} else if exceedsSize(c, opts) {
-				continue
+			// One candidate per commit, or one for the turn's whole window.
+			groups := [][]Commit{inWindow}
+			if opts.Split == SplitCommit {
+				groups = make([][]Commit, 0, len(inWindow))
+				for _, cm := range inWindow {
+					groups = append(groups, []Commit{cm})
+				}
 			}
-			out = append(out, c)
+			for _, group := range groups {
+				c := base
+				c.Commits = group
+				if err := attachStats(ctx, &c); err != nil {
+					// Stats are a convenience; a candidate without them is
+					// still worth proposing, and an unmeasurable one is not
+					// filtered by size because its size is unknown.
+					c.FilesChanged, c.LinesAdded, c.LinesRemoved = 0, 0, 0
+					c.TestsChanged, c.ReferenceFiles = false, 0
+				} else if exceedsSize(c, opts) {
+					continue
+				}
+				out = append(out, c)
+			}
 		}
 	}
 
@@ -352,6 +378,8 @@ func attachStats(ctx context.Context, c *Candidate) error {
 				c.FilesChanged++
 				if looksLikeTest(path) {
 					c.TestsChanged = true
+				} else {
+					c.ReferenceFiles++
 				}
 			}
 			// A binary file reports "-" rather than a count.
@@ -394,17 +422,18 @@ func (c Candidate) MarshalJSON() ([]byte, error) {
 		At      string `json:"at"`
 	}
 	type candidateJSON struct {
-		SessionID    string       `json:"session_id"`
-		SessionTitle string       `json:"session_title"`
-		Repo         string       `json:"repo"`
-		Prompt       string       `json:"prompt"`
-		AskedAt      string       `json:"asked_at"`
-		EndedAt      string       `json:"ended_at"`
-		Commits      []commitJSON `json:"commits"`
-		FilesChanged int          `json:"files_changed"`
-		LinesAdded   int          `json:"lines_added"`
-		LinesRemoved int          `json:"lines_removed"`
-		TestsChanged bool         `json:"tests_changed"`
+		SessionID      string       `json:"session_id"`
+		SessionTitle   string       `json:"session_title"`
+		Repo           string       `json:"repo"`
+		Prompt         string       `json:"prompt"`
+		AskedAt        string       `json:"asked_at"`
+		EndedAt        string       `json:"ended_at"`
+		Commits        []commitJSON `json:"commits"`
+		FilesChanged   int          `json:"files_changed"`
+		LinesAdded     int          `json:"lines_added"`
+		LinesRemoved   int          `json:"lines_removed"`
+		TestsChanged   bool         `json:"tests_changed"`
+		ReferenceFiles int          `json:"reference_files"`
 	}
 	out := candidateJSON{
 		SessionID: c.SessionID, SessionTitle: c.SessionTitle, Repo: c.Repo,
@@ -412,6 +441,7 @@ func (c Candidate) MarshalJSON() ([]byte, error) {
 		EndedAt:      c.EndedAt.Format(time.RFC3339),
 		FilesChanged: c.FilesChanged, LinesAdded: c.LinesAdded,
 		LinesRemoved: c.LinesRemoved, TestsChanged: c.TestsChanged,
+		ReferenceFiles: c.ReferenceFiles,
 	}
 	out.Commits = make([]commitJSON, 0, len(c.Commits))
 	for _, cm := range c.Commits {

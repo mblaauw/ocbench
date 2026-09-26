@@ -38,6 +38,7 @@ func newHarvestCmd(d Deps) *cobra.Command {
 		maxFiles   int
 		maxLines   int
 		exportDir  string
+		split      string
 		excludes   []string
 		index      int
 		asJSON     bool
@@ -72,9 +73,13 @@ func newHarvestCmd(d Deps) *cobra.Command {
 			candidates, err := harvest.Candidates(cmd.Context(), harvest.Options{
 				DBPath: dbPath, Repo: repo, MinPrompt: minPrompt, Limit: limit,
 				MaxCommits: maxCommits, MaxFiles: maxFiles, MaxLines: maxLines,
+				Split: split,
 			})
 			if err != nil {
 				return err
+			}
+			if split != "" && split != harvest.SplitCommit {
+				return &UsageError{Err: fmt.Errorf("--split must be \"commit\", got %q", split)}
 			}
 			if exportDir == "" {
 				return renderHarvest(cmd.OutOrStdout(), dbPath, candidates, asJSON)
@@ -103,6 +108,8 @@ func newHarvestCmd(d Deps) *cobra.Command {
 		"drop candidates touching more files than this (0 for no cap)")
 	cmd.Flags().IntVar(&maxLines, "max-lines", 0,
 		"drop candidates changing more lines than this (0 for no cap)")
+	cmd.Flags().StringVar(&split, "split", "",
+		"split each user turn into one candidate per commit (\"commit\")")
 	cmd.Flags().StringVar(&exportDir, "export", "",
 		"write candidate --index as a task scaffold under this directory")
 	cmd.Flags().StringArrayVar(&excludes, "exclude", nil,
@@ -163,11 +170,18 @@ func renderHarvest(w io.Writer, dbPath string, candidates []harvest.Candidate, a
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "WHEN\tREPO\tCOMMITS\tFILES\t+/-\tTESTS\tPROMPT")
+	fmt.Fprintln(tw, "WHEN\tREPO\tCOMMITS\tFILES\t+/-\tTESTS\tREFS\tPROMPT")
 	for _, c := range candidates {
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t+%d/-%d\t%s\t%s\n",
+		// REFS is how many changed files are not tests. A task needs at least
+		// one: the tests go into the fixture and the implementation becomes the
+		// reference, so a change confined to test files cannot be graded.
+		refs := fmt.Sprint(c.ReferenceFiles)
+		if c.ReferenceFiles == 0 {
+			refs = "0 (none)"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%d\t+%d/-%d\t%s\t%s\t%s\n",
 			c.AskedAt.Format("2006-01-02 15:04"), shortRepo(c.Repo), len(c.Commits),
-			c.FilesChanged, c.LinesAdded, c.LinesRemoved, yesNo(c.TestsChanged),
+			c.FilesChanged, c.LinesAdded, c.LinesRemoved, yesNo(c.TestsChanged), refs,
 			excerpt(c.Prompt, promptExcerpt))
 	}
 	if err := tw.Flush(); err != nil {
@@ -182,8 +196,15 @@ func renderHarvest(w io.Writer, dbPath string, candidates []harvest.Candidate, a
 			tests++
 		}
 	}
-	fmt.Fprintf(w, "\n%d candidate(s) from %d repository(ies); %d changed a test file.\n",
-		len(candidates), len(repos), tests)
+	gradable := 0
+	for _, c := range candidates {
+		if c.TestsChanged && c.ReferenceFiles > 0 {
+			gradable++
+		}
+	}
+	fmt.Fprintf(w, "\n%d candidate(s) from %d repository(ies); %d changed a test file, "+
+		"%d of those also changed something to implement.\n",
+		len(candidates), len(repos), tests, gradable)
 	fmt.Fprintf(w, "Read from %s (read-only).\n", dbPath)
 	fmt.Fprintln(w, "Nothing was written: a harvested task is built from private code, so turning "+
 		"a candidate into a task is your decision.")

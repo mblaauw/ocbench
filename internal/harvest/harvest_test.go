@@ -317,3 +317,104 @@ func TestCandidatesDropOversizedTurns(t *testing.T) {
 		t.Errorf("candidates = %d, want 1 when the caps are not exceeded", len(fits))
 	}
 }
+
+// A turn that produced several commits is several units of work. Proposing it
+// as one task produces something too large to finish in a sitting.
+func TestCandidatesSplitByCommit(t *testing.T) {
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	repo := gitRepo(t, []struct {
+		subject string
+		at      time.Time
+		file    string
+		body    string
+	}{
+		{"feat: add the parser", base.Add(5 * time.Minute), "parser.go", "package p\n"},
+		{"test: cover the parser", base.Add(6 * time.Minute), "parser_test.go", "package p\n"},
+		{"feat: add the cli", base.Add(7 * time.Minute), "cli.go", "package p\n"},
+	})
+
+	db := openTestDB(t)
+	seedProject(t, db, "p1", repo, "sample")
+	seedSession(t, db, "s1", "p1", "", repo, "Sample", base)
+	seedTurn(t, db, "s1", "m1", base, "Please implement the parser, cover it with a test, and add a CLI.")
+	seedAssistant(t, db, "s1", "a1", base.Add(20*time.Minute))
+
+	// Whole turn: one candidate spanning all three commits.
+	whole, err := harvest.Candidates(context.Background(), harvest.Options{DBPath: dbPath(t, db)})
+	if err != nil {
+		t.Fatalf("Candidates: %v", err)
+	}
+	if len(whole) != 1 || len(whole[0].Commits) != 3 {
+		t.Fatalf("whole-turn candidates = %d, want 1 with 3 commits", len(whole))
+	}
+	if whole[0].FilesChanged != 3 {
+		t.Errorf("whole-turn files = %d, want 3", whole[0].FilesChanged)
+	}
+
+	// Split: one candidate per commit, each with its own change set and the
+	// turn's prompt, because the turn is what asked for the work.
+	split, err := harvest.Candidates(context.Background(), harvest.Options{
+		DBPath: dbPath(t, db), Split: harvest.SplitCommit,
+	})
+	if err != nil {
+		t.Fatalf("Candidates split: %v", err)
+	}
+	if len(split) != 3 {
+		t.Fatalf("split candidates = %d, want 3", len(split))
+	}
+	for _, c := range split {
+		if len(c.Commits) != 1 {
+			t.Errorf("split candidate has %d commits, want 1", len(c.Commits))
+		}
+		if c.FilesChanged != 1 {
+			t.Errorf("split candidate %q touches %d files, want 1", c.Commits[0].Subject, c.FilesChanged)
+		}
+		if !strings.Contains(c.Prompt, "implement the parser") {
+			t.Errorf("split candidate lost the prompt: %q", c.Prompt)
+		}
+	}
+	// The commit that added a test is the one flagged as carrying one.
+	tests := 0
+	for _, c := range split {
+		if c.TestsChanged {
+			tests++
+		}
+	}
+	if tests != 1 {
+		t.Errorf("%d split candidates flagged a test change, want 1", tests)
+	}
+}
+
+// Size caps apply to each split candidate, so a large turn still yields the
+// small commits inside it.
+func TestCandidatesSplitThenCapped(t *testing.T) {
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	repo := gitRepo(t, []struct {
+		subject string
+		at      time.Time
+		file    string
+		body    string
+	}{
+		{"feat: small", base.Add(5 * time.Minute), "small.go", "package p\n"},
+		{"feat: large", base.Add(6 * time.Minute), "large.go", strings.Repeat("// padding\n", 500)},
+	})
+
+	db := openTestDB(t)
+	seedProject(t, db, "p1", repo, "sample")
+	seedSession(t, db, "s1", "p1", "", repo, "Sample", base)
+	seedTurn(t, db, "s1", "m1", base, "Do both the small thing and the large thing please.")
+	seedAssistant(t, db, "s1", "a1", base.Add(20*time.Minute))
+
+	got, err := harvest.Candidates(context.Background(), harvest.Options{
+		DBPath: dbPath(t, db), Split: harvest.SplitCommit, MaxLines: 50,
+	})
+	if err != nil {
+		t.Fatalf("Candidates: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("candidates = %d, want 1 (the large commit is dropped)", len(got))
+	}
+	if got[0].Commits[0].Subject != "feat: small" {
+		t.Errorf("kept %q, want the small commit", got[0].Commits[0].Subject)
+	}
+}
