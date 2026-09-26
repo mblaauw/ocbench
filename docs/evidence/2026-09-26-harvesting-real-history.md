@@ -175,3 +175,54 @@ one is a deliberate human decision rather than something the tool can do.
   material and their fixtures are whole repositories.
 - **The corpus has still not been re-run** under the Slice C fingerprint.
 - **Slice G** — confirmation by replication — is not started.
+
+## End-to-end: a real task runs
+
+The harvested task was placed in a local suite (`/tmp/harvested-suites/harvested`,
+never in this repository) and run for real:
+
+```
+1 measure-the-run-to-run-noise-floor-and-the-detec-9e25b2b  PASS  2m25.768s  781456 tokens  38 tools
+1/1 successful
+```
+
+It passed the honesty check through the real runner first
+(`OCBENCH_HONESTY_SUITES=/tmp/harvested-suites go test ./internal/suite -run
+TestEveryTaskFailsUntouchedAndPassesWithItsReference`), which is what that
+override exists for.
+
+### What a real task costs
+
+| Task | Tokens | Tool calls | Duration |
+|---|---|---|---|
+| harvested (real work) | **781,456** | **38** | **2m26s** |
+| go-slice-bug (synthetic) | 58,041 | 5 | 19s |
+| go-pager-cursor (synthetic, hard) | 83,698 | 8 | 42s |
+
+**Real work costs 13x the tokens and 7.6x the wall-clock of the hardest synthetic
+task.** Its cache hit rate is 93%, against 80% for the synthetic corpus.
+
+This is the most consequential number in the whole measurement-validity effort.
+Every noise floor and detectable effect measured on the synthetic corpus is
+measured in a regime an order of magnitude cheaper than the work it is supposed
+to predict. A configuration tuned for token efficiency on 58k-token tasks is
+being tuned against the wrong problem, and the dashboard's `cost per solved task`
+of $0.003 is not the cost of real work.
+
+## A harness bug the harvest exposed
+
+Verifying the harvested task through the honesty test initially failed with
+`undefined: Chunk` and `undefined: Cursor` — errors from *other* tasks' tests.
+
+`copyFS` in the honesty test strips `.hidden` from every file it copies, and it
+was used for the fixture as well as for hidden tests and references. The
+harvested fixture is a copy of this repository, which contains
+`suites/**/evaluator/tests/*.go.hidden`; copying it un-hid those files into
+runnable tests that nothing could satisfy.
+
+Fixed in `4451769`: the fixture is copied verbatim, and only hidden tests and
+references use the stripping copy. The existing suites have no `.hidden` files in
+their fixtures, so nothing else changed.
+
+The export's own `Verify` had reported the task as honest, correctly: it never
+stripped the suffix. The two checks disagreeing is what surfaced the bug.

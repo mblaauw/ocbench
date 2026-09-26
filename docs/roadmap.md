@@ -177,6 +177,10 @@ Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-v
   still needs a human, and the fixture is currently the whole repository rather
   than the package the work touched.
 
+  A harvested task was then run for real and passed — **781,456 tokens, 38 tool
+  calls, 2m26s**, against 58k tokens and 19s for the synthetic corpus. Real work
+  costs an order of magnitude more than the tasks currently used to tune for it.
+
   Evidence:
   [2026-09-26-harvesting-real-history.md](evidence/2026-09-26-harvesting-real-history.md).
 

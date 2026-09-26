@@ -340,3 +340,11 @@ reasoning and what it costs if the call was wrong. The design itself is
   from private code must be verifiable without that code entering the public
   repository. *Cost if wrong:* verifying a harvested suite needs one environment
   variable rather than a plain `go test`.
+
+- **A fixture is copied verbatim; only hidden tests and references strip
+  `.hidden`.** The suffix is how those two are stored, so stripping it elsewhere
+  un-hides files the task never meant to reveal. A fixture that contains
+  `.hidden` files of its own — which happens when the harvested repository is
+  ocbench itself — would otherwise gain runnable tests nothing can satisfy.
+  *Cost if wrong:* a fixture that happens to contain a `.hidden` file cannot be
+  verified.
