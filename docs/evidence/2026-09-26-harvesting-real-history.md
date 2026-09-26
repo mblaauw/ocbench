@@ -316,3 +316,50 @@ the reference. The listing reports that **42 of the 95 candidates are gradable**
   cutting.
 - **Tractability is still measured in lines.** 400 lines admitted a task that
   timed out; the honest measure is the reference's own cost, which needs a run.
+
+## The prompt is now derived from the check
+
+The last gap was that a split candidate's prompt was still the whole turn's text,
+which may have asked for twenty things. The prompt is now written from **what the
+verification observed**: the failing tests are the specification, and the agent
+can already read them in the fixture, so quoting the failure reveals nothing the
+task does not.
+
+```
+# Make the failing tests pass
+
+`go test ./...` fails in this repository. The failing tests are the
+specification: make them pass without weakening them.
+
+## What is failing
+
+--- FAIL: TestEveryTaskFailsUntouchedAndPassesWithItsReference (2.77s)
+    honesty_test.go:31: task "go-pager-cursor": validator "go tests" (command) is failed …
+        --- FAIL: TestPageExactBoundary (0.00s)
+            pager_ties_test.go:70: next=&{2 b}, want nil at the end of the list
+```
+
+No model is involved. The recorded turn, the commit subjects and the file lists
+follow below a `## Material for the curator` heading, because the turn is not the
+prompt and the subjects describe the answer.
+
+### Each outcome is stated as itself
+
+The first version of this told a curator *"the fixture passes untouched"*
+whenever the task failed for **any** reason — including when the reference was
+what failed. That sends someone to fix the wrong thing. There are four outcomes
+and each now says which one it is: honest, fixture passes untouched, the
+reference does not satisfy the validator, or no validator could be inferred. A
+test pins the wording of all four.
+
+### A repo-wide validator makes a confusing prompt
+
+The example above is honest and still awkward: the failing test is ocbench's own
+honesty check, because `go test ./...` runs the whole repository and the change
+touched a suite fixture. The prompt is mechanically correct — that *is* what the
+commit fixed — but a reader has to work out that the failure is a fixture
+problem rather than a missing function.
+
+This is the whole-repository fixture showing up a third time, now in the prompt.
+The fix is the same one: narrow the validator to the package the change is about,
+which the export does not do because inferring it is a guess.

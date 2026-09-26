@@ -196,6 +196,12 @@ Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-v
   to implement) where the whole-turn view yielded one. The listing reports
   `REFS`, the changed files that are not tests, because a change confined to test
   files has no implementation to reference and cannot be a task.
+- **A harvested prompt is written from the verification.** The failing tests are
+  the specification, so the prompt quotes the failure rather than the recorded
+  turn; the turn, the commit subjects and the file lists follow under a curator
+  heading. No model is involved. Each of the four verification outcomes is stated
+  as itself. A repo-wide validator such as `go test ./...` still makes for an
+  awkward prompt, because the fixture fails on parts the change never touched.
 
   Evidence:
   [2026-09-26-harvesting-real-history.md](evidence/2026-09-26-harvesting-real-history.md).

@@ -361,3 +361,15 @@ reasoning and what it costs if the call was wrong. The design itself is
   reports the count so the dead ones are visible before an export is attempted.
   *Cost if wrong:* a candidate that could have been a task is skipped because its
   implementation happens to live in a file named like a test.
+
+- **A harvested prompt quotes the verification failure rather than the recorded
+  turn.** The failing tests are the specification, and the agent can already read
+  them in the fixture, so quoting them reveals nothing the task does not; the
+  turn is a conversation and usually states no goal. No model is involved. *Cost
+  if wrong:* a candidate whose change is not test-shaped gets a prompt describing
+  a failure rather than an intent.
+- **Every verification outcome is stated as itself.** "The fixture passes
+  untouched", "the reference does not satisfy the validator", "no validator could
+  be inferred" and "honest" are four different findings, and reporting one as
+  another sends a curator to fix the wrong thing. *Cost if wrong:* an extra
+  sentence in the prompt for each case.
