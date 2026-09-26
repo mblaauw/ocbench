@@ -363,3 +363,56 @@ problem rather than a missing function.
 This is the whole-repository fixture showing up a third time, now in the prompt.
 The fix is the same one: narrow the validator to the package the change is about,
 which the export does not do because inferring it is a guess.
+
+## Validator narrowing: the prompt becomes a specification
+
+The validator was `go test ./...` — the whole repository — which fails on parts
+of the tree a change never touched. That produced a task that could not be solved
+and a prompt describing somebody else's failure. It is now scoped to the packages
+the work touched:
+
+```
+command: ["go", "test", "./internal/cli", "./internal/history", "./internal/stats"]
+```
+
+and the prompt it produces is precise:
+
+```
+# Make the failing tests pass
+
+`go test ./internal/cli ./internal/history ./internal/stats` fails in this repository.
+
+## What is failing
+
+internal/stats/power_test.go:21:21: undefined: ZFor
+internal/stats/power_test.go:29:20: undefined: Mean
+internal/stats/power_test.go:33:12: undefined: StdDev
+internal/stats/power_test.go:56:13: undefined: MDE
+internal/history/variance_test.go:11:41: undefined: history.VarianceReport
+```
+
+That is the specification: the failing symbols are exactly what has to be built.
+Compare the same export before this change, whose prompt quoted ocbench's own
+honesty test failing on an unrelated task fixture.
+
+The "cutting" step that previously needed a human is now done mechanically, for
+free, by narrowing the validator. The turn's text and the commit subjects still
+follow under `## Material for the curator`, and the prompt still carries a
+`## TODO` for what the change is *for* — a failure says what to build, not what
+counts as a good solution.
+
+### What this does not fix
+
+**The timeout is unaffected.** The runner applies validators *after* the agent's
+session ends, so the validator cannot cause or prevent an agent timeout. The
+15m26s run was the agent working, not the grader. Narrowing the validator fixes
+prompt legibility and fixture fragility; the timeout remains a task-size problem,
+and the honest measure of size is still missing.
+
+### How the scope is chosen
+
+The directories of the changed files, kept only when they hold a `.go` file in
+the fixture — naming a directory with none would fail the command for a reason
+unrelated to the task. The module root is `.` to `go test`, not `./.`. An empty
+result falls back to the whole module rather than emitting a command that tests
+nothing. Tests pin all three behaviours.

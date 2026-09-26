@@ -200,8 +200,13 @@ Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-v
   the specification, so the prompt quotes the failure rather than the recorded
   turn; the turn, the commit subjects and the file lists follow under a curator
   heading. No model is involved. Each of the four verification outcomes is stated
-  as itself. A repo-wide validator such as `go test ./...` still makes for an
-  awkward prompt, because the fixture fails on parts the change never touched.
+  as itself.
+- **The validator is scoped to the packages the work touched** — `go test
+  ./internal/cli ./internal/history ./internal/stats` rather than `./...`. A
+  repo-wide command fails on parts of the tree the change never touched, which
+  produced a task that could not be solved and a prompt describing somebody
+  else's failure; scoping turns the prompt into a precise specification. It does
+  not affect the timeout, because validators run after the agent stops.
 
   Evidence:
   [2026-09-26-harvesting-real-history.md](evidence/2026-09-26-harvesting-real-history.md).

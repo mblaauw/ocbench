@@ -373,3 +373,11 @@ reasoning and what it costs if the call was wrong. The design itself is
   be inferred" and "honest" are four different findings, and reporting one as
   another sends a curator to fix the wrong thing. *Cost if wrong:* an extra
   sentence in the prompt for each case.
+
+- **A harvested validator is scoped to the packages the work touched.** A
+  repo-wide command fails on parts of the tree the change never touched, which
+  produces a task that cannot be solved and a prompt describing somebody else's
+  failure. The scope is the directories of the changed files, kept only when they
+  hold a `.go` file in the fixture, falling back to the whole module when nothing
+  usable is found. *Cost if wrong:* a change whose effect is only visible from a
+  package it did not touch is graded too narrowly, and `Verify` reports it.
