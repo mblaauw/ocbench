@@ -272,3 +272,47 @@ the synthetic corpus, extremely sensitive to prompt phrasing, and large enough t
 exceed a default timeout. A useful tuning corpus needs tasks cut down to one
 sitting — which means harvesting a *slice* of a turn's work rather than the whole
 turn, and that is not implemented.
+
+## Sub-turn harvesting: the supply problem, solved
+
+A turn is not a unit of work. The history holds **159 commits across 19 turns** —
+one turn produced 39 commits, another 20 — and proposing a turn as one task
+produced something too large to finish, which is what the timeout above showed.
+
+`--split commit` proposes each commit as its own candidate. The prompt stays the
+turn's, because the turn is what asked for the work; only the change set differs.
+
+| | Whole turn | Split by commit, capped at 400 lines / 12 files |
+|---|---|---|
+| Candidates | 19 | **95** |
+| Changed a test file | — | 46 |
+| **Also changed something to implement** | — | **42** |
+
+Forty-two candidates where there was one. The shapes are what a task needs:
+
+```
+2026-09-24 17:38  mbl-ocbench  1  6  +40/-0   fix: keep hidden Go tests out of the repository
+2026-09-24 17:38  mbl-ocbench  1  3  +26/-0   fix: resolve the pager cursor contradiction
+2026-09-24 17:38  mbl-ocbench  1  2  +114/-0  feat: record process metrics
+```
+
+### A change confined to test files cannot be a task
+
+Of three sampled exports, one verified and two failed with *"the fixture passes
+untouched"*. Both failures had the same cause: the change was **entirely within
+test files**, so there was no implementation to put in the reference — the test
+was the whole change.
+
+That is correct behaviour, and it is now visible before exporting. The listing
+gained a `REFS` column: how many changed files are not tests. A task needs at
+least one, because the tests go into the fixture and the implementation becomes
+the reference. The listing reports that **42 of the 95 candidates are gradable**.
+
+### What is still missing
+
+- **The prompt is still the turn's.** For a split candidate the turn may have
+  asked for twenty things; the human must cut the prompt down to the one commit
+  it now describes. The export says which commit it is for, but does not do the
+  cutting.
+- **Tractability is still measured in lines.** 400 lines admitted a task that
+  timed out; the honest measure is the reference's own cost, which needs a run.

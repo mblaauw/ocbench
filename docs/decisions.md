@@ -348,3 +348,16 @@ reasoning and what it costs if the call was wrong. The design itself is
   ocbench itself — would otherwise gain runnable tests nothing can satisfy.
   *Cost if wrong:* a fixture that happens to contain a `.hidden` file cannot be
   verified.
+
+- **A harvested candidate is one commit, not one user turn.** A turn is a
+  conversation, and this history holds turns of up to 39 commits; proposing one
+  as a task produced something that timed out. The prompt stays the turn's,
+  because the turn is what asked for the work, and the human narrows it. *Cost if
+  wrong:* the same prompt is proposed against several commits, and the human has
+  to cut it down.
+- **A candidate needs at least one changed file that is not a test.** The tests
+  go into the fixture and the implementation becomes the reference, so a change
+  confined to test files has nothing to apply and cannot be graded. The listing
+  reports the count so the dead ones are visible before an export is attempted.
+  *Cost if wrong:* a candidate that could have been a task is skipped because its
+  implementation happens to live in a file named like a test.

@@ -189,6 +189,13 @@ Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-v
   The task is also too large for a default timeout, and the line-count size caps
   did not predict that. `--exclude` now trims a fixture, but on a Go module it is
   build-sensitive and the verification check is what makes it safe.
+- **`ocbench harvest --split commit`** — proposes each commit in a turn as its
+  own candidate, because a turn is not a unit of work. The history holds 159
+  commits across 19 turns; split and capped at 400 lines / 12 files that becomes
+  **95 candidates, 42 of them gradable** (they changed both a test and something
+  to implement) where the whole-turn view yielded one. The listing reports
+  `REFS`, the changed files that are not tests, because a change confined to test
+  files has no implementation to reference and cannot be a task.
 
   Evidence:
   [2026-09-26-harvesting-real-history.md](evidence/2026-09-26-harvesting-real-history.md).
