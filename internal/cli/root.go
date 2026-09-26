@@ -101,6 +101,7 @@ func NewRootWithDeps(d Deps) *cobra.Command {
 	root.AddCommand(newHistoryCmd(d))
 	root.AddCommand(newVarianceCmd(d))
 	root.AddCommand(newCalibrateCmd(d))
+	root.AddCommand(newHarvestCmd(d))
 	root.AddCommand(newCompareCmd(d))
 	root.AddCommand(newTraceCmd(d))
 	root.AddCommand(newServeCmd(d))

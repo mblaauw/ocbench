@@ -13,6 +13,9 @@ type Paths struct {
 	Runs       string
 	Suites     string
 	Cache      string
+	// OpenCodeDB is where OpenCode keeps its own session history. ocbench reads
+	// it only to harvest candidate tasks from real work, and only when asked.
+	OpenCodeDB string
 }
 
 func Resolve(env func(string) string) Paths {
@@ -42,6 +45,7 @@ func Resolve(env func(string) string) Paths {
 		Runs:       filepath.Join(data, "runs"),
 		Suites:     filepath.Join(data, "suites"),
 		Cache:      cache,
+		OpenCodeDB: filepath.Join(dataHome, "opencode", "opencode.db"),
 	}
 }
 
