@@ -158,15 +158,29 @@ func TestExportWritesATaskThatFailsThenPasses(t *testing.T) {
 		t.Errorf("task.yaml does not mark itself harvested:\n%s", task)
 	}
 
-	// The prompt is a scaffold, and it keeps the answer out of the prompt text.
+	// The prompt states the task from what the check observed: the failing
+	// tests are the specification, and the agent can already read them.
 	prompt, err := os.ReadFile(filepath.Join(taskDir, "prompt.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"TODO: state the task", "implement the addition function", "do not put it in the prompt"} {
+	for _, want := range []string{
+		"Make the failing tests pass",
+		"want 5", // the actual failure, quoted from the check
+		"TODO: say what the change is for",
+		"## Material for the curator",
+		"implement the addition function", // the recorded turn, kept apart
+		"do not put it in the prompt",
+	} {
 		if !strings.Contains(string(prompt), want) {
-			t.Errorf("prompt.md missing %q", want)
+			t.Errorf("prompt.md missing %q:\n%s", want, prompt)
 		}
+	}
+	// The commit subject describes the answer, so it stays out of the prompt
+	// proper and lives only in the curator material.
+	body := strings.SplitN(string(prompt), "## Material for the curator", 2)[0]
+	if strings.Contains(body, "implement addition") {
+		t.Errorf("the commit subject leaked into the prompt:\n%s", body)
 	}
 
 	// The property every task is held to: the fixture fails, and the reference
@@ -319,5 +333,63 @@ func commitAll(t *testing.T, dir string, at time.Time, subject string) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
+	}
+}
+
+// Each way a task can fail verification must be stated as itself. Telling a
+// curator "the fixture passes untouched" when the reference is what failed
+// sends them to fix the wrong thing.
+func TestPromptStatesTheActualVerificationOutcome(t *testing.T) {
+	base := harvest.Candidate{
+		SessionTitle: "Sample",
+		Repo:         "/tmp/sample",
+		Prompt:       "Please do the thing that was asked for here.",
+		AskedAt:      time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC),
+		Commits:      []harvest.Commit{{Hash: "abc1234", Subject: "feat: the answer"}},
+	}
+
+	for _, tc := range []struct {
+		name    string
+		v       harvest.Verification
+		want    string
+		notWant string
+	}{
+		{
+			name: "honest task",
+			v:    harvest.Verification{Checked: true, FailsBefore: true, PassesAfter: true, Command: []string{"go", "test"}, BeforeOutput: "--- FAIL: TestThing"},
+			want: "Make the failing tests pass",
+		},
+		{
+			name:    "fixture passes untouched",
+			v:       harvest.Verification{Checked: true, FailsBefore: false},
+			want:    "passes untouched",
+			notWant: "not solvable",
+		},
+		{
+			name:    "reference does not satisfy the validator",
+			v:       harvest.Verification{Checked: true, FailsBefore: true, PassesAfter: false},
+			want:    "not solvable as written",
+			notWant: "passes untouched",
+		},
+		{
+			name: "no validator at all",
+			v:    harvest.Verification{},
+			want: "No test command could be inferred",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			got, err := harvest.PromptForTest(base, tc.v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("prompt missing %q:\n%s", tc.want, got)
+			}
+			if tc.notWant != "" && strings.Contains(got, tc.notWant) {
+				t.Errorf("prompt wrongly says %q:\n%s", tc.notWant, got)
+			}
+			_ = dir
+		})
 	}
 }

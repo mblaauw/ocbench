@@ -26,6 +26,11 @@ type Verification struct {
 	Command []string
 	// Detail explains a failure, quoting the tail of the output.
 	Detail string
+	// BeforeOutput is what the validator printed on the untouched fixture. It
+	// is the specification of the task: the failing tests say what has to work,
+	// and they are already visible to the agent in the fixture, so quoting them
+	// reveals nothing the task does not.
+	BeforeOutput string
 }
 
 // OK reports whether the task is honest.
@@ -62,7 +67,7 @@ func Verify(ctx context.Context, taskDir string) (Verification, error) {
 		v.Detail = "the fixture passes untouched, so the task cannot show anything"
 		return v, nil
 	}
-	_ = out
+	v.BeforeOutput = trimOutput(out, 30)
 
 	if err := copyTree(filepath.Join(taskDir, "evaluator", "reference"), work); err != nil {
 		return Verification{}, fmt.Errorf("apply reference: %w", err)
@@ -138,6 +143,25 @@ func copyTree(from, to string) error {
 		}
 		return os.WriteFile(dest, content, 0o644)
 	})
+}
+
+// trimOutput keeps the most informative part of a failing run: the compile and
+// test failures are at the end, after any progress output.
+func trimOutput(out []byte, lines int) string {
+	all := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	var keep []string
+	for _, line := range all {
+		// Progress lines ("ok  pkg (cached)") carry no information about what
+		// is missing, and there can be hundreds of them.
+		if strings.HasPrefix(line, "ok  ") || strings.HasSuffix(line, "[no test files]") {
+			continue
+		}
+		keep = append(keep, line)
+	}
+	if len(keep) > lines {
+		keep = keep[len(keep)-lines:]
+	}
+	return strings.Join(keep, "\n")
 }
 
 // tail returns the last few lines of command output for an explanation.

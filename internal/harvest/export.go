@@ -119,19 +119,21 @@ func Export(ctx context.Context, c Candidate, opts ExportOptions) (string, Verif
 	}
 
 	command := inferTestCommand(fixture)
-	if err := os.WriteFile(filepath.Join(dest, "prompt.md"),
-		[]byte(promptDraft(c, tests, sources, command)), 0o644); err != nil {
-		return "", Verification{}, err
-	}
 	if err := os.WriteFile(filepath.Join(dest, "task.yaml"),
 		[]byte(taskScaffold(taskID, c, command)), 0o644); err != nil {
 		return "", Verification{}, err
 	}
 
-	// Check the property before claiming it.
+	// Check the property before claiming it, and before writing the prompt:
+	// what the check observed on the untouched fixture is the specification the
+	// prompt should state.
 	verification, err := Verify(ctx, dest)
 	if err != nil {
 		return dest, Verification{}, err
+	}
+	if err := os.WriteFile(filepath.Join(dest, "prompt.md"),
+		[]byte(promptDraft(c, tests, sources, command, verification)), 0o644); err != nil {
+		return "", Verification{}, err
 	}
 	return dest, verification, nil
 }
@@ -334,17 +336,59 @@ func short(hash string) string {
 	return hash
 }
 
-// promptDraft writes the material a human needs to state the task, with the
-// answer kept clearly apart from the prompt.
-func promptDraft(c Candidate, tests, sources []string, command []string) string {
-	var b strings.Builder
-	b.WriteString("# TODO: state the task\n\n")
-	b.WriteString("This prompt is a scaffold, not a finished task. The user turn below is what was\n")
-	b.WriteString("actually said, and it is usually a continuation of a conversation: it may carry\n")
-	b.WriteString("no goal, no acceptance criterion and no context. Rewrite it as a standalone\n")
-	b.WriteString("instruction before running the task, or the run measures nothing.\n\n")
+// PromptForTest exposes the prompt builder so each verification outcome's
+// wording can be pinned by a test.
+func PromptForTest(c Candidate, v Verification) (string, error) {
+	return promptDraft(c, []string{"calc_test.go"}, []string{"calc.go"}, []string{"go", "test", "./..."}, v), nil
+}
 
-	b.WriteString("## What was said\n\n")
+// promptDraft writes the task prompt, then the material a human needs to finish
+// it, with the answer kept clearly apart from the prompt.
+//
+// When the check observed the fixture failing, that failure is the specification
+// and is written as the prompt: the failing tests say what has to work, and the
+// agent can already read them in the fixture. When it did not — because there is
+// no runnable validator, or the fixture passes — the prompt says so instead of
+// pretending to state a task.
+func promptDraft(c Candidate, tests, sources []string, command []string, v Verification) string {
+	var b strings.Builder
+
+	switch {
+	case v.FailsBefore && v.PassesAfter && v.BeforeOutput != "":
+		b.WriteString("# Make the failing tests pass\n\n")
+		fmt.Fprintf(&b, "`%s` fails in this repository. The failing tests are the\n",
+			strings.Join(command, " "))
+		b.WriteString("specification: make them pass without weakening them.\n\n")
+		b.WriteString("## What is failing\n\n```\n")
+		b.WriteString(v.BeforeOutput)
+		b.WriteString("\n```\n\n")
+		b.WriteString("## TODO: say what the change is for\n\n")
+		b.WriteString("The failure above says what to build. It does not say why, or what counts as\n")
+		b.WriteString("a good solution rather than a passing one. Add that before running the task.\n\n")
+	case !v.Checked:
+		b.WriteString("# TODO: state the task\n\n")
+		b.WriteString("No test command could be inferred, so nothing was proven about this task.\n")
+		b.WriteString("Write the prompt and the validator before running it.\n\n")
+	case v.FailsBefore && !v.PassesAfter:
+		b.WriteString("# TODO: this task is not solvable as written\n\n")
+		b.WriteString("The fixture fails, but applying the reference does not make it pass, so the\n")
+		b.WriteString("reference does not satisfy the validator. The usual cause is a repo-wide\n")
+		b.WriteString("validator: `go test ./...` fails on some part of the repository the change\n")
+		b.WriteString("never touched. Narrow the validator, or trim the fixture.\n\n")
+	default:
+		b.WriteString("# TODO: state the task\n\n")
+		b.WriteString("The fixture passes untouched, so nothing in it fails to state a task against.\n")
+		b.WriteString("Add a validator that can fail before the change, or this task measures\n")
+		b.WriteString("nothing.\n\n")
+	}
+
+	b.WriteString("---\n\n")
+	b.WriteString("## Material for the curator\n\n")
+	b.WriteString("The recorded user turn below is what was actually said, and it is usually a\n")
+	b.WriteString("continuation of a conversation: it may carry no goal, no acceptance criterion\n")
+	b.WriteString("and no context. It is not the prompt.\n\n")
+
+	b.WriteString("### What was said\n\n")
 	b.WriteString("> " + strings.ReplaceAll(strings.TrimSpace(c.Prompt), "\n", "\n> ") + "\n\n")
 
 	b.WriteString("## Context\n\n")
