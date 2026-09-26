@@ -168,7 +168,9 @@ Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-v
   **The prompts are the problem, not the linkage:** most user turns are
   conversational continuations ("yes do that i follow your recommendation", "do
   it then move on to task 5"), so the raw text is not a standalone task
-  statement. See the evidence record for what that implies.
+  statement. Draft-prompt synthesis and fixture export are still missing, so no
+  harvested task has been proven fail-before/pass-after yet. Evidence:
+  [2026-09-26-harvesting-real-history.md](evidence/2026-09-26-harvesting-real-history.md).
 
 Remaining from the plan: a `regression` tier for saturated tasks, draft-prompt
 synthesis and fixture export for harvested candidates, and confirmation by
