@@ -71,6 +71,65 @@ So the harvester's output is raw material for curation, not finished tasks. That
 is an honest and useful result, but it means slice F is **not complete**: the
 step from candidate to task is missing.
 
+## Export: from candidate to verified task
+
+`ocbench harvest --export <dir> --index N` now writes a task scaffold and
+**checks the honesty property itself** rather than claiming it:
+
+- `fixture/` — the repository before the candidate's first commit, **with the
+  test files the work added or changed at their final content**. That is what
+  makes the task fail before the reference is applied.
+- `evaluator/reference/<path>` — the changed non-test files at their final
+  content.
+- `prompt.md` — the raw material, with the recorded turn, the session title and
+  the commit subjects clearly marked as the answer a human must keep out of the
+  prompt.
+- `task.yaml` — a scaffold whose command validator is inferred from the fixture's
+  manifest.
+
+Export then copies the fixture to a temporary directory, runs the validator,
+applies the reference, and runs it again. Two candidates harvested from real
+history pass:
+
+```
+Wrote a task scaffold to /tmp/harvested/measure-the-run-to-run-noise-floor-and-the-detec-9e25b2b
+Checked: go test ./... fails on the fixture and passes with the reference, which is
+the property every task is held to.
+```
+
+```
+Wrote a task scaffold to /tmp/harvested/keep-the-dashboard-within-its-content-security-p-db41716
+Checked: go test ./... fails on the fixture and passes with the reference, which is
+the property every task is held to.
+```
+
+### The check earns its place
+
+A third candidate — *"do it and also add suites specifically to test agentic
+workflows"* — was exported and **failed the check**:
+
+```
+Check FAILED: the fixture passes untouched, so the task cannot show anything
+```
+
+The change added a benchmark suite, so no changed path looked like a test file
+and nothing landed in the fixture; `go test ./...` passed before and after. The
+tool refused to call that a task. Without the check the scaffold would have
+looked identical to the two that work.
+
+This is the general shape of the limitation: **the inferred validator is a guess
+and is often wrong.** It is right when a candidate added a test that the fixture
+can then carry, and wrong for a change whose effect `go test ./...` does not
+observe. Export reports which it was.
+
+### Remaining gaps
+
+- The fixture is the **whole repository**, not the package the work touched. A
+  real task should be trimmed; the export does not do that yet.
+- The prompt still needs a human. Export says so and shows what to work from, but
+  it does not synthesise a goal.
+- No candidate has been run through `ocbench run`; only the honesty check has.
+
 ## What that step requires
 
 A draft prompt has to be **synthesised** from the turn plus its context, then
@@ -112,7 +171,7 @@ one is a deliberate human decision rather than something the tool can do.
 
 ## Not done
 
-- **No harvested task exists yet.** Draft-prompt synthesis and fixture export are
-  both missing, so nothing has been proven fail-before/pass-after.
+- **Two harvested tasks are proven honest**, but their prompts are still raw
+  material and their fixtures are whole repositories.
 - **The corpus has still not been re-run** under the Slice C fingerprint.
 - **Slice G** — confirmation by replication — is not started.

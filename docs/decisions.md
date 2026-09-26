@@ -324,3 +324,19 @@ reasoning and what it costs if the call was wrong. The design itself is
   a project, not a task, but the tool will not silently decide that for you: the
   caps default to off and the listing shows the size so the choice is visible.
   *Cost if wrong:* the default listing is dominated by unusable candidates.
+
+- **A harvested scaffold is verified before it is offered.** Export copies the
+  fixture to a temporary directory, runs the task's validator, applies the
+  reference and runs it again; a task that passes untouched or still fails with
+  its own reference is reported as such. Without the check a broken scaffold
+  looks exactly like a working one. *Cost if wrong:* exporting runs the test
+  command twice, which costs seconds.
+- **The fixture carries the tests the work added.** That is what makes the task
+  fail before the change and pass after it, and it is why a candidate that
+  changed no test file usually cannot become a task. *Cost if wrong:* a change
+  whose effect the test command does not observe is proposed and then fails
+  verification.
+- **`OCBENCH_HONESTY_SUITES` overrides the honesty test's root.** A task built
+  from private code must be verifiable without that code entering the public
+  repository. *Cost if wrong:* verifying a harvested suite needs one environment
+  variable rather than a plain `go test`.

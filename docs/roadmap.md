@@ -168,8 +168,16 @@ Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-v
   **The prompts are the problem, not the linkage:** most user turns are
   conversational continuations ("yes do that i follow your recommendation", "do
   it then move on to task 5"), so the raw text is not a standalone task
-  statement. Draft-prompt synthesis and fixture export are still missing, so no
-  harvested task has been proven fail-before/pass-after yet. Evidence:
+  statement.
+- **`ocbench harvest --export --index N`** — writes a candidate as a task
+  scaffold and *checks the honesty property itself*: the fixture carries the
+  tests the work added, so the task fails before the reference is applied and
+  passes after it. Two candidates harvested from real history pass that check; a
+  third failed it and the tool said so rather than calling it a task. The prompt
+  still needs a human, and the fixture is currently the whole repository rather
+  than the package the work touched.
+
+  Evidence:
   [2026-09-26-harvesting-real-history.md](evidence/2026-09-26-harvesting-real-history.md).
 
 Remaining from the plan: a `regression` tier for saturated tasks, draft-prompt
