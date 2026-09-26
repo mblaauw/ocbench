@@ -156,8 +156,23 @@ Done so far:
 
 Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-validity.md).
 
-Remaining from the plan: a `regression` tier for saturated tasks, harvesting
-tasks from real session history (F), and confirmation by replication (G).
+- **`ocbench harvest`** — proposes candidate tasks from real OpenCode history:
+  each candidate pairs one user turn with the commits that landed before the next
+  substantive instruction, because that pair is what a task needs. The session
+  database is opened read-only and nothing is written. Size caps
+  (`--max-commits`, `--max-files`, `--max-lines`) drop turns too large to be one
+  task.
+
+  Against the real history it found 15 candidates from 2 repositories (11
+  touching a test file), or 5 once capped at 3 commits / 15 files / 1500 lines.
+  **The prompts are the problem, not the linkage:** most user turns are
+  conversational continuations ("yes do that i follow your recommendation", "do
+  it then move on to task 5"), so the raw text is not a standalone task
+  statement. See the evidence record for what that implies.
+
+Remaining from the plan: a `regression` tier for saturated tasks, draft-prompt
+synthesis and fixture export for harvested candidates, and confirmation by
+replication (G).
 
 ## Unscheduled review items
 

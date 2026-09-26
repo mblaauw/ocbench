@@ -301,3 +301,26 @@ reasoning and what it costs if the call was wrong. The design itself is
   `"cache":{"write":0,…}`, so the field is present and always zero. The harness
   parses it correctly; the provider does not populate it. *Cost if wrong:* cache
   write economics cannot be measured on this OpenCode version at all.
+
+## Harvesting tasks from real work
+
+- **A harvested task is a user turn paired with the commits that landed in its
+  window.** That pair is what a task needs: the request, and the change that
+  answered it. The window ends at the next substantive instruction, so an
+  acknowledgement like "thanks" does not split a work unit in two. *Cost if
+  wrong:* a long turn that produced several commits is proposed as one task.
+- **Acknowledgements are not tasks.** A turn shorter than `--min-prompt` is
+  dropped rather than paired with whatever commit happened to land beside it,
+  which would produce a task whose prompt does not describe the work. *Cost if
+  wrong:* a terse but real instruction is skipped.
+- **Only top-level sessions are harvested.** A subagent session has no user turn
+  of its own and would duplicate its parent's work. *Cost if wrong:* the work
+  done by subagents is represented only through its parent.
+- **The harvester proposes and never publishes.** A harvested task is built from
+  private code, so the command only lists what it found and writes nothing; the
+  session database is opened read-only. *Cost if wrong:* curating a task is
+  manual work the tool does not do for you.
+- **Size caps are opt-in.** A turn that produced 39 commits across 2219 files is
+  a project, not a task, but the tool will not silently decide that for you: the
+  caps default to off and the listing shows the size so the choice is visible.
+  *Cost if wrong:* the default listing is dominated by unusable candidates.
