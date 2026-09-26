@@ -37,6 +37,8 @@ func newHarvestCmd(d Deps) *cobra.Command {
 		maxCommits int
 		maxFiles   int
 		maxLines   int
+		exportDir  string
+		index      int
 		asJSON     bool
 	)
 	cmd := &cobra.Command{
@@ -73,7 +75,18 @@ func newHarvestCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return renderHarvest(cmd.OutOrStdout(), dbPath, candidates, asJSON)
+			if exportDir == "" {
+				return renderHarvest(cmd.OutOrStdout(), dbPath, candidates, asJSON)
+			}
+			if index < 1 || index > len(candidates) {
+				return &UsageError{Err: fmt.Errorf(
+					"--index must be between 1 and %d, got %d", len(candidates), index)}
+			}
+			written, verification, err := harvest.Export(cmd.Context(), candidates[index-1], exportDir)
+			if err != nil {
+				return err
+			}
+			return renderExport(cmd.OutOrStdout(), written, candidates[index-1], verification)
 		},
 	}
 	cmd.Flags().StringVar(&dbPath, "db", "", "OpenCode session database (default config paths)")
@@ -87,8 +100,40 @@ func newHarvestCmd(d Deps) *cobra.Command {
 		"drop candidates touching more files than this (0 for no cap)")
 	cmd.Flags().IntVar(&maxLines, "max-lines", 0,
 		"drop candidates changing more lines than this (0 for no cap)")
+	cmd.Flags().StringVar(&exportDir, "export", "",
+		"write candidate --index as a task scaffold under this directory")
+	cmd.Flags().IntVar(&index, "index", 0, "which candidate to export, counting from 1")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON")
 	return cmd
+}
+
+// renderExport explains what was written and, just as importantly, what is
+// still missing: a harvested task is a scaffold, not a finished task.
+func renderExport(w io.Writer, dir string, c harvest.Candidate, v harvest.Verification) error {
+	fmt.Fprintf(w, "Wrote a task scaffold to %s\n\n", dir)
+	switch {
+	case v.OK():
+		fmt.Fprintf(w, "Checked: %s fails on the fixture and passes with the reference, which is\n",
+			strings.Join(v.Command, " "))
+		fmt.Fprintln(w, "the property every task is held to.")
+	case !v.Checked:
+		fmt.Fprintln(w, "Not checked: the scaffold has no runnable command validator, so nothing")
+		fmt.Fprintln(w, "was proven. Write one before running the task.")
+	default:
+		fmt.Fprintf(w, "Check FAILED: %s\n", v.Detail)
+		fmt.Fprintln(w, "The task is written, but it is not honest yet: fix it before using it.")
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "It is NOT finished. Before running it:")
+	fmt.Fprintln(w, "  1. Rewrite prompt.md as a standalone instruction. The recorded user turn was")
+	fmt.Fprintf(w, "     %q,\n", excerpt(c.Prompt, 48))
+	fmt.Fprintln(w, "     which is a continuation of a conversation and states no goal on its own.")
+	fmt.Fprintln(w, "  2. Confirm the validator in task.yaml, and add a diff validator if the change")
+	fmt.Fprintln(w, "     must stay inside particular files.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "It is built from private code: move it into a suite only if you are content for")
+	fmt.Fprintln(w, "that code to live where the suite lives.")
+	return nil
 }
 
 // renderHarvest writes the human or JSON candidate listing.

@@ -36,9 +36,16 @@ func TestEveryTaskFailsUntouchedAndPassesWithItsReference(t *testing.T) {
 
 // discoverSuites lists every suite under ../../suites, so a new suite is
 // covered by the honesty rule the moment it exists.
+//
+// OCBENCH_HONESTY_SUITES overrides the root, which is how a harvested suite
+// built from private code is verified without that code entering the repository.
 func discoverSuites(t *testing.T) []string {
 	t.Helper()
-	entries, err := os.ReadDir("../../suites")
+	root := os.Getenv("OCBENCH_HONESTY_SUITES")
+	if root == "" {
+		root = "../../suites"
+	}
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatalf("read suites dir: %v", err)
 	}
@@ -47,7 +54,7 @@ func discoverSuites(t *testing.T) []string {
 		if !e.IsDir() {
 			continue
 		}
-		out = append(out, filepath.Join("../../suites", e.Name()))
+		out = append(out, filepath.Join(root, e.Name()))
 	}
 	if len(out) == 0 {
 		t.Fatal("no suites found under ../../suites")
