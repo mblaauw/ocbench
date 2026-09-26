@@ -66,7 +66,12 @@ func checkTaskHonesty(t *testing.T, task *Task) {
 	t.Helper()
 
 	dir := t.TempDir()
-	if _, err := copyFS(task.Fixture, dir); err != nil {
+	// The fixture is copied verbatim: only evaluator/tests carries the .hidden
+	// convention, and stripping it anywhere else would un-hide a file the task
+	// never meant to reveal. A fixture that contains .hidden files of its own —
+	// which happens when the harvested repository is ocbench itself — would
+	// otherwise gain runnable tests that nothing can satisfy.
+	if _, err := copyFSVerbatim(task.Fixture, dir); err != nil {
 		t.Fatalf("copy fixture: %v", err)
 	}
 
@@ -203,6 +208,41 @@ func syntheticDiff(reference []string, dir string) []byte {
 
 // copyFS writes every regular file in src under dst, returning the relative
 // paths it wrote. A nil src is a no-op.
+// copyFSVerbatim copies a tree without applying the .hidden convention. It is
+// what a fixture needs; hidden tests and references use copyFS, which strips the
+// suffix because that is how those files are stored.
+func copyFSVerbatim(src fs.FS, dst string) ([]string, error) {
+	if src == nil {
+		return nil, nil
+	}
+	var written []string
+	err := fs.WalkDir(src, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		data, err := fs.ReadFile(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, filepath.FromSlash(p))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, data, 0o644); err != nil {
+			return err
+		}
+		written = append(written, p)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return written, nil
+}
+
 func copyFS(src fs.FS, dst string) ([]string, error) {
 	if src == nil {
 		return nil, nil
