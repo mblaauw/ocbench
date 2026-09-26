@@ -226,3 +226,49 @@ their fixtures, so nothing else changed.
 
 The export's own `Verify` had reported the task as honest, correctly: it never
 stripped the suffix. The two checks disagreeing is what surfaced the bug.
+
+## Rewriting the prompt, and what it did
+
+The harvested task's prompt was rewritten from the recorded turn (*"do it and
+continue B, then do C and then do D and then do E"*) into a standalone statement:
+implement the statistics and the variance read model that two test files
+describe, so `go test ./...` passes. The task still passed the honesty check, and
+was then run.
+
+| Prompt | Outcome | Duration | Tokens | Tools |
+|---|---|---|---|---|
+| the recorded turn, verbatim | **passed** | 2m26s | 781,456 | 38 |
+| rewritten as a specification | **timeout** | 15m26s | 3,043,794 | 54 |
+
+Both are in the store. Three findings, in order of importance.
+
+**1. The prompt is a larger lever than most configuration parameters.** The same
+task, the same fixture and the same model produced a pass in 2m26s or a timeout
+at 15m26s depending only on how the request was phrased — a 4x difference in
+tokens and a pass/fail flip. Nothing in the current harness measures this,
+because the prompt is part of the task rather than part of the configuration
+under test. For anyone tuning a setup, it is the strongest signal in the data.
+
+**2. The harvested task is too large for the default timeout.** 3.0M tokens and
+926 seconds against a 900-second limit. The size caps that admitted it — 3
+commits, 15 files, 1500 lines — did not predict that: **line count is a poor
+proxy for effort.** The real work behind this candidate was four slices of a long
+session, not one sitting. A tractability filter would need to be based on the
+reference's own cost, which is only knowable after running it once.
+
+**3. The fixture is the whole repository, and `vendor/` is in it.** 139 MB, most
+of it vendored dependencies the agent has no reason to read but may well explore.
+Excluding paths is now possible (`--exclude`), but on a Go module it is
+build-sensitive: excluding `web/` or `suites/` breaks `go test ./...` because
+`internal/web` and `internal/cli` import them, and `Verify` refuses the result.
+Excluding `docs/` is safe and verified. **The check is what makes trimming usable
+at all** — an unsafe trim produces a task that silently cannot be solved.
+
+### What this implies for the corpus
+
+The two harvested runs are the only real-work data points that exist, and they
+already show the shape of the problem: an order of magnitude more expensive than
+the synthetic corpus, extremely sensitive to prompt phrasing, and large enough to
+exceed a default timeout. A useful tuning corpus needs tasks cut down to one
+sitting — which means harvesting a *slice* of a turn's work rather than the whole
+turn, and that is not implemented.

@@ -177,9 +177,18 @@ Evidence: [2026-09-26-measurement-validity.md](evidence/2026-09-26-measurement-v
   still needs a human, and the fixture is currently the whole repository rather
   than the package the work touched.
 
-  A harvested task was then run for real and passed — **781,456 tokens, 38 tool
-  calls, 2m26s**, against 58k tokens and 19s for the synthetic corpus. Real work
-  costs an order of magnitude more than the tasks currently used to tune for it.
+  A harvested task was then run for real, twice, with different prompt phrasings:
+
+  | Prompt | Outcome | Duration | Tokens |
+  |---|---|---|---|
+  | the recorded turn, verbatim | passed | 2m26s | 781,456 |
+  | rewritten as a specification | **timeout** | 15m26s | 3,043,794 |
+
+  **The prompt is a larger lever than most configuration parameters** — the same
+  task, fixture and model flipped between a pass and a timeout on phrasing alone.
+  The task is also too large for a default timeout, and the line-count size caps
+  did not predict that. `--exclude` now trims a fixture, but on a Go module it is
+  build-sensitive and the verification check is what makes it safe.
 
   Evidence:
   [2026-09-26-harvesting-real-history.md](evidence/2026-09-26-harvesting-real-history.md).
