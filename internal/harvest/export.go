@@ -3,6 +3,7 @@ package harvest
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -11,6 +12,18 @@ import (
 	"strings"
 	"unicode"
 )
+
+// ExportOptions controls an export.
+type ExportOptions struct {
+	// Dir is where the task directory is written.
+	Dir string
+	// Exclude drops paths from the fixture. A pattern matches a repository
+	// path, or a directory and everything under it, so "suites" removes the
+	// whole tree. It is how a fixture is cut down to the part of a repository
+	// the task is actually about: the default is the entire tree, which for a
+	// large repository buries the task in unrelated code the agent then reads.
+	Exclude []string
+}
 
 // Export writes one candidate as a task scaffold under dir.
 //
@@ -33,7 +46,8 @@ import (
 // The prompt is NOT finished — a harvested user turn is usually a conversational
 // continuation, so a human has to state the goal. Export returns the task
 // directory it wrote and what the check found.
-func Export(ctx context.Context, c Candidate, dir string) (string, Verification, error) {
+func Export(ctx context.Context, c Candidate, opts ExportOptions) (string, Verification, error) {
+	dir := opts.Dir
 	if len(c.Commits) == 0 {
 		return "", Verification{}, fmt.Errorf("harvest: candidate has no commits")
 	}
@@ -69,6 +83,9 @@ func Export(ctx context.Context, c Candidate, dir string) (string, Verification,
 		return "", Verification{}, err
 	}
 	if err := archiveTo(ctx, c.Repo, parent, fixture); err != nil {
+		return "", Verification{}, err
+	}
+	if err := applyExcludes(fixture, opts.Exclude); err != nil {
 		return "", Verification{}, err
 	}
 
@@ -117,6 +134,63 @@ func Export(ctx context.Context, c Candidate, dir string) (string, Verification,
 		return dest, Verification{}, err
 	}
 	return dest, verification, nil
+}
+
+// applyExcludes removes matching paths from an extracted fixture. A pattern
+// matches a path exactly, or matches one of its ancestor directories, so a
+// single name removes a whole tree.
+func applyExcludes(root string, patterns []string) error {
+	if len(patterns) == 0 {
+		return nil
+	}
+	var doomed []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if excluded(rel, patterns) {
+			doomed = append(doomed, p)
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	// Deepest first, so removing a directory does not invalidate a later path.
+	sort.Sort(sort.Reverse(sort.StringSlice(doomed)))
+	for _, p := range doomed {
+		if err := os.RemoveAll(p); err != nil {
+			return fmt.Errorf("harvest: exclude %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
+// excluded reports whether a repository-relative path matches any pattern,
+// directly or through one of its parent directories.
+func excluded(rel string, patterns []string) bool {
+	slashed := filepath.ToSlash(rel)
+	for _, pattern := range patterns {
+		if ok, _ := path.Match(pattern, slashed); ok {
+			return true
+		}
+		for dir := path.Dir(slashed); dir != "." && dir != "/"; dir = path.Dir(dir) {
+			if ok, _ := path.Match(pattern, dir); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // taskIDFor builds a stable, filesystem-safe task id from the candidate.

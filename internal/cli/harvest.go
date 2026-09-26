@@ -38,6 +38,7 @@ func newHarvestCmd(d Deps) *cobra.Command {
 		maxFiles   int
 		maxLines   int
 		exportDir  string
+		excludes   []string
 		index      int
 		asJSON     bool
 	)
@@ -82,7 +83,9 @@ func newHarvestCmd(d Deps) *cobra.Command {
 				return &UsageError{Err: fmt.Errorf(
 					"--index must be between 1 and %d, got %d", len(candidates), index)}
 			}
-			written, verification, err := harvest.Export(cmd.Context(), candidates[index-1], exportDir)
+			written, verification, err := harvest.Export(cmd.Context(), candidates[index-1], harvest.ExportOptions{
+				Dir: exportDir, Exclude: excludes,
+			})
 			if err != nil {
 				return err
 			}
@@ -102,6 +105,8 @@ func newHarvestCmd(d Deps) *cobra.Command {
 		"drop candidates changing more lines than this (0 for no cap)")
 	cmd.Flags().StringVar(&exportDir, "export", "",
 		"write candidate --index as a task scaffold under this directory")
+	cmd.Flags().StringArrayVar(&excludes, "exclude", nil,
+		"drop this path (or tree) from the exported fixture; repeatable")
 	cmd.Flags().IntVar(&index, "index", 0, "which candidate to export, counting from 1")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output JSON")
 	return cmd

@@ -95,7 +95,7 @@ func TestExportWritesATaskThatFailsThenPasses(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	taskDir, verification, err := harvest.Export(context.Background(), got[0], dest)
+	taskDir, verification, err := harvest.Export(context.Background(), got[0], harvest.ExportOptions{Dir: dest})
 	if err != nil {
 		t.Fatalf("Export: %v", err)
 	}
@@ -247,11 +247,77 @@ func TestExportRefusesACandidateWithoutAStartingState(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("candidates = %d, want 1", len(got))
 	}
-	_, _, err = harvest.Export(context.Background(), got[0], t.TempDir())
+	_, _, err = harvest.Export(context.Background(), got[0], harvest.ExportOptions{Dir: t.TempDir()})
 	if err == nil {
 		t.Fatal("Export accepted a root commit, want an error naming the missing parent")
 	}
 	if !strings.Contains(err.Error(), "no starting state") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+// A fixture is cut down to the part of the repository the task is about; the
+// whole tree buries the task in unrelated code the agent then reads.
+func TestExportExcludesPathsFromTheFixture(t *testing.T) {
+	repo := exportRepo(t)
+	// A tree the task has nothing to do with, and a file inside it.
+	if err := os.MkdirAll(filepath.Join(repo, "unrelated", "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "unrelated", "deep", "noise.go"), []byte("package noise\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAll(t, repo, time.Date(2026, 3, 1, 11, 56, 0, 0, time.UTC), "chore: add unrelated tree")
+
+	base := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	db := openTestDB(t)
+	seedProject(t, db, "p1", repo, "sample")
+	seedSession(t, db, "s1", "p1", "", repo, "Calculator work", base)
+	seedTurn(t, db, "s1", "m1", base, "Please implement the addition function properly.")
+	seedAssistant(t, db, "s1", "a1", base.Add(30*time.Minute))
+
+	got, err := harvest.Candidates(context.Background(), harvest.Options{DBPath: dbPath(t, db)})
+	if err != nil {
+		t.Fatalf("Candidates: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("candidates = %d, want 1", len(got))
+	}
+
+	taskDir, verification, err := harvest.Export(context.Background(), got[0], harvest.ExportOptions{
+		Dir: t.TempDir(), Exclude: []string{"unrelated"},
+	})
+	if err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(taskDir, "fixture", "unrelated")); err == nil {
+		t.Error("the excluded tree is still in the fixture")
+	}
+	// The parts the task needs are untouched, and it is still honest.
+	for _, rel := range []string{"go.mod", "calc.go", "calc_test.go"} {
+		if _, err := os.Stat(filepath.Join(taskDir, "fixture", rel)); err != nil {
+			t.Errorf("exclude removed %s: %v", rel, err)
+		}
+	}
+	if !verification.OK() {
+		t.Errorf("excluding broke the task: %+v", verification)
+	}
+}
+
+// commitAll stages and commits everything in dir at a given time.
+func commitAll(t *testing.T, dir string, at time.Time, subject string) {
+	t.Helper()
+	stamp := at.Format(time.RFC3339)
+	env := append(os.Environ(),
+		"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+		"GIT_AUTHOR_DATE="+stamp, "GIT_COMMITTER_DATE="+stamp)
+	for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", subject}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
 	}
 }
