@@ -118,7 +118,7 @@ func Export(ctx context.Context, c Candidate, opts ExportOptions) (string, Verif
 		}
 	}
 
-	command := inferTestCommand(fixture)
+	command := inferTestCommand(fixture, changed)
 	if err := os.WriteFile(filepath.Join(dest, "task.yaml"),
 		[]byte(taskScaffold(taskID, c, command)), 0o644); err != nil {
 		return "", Verification{}, err
@@ -310,13 +310,22 @@ func showFile(ctx context.Context, repo, rev, path string) ([]byte, error) {
 // inferTestCommand guesses how to run a repository's tests from its manifest.
 // It returns "" when nothing recognisable is present, and the caller says so
 // rather than inventing a command that would silently pass.
-func inferTestCommand(root string) []string {
+//
+// changed is the set of paths the work touched. Where the toolchain allows it
+// the command is scoped to those paths rather than to the whole repository: a
+// repo-wide command fails on parts of the tree the change never touched, which
+// produces a task that cannot be solved and a prompt describing somebody else's
+// failure.
+func inferTestCommand(root string, changed []string) []string {
 	exists := func(name string) bool {
 		_, err := os.Stat(filepath.Join(root, name))
 		return err == nil
 	}
 	switch {
 	case exists("go.mod"):
+		if pkgs := goPackages(root, changed); len(pkgs) > 0 {
+			return append([]string{"go", "test"}, pkgs...)
+		}
 		return []string{"go", "test", "./..."}
 	case exists("package.json"):
 		return []string{"npm", "test"}
@@ -328,12 +337,66 @@ func inferTestCommand(root string) []string {
 	return nil
 }
 
+// goPackages names the Go packages a change touched, as arguments to `go test`.
+//
+// A directory qualifies when it holds at least one .go file in the fixture:
+// naming a directory that has none would make the command fail for a reason
+// unrelated to the task. An empty result means nothing usable was found, and the
+// caller falls back to the whole module.
+func goPackages(root string, changed []string) []string {
+	seen := map[string]bool{}
+	for _, p := range changed {
+		dir := path.Dir(filepath.ToSlash(p))
+		if dir == "/" || strings.HasPrefix(dir, "..") {
+			continue
+		}
+		// The root package is "." to `go test`, not "./.".
+		pkg := "./" + dir
+		if dir == "." {
+			pkg = "."
+		}
+		if !hasGoFile(filepath.Join(root, filepath.FromSlash(dir))) {
+			continue
+		}
+		seen[pkg] = true
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(seen))
+	for pkg := range seen {
+		out = append(out, pkg)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// hasGoFile reports whether a directory holds at least one Go source file.
+func hasGoFile(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+	return false
+}
+
 // short abbreviates a commit hash for messages.
 func short(hash string) string {
 	if len(hash) > 7 {
 		return hash[:7]
 	}
 	return hash
+}
+
+// InferTestCommandForTest exposes the validator inference so its scoping can be
+// pinned by a test.
+func InferTestCommandForTest(root string, changed []string) []string {
+	return inferTestCommand(root, changed)
 }
 
 // PromptForTest exposes the prompt builder so each verification outcome's

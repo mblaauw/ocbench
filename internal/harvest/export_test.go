@@ -146,13 +146,14 @@ func TestExportWritesATaskThatFailsThenPasses(t *testing.T) {
 		t.Error("the test was put in the reference; it belongs in the fixture")
 	}
 
-	// The inferred validator names the fixture's own test command.
+	// The inferred validator is scoped to the packages the work touched, which
+	// for this fixture is the root package.
 	task, err := os.ReadFile(filepath.Join(taskDir, "task.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(task), `"go", "test", "./..."`) {
-		t.Errorf("task.yaml did not infer the Go test command:\n%s", task)
+	if !strings.Contains(string(task), `"go", "test", "."`) {
+		t.Errorf("task.yaml did not infer a scoped Go test command:\n%s", task)
 	}
 	if !strings.Contains(string(task), "tags: [harvested]") {
 		t.Errorf("task.yaml does not mark itself harvested:\n%s", task)
@@ -391,5 +392,51 @@ func TestPromptStatesTheActualVerificationOutcome(t *testing.T) {
 			}
 			_ = dir
 		})
+	}
+}
+
+// A repo-wide validator fails on parts of the tree the change never touched,
+// which produces a task that cannot be solved and a prompt describing somebody
+// else's failure. The command is scoped to what the work touched.
+func TestExportScopesTheValidatorToTheChange(t *testing.T) {
+	dir := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module sample\n\ngo 1.21\n")
+	write("main.go", "package main\n\nfunc main() {}\n")
+	write("internal/stats/power.go", "package stats\n")
+	write("internal/stats/power_test.go", "package stats\n")
+	write("internal/store/store.go", "package store\n")
+	write("docs/notes.md", "# notes\n")
+
+	got := harvest.InferTestCommandForTest(dir, []string{
+		"internal/stats/power.go",
+		"internal/stats/power_test.go",
+		"docs/notes.md", // not a Go directory: naming it would fail the command
+	})
+	want := []string{"go", "test", "./internal/stats"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("command = %v, want %v", got, want)
+	}
+
+	// A root-level package is "." rather than "./.".
+	got = harvest.InferTestCommandForTest(dir, []string{"main.go"})
+	if strings.Join(got, " ") != "go test ." {
+		t.Errorf("root package command = %v, want [go test .]", got)
+	}
+
+	// Nothing usable in the change: fall back to the whole module rather than
+	// emitting a command that tests nothing.
+	got = harvest.InferTestCommandForTest(dir, []string{"docs/notes.md"})
+	if strings.Join(got, " ") != "go test ./..." {
+		t.Errorf("fallback command = %v, want [go test ./...]", got)
 	}
 }
