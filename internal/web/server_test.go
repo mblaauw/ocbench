@@ -591,7 +591,8 @@ func TestArchitecturePageRendersAgentsTreeAndCapturedText(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"Subagent tree", "Agents", "Instructions", "Skills", "Fingerprint",
+		"Primary agent", "Subagents via task", "Diff against", "Skills", "MCP servers", "Fingerprint",
+		"Subagent tree", "Agents", "Instructions",
 		"build", "explore", "architect", // the agents
 		"You are the build agent.", // captured agent prompt
 		// The apostrophe is escaped by html/template, so assert on a
@@ -659,6 +660,55 @@ func TestArchitecturePageComparesTwoProfiles(t *testing.T) {
 	plain := get(t, web.NewHandler(st), "/arch/hash-b").Body.String()
 	if strings.Contains(plain, "Changes vs") {
 		t.Errorf("comparison rendered without ?against")
+	}
+}
+
+// The architecture summary reports measured per-agent usage, and matches a
+// configured agent name against the sanitised metric key the runner writes
+// ("code-reviewer" → agent.code_reviewer.*).
+func TestArchitectureSummaryShowsMeasuredAgentUsage(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	seedProfile(t, st, "profile-usage", "hash-usage", []store.ComponentRow{
+		{Kind: "primary", Name: "primary", Hash: "h0", CanonicalJSON: `{"default_agent":"build"}`},
+		{Kind: "agent", Name: "build", Hash: "h1", CanonicalJSON: `{"mode":"primary","model":"m","tools":{"task":true}}`},
+		{Kind: "agent", Name: "code-reviewer", Hash: "h2", CanonicalJSON: `{"mode":"subagent","model":"m"}`},
+	})
+	exit := 0
+	dur := int64(1000)
+	if err := st.InsertRun(ctx, store.RunRow{
+		ID: "run-usage", ProfileID: "profile-usage", ProfileHash: "hash-usage",
+		SuiteName: "core", SuiteVersion: "1", SuiteHash: "suite-hash",
+		TaskID: "task-one", TaskVersion: "1", FixtureSHA: "fixture",
+		OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", Model: "m", Agent: "build",
+		Status: "passed", ExitCode: &exit, StartedAt: "2026-01-01T00:00:00Z",
+		FinishedAt: "2026-01-01T00:00:01Z", DurationMS: &dur, ArtifactsDir: "/runs/run-usage",
+	}); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if err := st.InsertRunMetrics(ctx, "run-usage", map[string]float64{
+		"agent.build.messages": 10, "agent.build.tokens_total": 800,
+		"agent.code_reviewer.messages": 4, "agent.code_reviewer.tokens_total": 200,
+	}); err != nil {
+		t.Fatalf("metrics: %v", err)
+	}
+
+	body := get(t, web.NewHandler(st), "/arch/hash-usage").Body.String()
+	for _, want := range []string{
+		"Primary agent", "Subagents via task",
+		"code-reviewer",          // the configured name
+		"4.0× / run",             // sanitised subagent matched its metrics
+		"80% of measured tokens", // primary token share
+		"20%",                    // subagent token share
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("architecture summary missing %q", want)
+		}
+	}
+	// A profile with no measured runs must not invent a usage figure.
+	seedArchProfile(t, st, "hash-nomeasured")
+	if body := get(t, web.NewHandler(st), "/arch/hash-nomeasured").Body.String(); strings.Contains(body, "× / run") {
+		t.Errorf("unmeasured profile rendered a per-run usage figure")
 	}
 }
 

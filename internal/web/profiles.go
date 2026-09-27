@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mbl/ocbench/internal/evaluation"
 	"mbl/ocbench/internal/history"
 	"mbl/ocbench/internal/profile"
 )
@@ -48,6 +49,12 @@ type agentRow struct {
 	TaskRules   []string
 	Options     []optionRow
 	Primary     bool
+	// Usage fields are aggregated from stored runs for the prototype-style
+	// summary cards. They remain blank when this profile has no measured usage.
+	MessagesPerRun string
+	TokenShare     string
+	TokenPercent   int
+	HasUsage       bool
 }
 
 // optionRow is one model option set on an agent.
@@ -100,6 +107,7 @@ type profilePageView struct {
 	Summary        string
 	ComponentCount int
 	RunCount       int
+	Snapshot       string
 
 	// Stats is the strip across the top: score, pass rate, cost and tokens, with
 	// deltas when another profile is selected to compare against.
@@ -239,6 +247,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		ComponentCount: len(p.Components),
 		Components:     componentRowViews(comps),
 		RunCount:       h.runCountsByProfile(r)[row.ProfileHash],
+		Snapshot:       stampText(row.CreatedAt),
 	}
 	page.PageTitle = view.Summary()
 	page.Sub = fmt.Sprintf("Profile %s · OpenCode %s · %d components · %d runs",
@@ -255,6 +264,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		page.CapturesAvailable = true
 	}
 	page.Primary, page.Agents, page.Subagents = agentRows(view, set)
+	h.addProfileUsage(r, page.Hash, page.Primary, page.Subagents)
 	page.Edges = edgeRows(view)
 	page.Tree = treeGroups(page.Edges)
 	page.Stats = h.archStats(r, row.ProfileHash, "")
@@ -290,11 +300,80 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	render(w, profileTmpl, page)
 }
 
+// addProfileUsage attaches measured per-agent messages/run and token share to
+// the compact architecture summary. It derives everything from stored run
+// metrics and leaves the cards explicitly unmeasured when those metrics are
+// absent. Agent metric keys are sanitised the way the runner writes them, so a
+// configured name like "code-reviewer" still matches its usage.
+func (h *handler) addProfileUsage(r *http.Request, hash string, primary *agentRow, subs []agentRow) {
+	runs, err := h.store.ListRunsByProfile(r.Context(), hash)
+	if err != nil || len(runs) == 0 {
+		return
+	}
+	type usage struct {
+		messages int
+		tokens   float64
+	}
+	byName := map[string]*usage{}
+	totalTokens := 0.0
+	measuredRuns := 0
+	for _, run := range runs {
+		rows, err := h.store.GetRunMetrics(r.Context(), run.ID)
+		if err != nil {
+			continue
+		}
+		metrics := make(map[string]float64, len(rows))
+		for _, m := range rows {
+			if m.ValueNum != nil {
+				metrics[m.Name] = *m.ValueNum
+			}
+		}
+		usages := history.AgentUsages(metrics)
+		if len(usages) == 0 {
+			continue
+		}
+		measuredRuns++
+		for _, u := range usages {
+			current := byName[u.Name]
+			if current == nil {
+				current = &usage{}
+				byName[u.Name] = current
+			}
+			current.messages += u.Messages
+			current.tokens += u.Tokens
+			totalTokens += u.Tokens
+		}
+	}
+	if measuredRuns == 0 {
+		return
+	}
+	decorate := func(agent *agentRow) {
+		if agent == nil {
+			return
+		}
+		// The stored key is the sanitised name, not the configured one.
+		u := byName[evaluation.SanitizeName(agent.Name)]
+		if u == nil {
+			return
+		}
+		agent.HasUsage = true
+		agent.MessagesPerRun = fmt.Sprintf("%.1f", float64(u.messages)/float64(measuredRuns))
+		if totalTokens > 0 {
+			agent.TokenPercent = int(u.tokens/totalTokens*100 + 0.5)
+			agent.TokenShare = fmt.Sprintf("%d%%", agent.TokenPercent)
+		}
+	}
+	decorate(primary)
+	for i := range subs {
+		decorate(&subs[i])
+	}
+}
+
 // profileCompareChips links the other profiles this one can be compared with.
 func (h *handler) profileCompareChips(r *http.Request, hash string) []filterChip {
 	against := r.URL.Query().Get("against")
 	out := []filterChip{{
-		Label: "no comparison", Href: "/arch/" + hash, Current: against == "",
+		Label: "Nothing", Value: "", Href: "/arch/" + hash, Current: against == "",
 	}}
 	rows, err := h.store.ListProfiles(r.Context())
 	if err != nil {
@@ -305,12 +384,22 @@ func (h *handler) profileCompareChips(r *http.Request, hash string) []filterChip
 			continue
 		}
 		out = append(out, filterChip{
-			Label:   "vs " + shortHash(row.ProfileHash),
+			Label: shortHash(row.ProfileHash), Value: row.ProfileHash,
 			Href:    "/arch/" + hash + "?against=" + row.ProfileHash,
 			Current: against == row.ProfileHash,
 		})
 	}
 	return out
+}
+
+// stampText renders an RFC3339 stamp as "YYYY-MM-DD HH:MM", the precision the
+// prototype shows for a profile snapshot. shortDate drops the time, which would
+// make two snapshots on the same day look identical.
+func stampText(stamp string) string {
+	if len(stamp) >= 16 {
+		return stamp[:10] + " " + stamp[11:16]
+	}
+	return stamp
 }
 
 // captureDir is where the capture files for a profile hash live. It is empty

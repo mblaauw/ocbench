@@ -489,6 +489,33 @@ details.detail[open] summary { margin-bottom: 10px; }
 .arch-stat .v .good { color: var(--good); font-size: 12px; }
 .arch-stat .v .bad { color: var(--bad); font-size: 12px; }
 
+/* The architecture summary mirrors the prototype's three-column explanation:
+   primary configuration, measured subagent usage, and attached resources. */
+.architecture-summary {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 28px; padding: 22px;
+}
+.architecture-column { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.architecture-column > .label, .summary-head .label, .permission-summary .label, .resource-summary .label {
+  font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink3);
+}
+.architecture-agent { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); background: var(--panel2); }
+.architecture-agent.primary { border-color: var(--accent); }
+.architecture-agent .agent-head .name { font-size: 16px; }
+.permission-summary { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; }
+.permission-row { display: flex; justify-content: space-between; gap: 8px; color: var(--ink2); }
+.summary-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.summary-head .muted { font-size: 11px; }
+.summary-branches { display: flex; flex-direction: column; gap: 10px; padding-left: 18px; border-left: 2px solid var(--line); }
+.summary-branches .architecture-agent { position: relative; }
+.summary-branches .architecture-agent::before { content: ""; position: absolute; left: -18px; top: 22px; width: 16px; height: 2px; background: var(--line); }
+.usage-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; font-size: 12px; color: var(--ink2); }
+.usage-row .share { margin: 0; }
+.resource-summary { gap: 18px; }
+.resource-summary > div { display: flex; flex-direction: column; gap: 8px; }
+.summary-list { display: flex; flex-direction: column; gap: 6px; }
+.summary-list > div { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; }
+
 /* The verdict box: the prototype states the leader's lead and the evidence
    behind it in a bordered callout rather than a tag. */
 .verdict {
@@ -526,6 +553,7 @@ details.detail[open] summary { margin-bottom: 10px; }
   .nav a { flex: 0 0 auto; white-space: nowrap; }
   .main { padding: 20px 16px 48px; }
   .hero-main .stats, .arch-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .architecture-summary { grid-template-columns: minmax(0, 1fr); }
   .hero-split { grid-template-columns: minmax(0, 1fr); }
   .hero-main, .hero-diff { min-width: 0; padding: 20px 24px; }
   .who-name .name { overflow-wrap: anywhere; }

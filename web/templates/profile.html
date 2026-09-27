@@ -1,8 +1,6 @@
 {{define "content"}}
 <div class="filters">
-  <div class="scope">
-    {{range .CompareChips}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
-  </div>
+  <form class="profile-filter" method="get" action="/arch/{{.Hash}}"><label>Diff against <select name="against">{{range .CompareChips}}<option value="{{.Value}}"{{if .Current}} selected{{end}}>{{.Label}}</option>{{end}}</select></label><button type="submit">Apply</button></form>
   <span class="muted">{{.ComponentCount}} components</span>
 </div>
 
@@ -39,6 +37,50 @@
   {{end}}
 </div>
 {{end}}
+
+<section class="card architecture-summary">
+  <div class="architecture-column primary-summary">
+    <div class="label">Primary agent</div>
+    {{with .Primary}}
+    <div class="architecture-agent primary">
+      <div class="agent-head"><span class="name">{{.Name}}</span><span class="tag">primary</span></div>
+      <div class="dim">{{.Model}} {{.Variant}}</div>
+      <div class="chips"><span class="tag">variant {{if .Variant}}{{.Variant}}{{else}}default{{end}}</span>{{if .HasUsage}}<span class="tag">{{.TokenShare}} of measured tokens</span>{{end}}</div>
+      <div class="permission-summary">
+        <div class="label">Permissions</div>
+        {{range .Permissions}}<div class="permission-row"><span>{{.Permission}} {{.Pattern}}</span><span class="{{if eq .Action "allow"}}good{{else if eq .Action "deny"}}bad{{else}}warn{{end}}">{{.Action}}</span></div>{{else}}<span class="muted">No captured permission rules.</span>{{end}}
+      </div>
+    </div>
+    {{else}}<div class="empty small">No primary agent is configured.</div>{{end}}
+  </div>
+
+  <div class="architecture-column">
+    <div class="summary-head"><span class="label">Subagents via task</span><span class="muted">messages / run · token share</span></div>
+    {{if .Subagents}}
+    <div class="summary-branches">
+      {{range .Subagents}}
+      <div class="architecture-agent">
+        <div class="agent-head"><span class="name">{{.Name}}</span><span class="tag">{{if .HasUsage}}{{.MessagesPerRun}}× / run{{else}}configured{{end}}</span></div>
+        <div class="dim">{{.Model}} {{.Variant}}</div>
+        {{if .HasUsage}}<div class="usage-row"><span>{{.MessagesPerRun}}×</span><svg class="share" viewBox="0 0 100 6" preserveAspectRatio="none" aria-label="{{.TokenShare}} of measured tokens"><rect class="track" x="0" y="0" width="100" height="6"></rect><rect class="fill" x="0" y="0" width="{{.TokenPercent}}" height="6"></rect></svg><span>{{.TokenShare}}</span></div>{{end}}
+        {{if .Tools}}<div class="chips">{{range .Tools}}<span class="tag">{{.}}</span>{{end}}</div>{{end}}
+      </div>
+      {{end}}
+    </div>
+    {{else}}<div class="empty small">No subagents — the primary agent does all the work.</div>{{end}}
+  </div>
+
+  <div class="architecture-column resource-summary">
+    <div><div class="label">Skills</div><div class="summary-list">{{range .Skills}}<div><span>{{.Name}}</span><span class="tag">skill</span></div>{{else}}<span class="muted">None configured</span>{{end}}</div></div>
+    <div><div class="label">MCP servers</div><div class="summary-list">{{range .MCP}}<div><span>{{.Name}}</span><span class="tag">mcp</span></div>{{else}}<span class="muted">None configured</span>{{end}}</div></div>
+    <div class="fingerprint">
+      <div class="label">Fingerprint</div>
+      <div class="row"><span>profile</span><b class="hash">{{.ShortHash}}</b></div>
+      <div class="row"><span>snapshot</span><b>{{.Snapshot}}</b></div>
+      <div class="row"><span>components</span><b>{{.ComponentCount}}</b></div>
+    </div>
+  </div>
+</section>
 
 {{if .CaptureNote}}<div class="notice">{{.CaptureNote}}</div>{{end}}
 
