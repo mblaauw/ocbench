@@ -231,12 +231,13 @@ reasoning and what it costs if the call was wrong. The design itself is
   exclusions are derived when a page is rendered, so a new statistic applies to
   runs recorded last month. *Cost if wrong:* a page render does more work than a
   stored figure would.
-- **The dashboard is inert: no JavaScript, no CDN, no inline style.** The
-  content security policy is `default-src 'none'` with only `style-src`,
-  `font-src` and `img-src` limited to self, and it is enforced by the browser
-  rather than by convention — which is why dynamic geometry is SVG attributes and
-  the fonts are vendored. *Cost if wrong:* no interactive filtering, and a chart
-  that needs a computed pixel must use an attribute or a discrete class.
+- **The dashboard has one first-party progressive-enhancement script, no CDN or
+  inline code.** `dashboard.js` provides the Terminal light/dark toggle,
+  client-side leaderboard sorting, row navigation and select filters; it is
+  served from `self` under `script-src 'self'`. The policy still uses
+  `default-src 'none'` and forbids inline script, eval and external origins.
+  *Cost if wrong:* the HTML remains usable without the script, but browser-side
+  enhancements require a small amount of carefully constrained JavaScript.
 - **The profile is rendered in full; run raw material never is.** Instruction
   text, permission rules, skills and MCP servers are the configuration under
   test and belong on screen. Events, sessions, worktrees and untracked files are

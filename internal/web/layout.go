@@ -50,6 +50,7 @@ func navItems(current string, hints map[string]string) []navItem {
 		{"overview", "Overview", "/"},
 		{"runs", "Runs", "/runs"},
 		{"profiles", "Architecture", "/arch"},
+		{"suites", "Suites & tasks", "/suites"},
 	}
 	out := make([]navItem, 0, len(order))
 	for _, o := range order {

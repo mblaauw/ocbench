@@ -3,9 +3,11 @@
   <div class="scope">
     {{range .StatusChips}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
   </div>
-  <div class="scope">
-    {{range .ProfileChips}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
-  </div>
+  <form class="profile-filter" method="get" action="/runs">
+    {{if .StatusValue}}<input type="hidden" name="status" value="{{.StatusValue}}">{{end}}
+    <label>Profile <select name="profile" data-profile-filter>{{range .ProfileChips}}<option value="{{.Value}}"{{if .Current}} selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <noscript><button type="submit">Apply</button></noscript>
+  </form>
   <span class="muted">{{.Shown}} of {{.Total}} shown</span>
 </div>
 
@@ -23,21 +25,18 @@
       </thead>
       <tbody>
         {{range .Rows}}
-        <tr{{if .Selected}} class="selected"{{end}}>
+        <tr{{if .Selected}} class="selected"{{end}} data-href="{{.Href}}" tabindex="0">
           <td><a class="status" href="{{.Href}}"><span class="dot {{.StatusClass}}"></span>{{.Status}}</a></td>
           <td>
             <span class="ellipsis" title="{{.TaskID}}">{{.TaskID}}</span>
-            <div class="muted">{{.Suite}}</div>
+            <div class="muted">{{.Suite}} · {{.ID}}</div>
           </td>
           <td class="dim">{{.ProfileShort}}</td>
           <td class="metric">{{.ScoreText}}</td>
           <td class="metric">{{.DurationText}}</td>
           <td class="metric">{{.TokensText}}</td>
           <td class="metric"><span class="good">+{{.Added}}</span> <span class="bad">−{{.Removed}}</span></td>
-          <td>
-            <div class="metric">{{.StartedTime}}</div>
-            <div class="muted">{{.StartedDate}}</div>
-          </td>
+          <td class="metric muted">{{.StartedDate}} {{.StartedTime}}</td>
         </tr>
         {{end}}
       </tbody>
@@ -58,7 +57,7 @@
     <div class="stats-grid">
       {{range .Stats}}<div class="cell"><span class="k">{{.Label}}</span><span class="v">{{.Value}}</span></div>{{end}}
     </div>
-    <div class="aside-note">Cache writes are not reported by OpenCode, so no cache-write figure is shown.</div>
+    <div class="aside-note">Cache hit {{.CacheHit}} · Cache writes are not reported by OpenCode, so no cache-write figure is shown.</div>
 
     <div class="aside-block">
       <div class="label">Validators</div>

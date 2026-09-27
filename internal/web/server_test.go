@@ -113,6 +113,9 @@ func TestSecurityHeaders(t *testing.T) {
 	if !strings.Contains(csp, "default-src 'none'") {
 		t.Errorf("CSP %q is not restrictive (want default-src 'none')", csp)
 	}
+	if !strings.Contains(csp, "script-src 'self'") || strings.Contains(csp, "unsafe-") {
+		t.Errorf("CSP %q must permit only same-origin scripts", csp)
+	}
 }
 
 func TestEscapesDatabaseContent(t *testing.T) {
@@ -155,6 +158,76 @@ func TestServesEmbeddedCSS(t *testing.T) {
 	}
 	if rec.Body.Len() == 0 {
 		t.Fatal("embedded CSS is empty")
+	}
+}
+
+// The dashboard's small progressive-enhancement layer is first-party. It must
+// be served from the embedded asset tree rather than from a CDN.
+func TestServesEmbeddedDashboardScript(t *testing.T) {
+	st := testStore(t)
+	rec := get(t, web.NewHandler(st), "/static/dashboard.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "javascript") {
+		t.Fatalf("Content-Type = %q, want JavaScript", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "data-theme") {
+		t.Error("dashboard script does not contain theme enhancement")
+	}
+}
+
+func TestSuitesPageEmptyState(t *testing.T) {
+	st := testStore(t)
+	rec := get(t, web.NewHandler(st), "/suites")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "No suite definitions have been persisted yet") {
+		t.Errorf("expected an honest empty catalogue, got:\n%s", rec.Body.String())
+	}
+}
+
+// theme.js is loaded synchronously from the head so a stored light mode applies
+// before the first paint.
+func TestServesEmbeddedThemeScript(t *testing.T) {
+	st := testStore(t)
+	rec := get(t, web.NewHandler(st), "/static/theme.js")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "ocbench-theme") {
+		t.Error("theme script does not read the stored colour mode")
+	}
+	body := get(t, web.NewHandler(st), "/").Body.String()
+	if !strings.Contains(body, `src="/static/theme.js"`) {
+		t.Error("base template does not load the theme bootstrap in the head")
+	}
+}
+
+func TestSuitesPageListsPersistedTasks(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	if err := st.InsertSuite(ctx, store.SuiteRow{
+		ID: "suite-id", Name: "core", Version: "1", Hash: "suite-hash", Source: "embedded",
+		ManifestJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("insert suite: %v", err)
+	}
+	if err := st.InsertTask(ctx, store.TaskRow{
+		SuiteID: "suite-id", TaskID: "task-one", Version: "1", Name: "One task",
+		TagsJSON: `["debugging"]`, TimeoutSeconds: 300, FixtureSHA: "fixture", SpecJSON: `{}`,
+	}); err != nil {
+		t.Fatalf("insert task: %v", err)
+	}
+	rec := get(t, web.NewHandler(st), "/suites")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	for _, want := range []string{"Catalogue", "core", "task-one", "debugging"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("suites body missing %q", want)
+		}
 	}
 }
 

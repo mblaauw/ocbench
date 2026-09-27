@@ -14,7 +14,7 @@
 <section class="card hero-split">
   <div class="hero-main">
     <div class="who">
-      <span class="eyebrow"><span class="pip"></span>Best weighted score · {{$leader.Runs}} runs</span>
+       <span class="eyebrow"><span class="pip"></span>Best weighted score · all suites</span>
       <div class="who-row">
         <div class="who-name">
           <span class="name">{{$leader.Label}}</span>
@@ -27,10 +27,10 @@
       </div>
     </div>
     <div class="stats">
-      <div class="stat"><span class="k">Score</span><span class="v">{{$leader.ScoreText}}</span><span class="n">weighted task score, 0–1</span></div>
-      <div class="stat"><span class="k">Pass rate</span><span class="v">{{$leader.PassText}}</span><span class="n">runs with every validator green</span></div>
-      <div class="stat"><span class="k">Cost / solved</span><span class="v">{{$leader.CostText}}</span><span class="n">per run that passed</span></div>
-      <div class="stat"><span class="k">Median tokens</span><span class="v">{{$leader.TokensText}}</span><span class="n">per task</span></div>
+       <div class="stat"><span class="k">Pass rate</span><span class="v">{{$leader.PassText}}</span><span class="n">runs with every validator green</span></div>
+       <div class="stat"><span class="k">Cost / solved</span><span class="v">{{$leader.CostText}}</span><span class="n">per run that passed</span></div>
+       <div class="stat"><span class="k">Median tokens</span><span class="v">{{$leader.TokensText}}</span><span class="n">per task</span></div>
+       <div class="stat"><span class="k">Runs</span><span class="v">{{$leader.Runs}}</span><span class="n">in this scope</span></div>
     </div>
     {{with .Significance}}
     <div class="verdict {{.Class}}">
@@ -44,21 +44,19 @@
   <div class="hero-diff">
     <div class="hero-diff-head">
       <span class="eyebrow">What differs from #2</span>
-      {{if gt (len .Rows) 1}}<span class="dim">{{(index .Rows 1).ShortHash}}</span>{{end}}
+       {{if gt (len .Rows) 1}}<span class="dim">{{(index .Rows 1).Label}}</span>{{end}}
     </div>
     <div class="diff">
     {{range .HeroDiff}}
     <div class="row">
       <span class="sign {{.Class}}">{{.Sign}}</span>
-      <span class="change">{{.Change}}</span>
-      <span class="what">{{.What}}</span>
+       <span class="what"><span class="change">{{.Change}}</span> {{.What}}</span>
       <span class="note">{{.Note}}</span>
     </div>
     {{end}}
     {{if .HeroDiffMore}}
     <div class="row">
       <span class="sign"></span>
-      <span class="change"></span>
       <span class="what muted">… and {{.HeroDiffMore}} more</span>
       <span class="note"></span>
     </div>
@@ -71,27 +69,24 @@
 
 <section class="card">
   <header>
-    <h2>Leaderboard</h2>
-    <span class="muted">score, pass rate, cost per solved task and tokens</span>
+    <div><h2>Profile leaderboard</h2><span class="muted">config + agent architecture, ranked by weighted score</span></div>
+    <span class="muted">bar scale 0.50 → 1.00 · whisker = 95% CI</span>
   </header>
-  <table class="board">
+  <table class="board" data-sortable>
     <thead>
       <tr>
         <th class="rank">#</th>
-        <th>Architecture</th>
-        <th class="score">Score</th>
-        <th>Pass</th>
-        <th>Cost / solved</th>
-        <th>Tokens</th>
-        <th>Cache hit</th>
-        <th>Tasks</th>
-        <th>Resolves</th>
-        <th>Runs</th>
+        <th>Profile</th>
+        <th class="score"><button type="button" data-sort-key="score">Score</button></th>
+        <th><button type="button" data-sort-key="pass">Pass</button></th>
+        <th><button type="button" data-sort-key="cost">Cost / solved</button></th>
+        <th><button type="button" data-sort-key="tokens">Tokens</button></th>
+        <th><button type="button" data-sort-key="runs">N</button></th>
       </tr>
     </thead>
     <tbody>
       {{range .Rows}}
-      <tr>
+      <tr data-score="{{.ScoreText}}" data-pass="{{.PassText}}" data-cost="{{.CostSort}}" data-tokens="{{.TokensSort}}" data-runs="{{.Runs}}" data-href="{{.Href}}" tabindex="0">
         <td class="rank{{if .First}} first{{end}}">{{.Rank}}</td>
         <td>
           <div>{{.Label}}</div>
@@ -112,9 +107,6 @@
         <td class="metric">{{.PassText}}</td>
         <td class="metric">{{.CostText}}</td>
         <td class="metric">{{.TokensText}}</td>
-        <td class="metric">{{.CacheText}}</td>
-        <td class="metric{{if not .EvidenceStrong}} thin{{end}}">{{.TaskCount}}</td>
-        <td class="metric{{if not .EvidenceStrong}} thin{{end}}">{{.MDEText}}</td>
         <td class="metric">{{.Runs}}</td>
       </tr>
       {{end}}

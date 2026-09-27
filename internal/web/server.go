@@ -23,10 +23,9 @@ import (
 // defaultListLimit bounds the `/` page. It mirrors the CLI history default.
 const defaultListLimit = 20
 
-// contentSecurityPolicy is deliberately restrictive: no scripts, no external
-// origins, no framing and no form submissions. Styles are the only same-origin
-// resource the dashboard loads.
-const contentSecurityPolicy = "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+// contentSecurityPolicy permits the dashboard's single first-party deferred
+// enhancement script while forbidding inline code, third-party origins and eval.
+const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 // prototypeContentSecurityPolicy governs the design prototype only. It is
 // deliberately weaker than the dashboard's: the prototype is a React
@@ -78,6 +77,7 @@ func NewHandler(st *store.Store, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /compare", h.handleCompare)
 	mux.HandleFunc("GET /arch", h.handleProfiles)
 	mux.HandleFunc("GET /arch/{hash}", h.handleProfile)
+	mux.HandleFunc("GET /suites", h.handleSuites)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
 	// The design prototype, for comparing the dashboard against the canvas it
 	// was built from. It is a development reference, not part of the dashboard.

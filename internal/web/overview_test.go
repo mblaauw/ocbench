@@ -58,7 +58,7 @@ func TestOverviewRendersLeaderboard(t *testing.T) {
 
 	for _, want := range []string{
 		"Which setup scores best?",
-		"Leaderboard",
+		"Profile leaderboard",
 		"Score by suite",
 		"Score vs. cost per solved task",
 		"build · deepseek-v4.1-flash high", // the architecture label
@@ -80,6 +80,37 @@ func TestOverviewRendersLeaderboard(t *testing.T) {
 	// Both suites appear as matrix columns.
 	if !strings.Contains(body, ">core<") || !strings.Contains(body, ">hard<") {
 		t.Error("matrix columns missing")
+	}
+}
+
+// The leaderboard's client-side sort keys must be raw numbers, so the script
+// orders "$0.020" by value and keeps a missing "—" last rather than sorting it
+// as zero.
+func TestOverviewLeaderboardEmitsNumericSortKeys(t *testing.T) {
+	st := testStore(t)
+	seedScoredProfile(t, st, "a", "core", "task-one", 1.0, 1, 0.02)
+
+	body := get(t, web.NewHandler(st), "/").Body.String()
+	if !strings.Contains(body, `data-cost="0.020000"`) {
+		t.Errorf("cost sort key is not a raw number:\n%s", body)
+	}
+	if !strings.Contains(body, `data-tokens="1000"`) {
+		t.Errorf("token sort key is not a raw number")
+	}
+
+	// A profile with no runs has no cost or token value: the keys are empty so
+	// the script treats them as missing.
+	if err := st.InsertProfile(context.Background(), store.ProfileRow{
+		ID: "profile-idle", ProfileHash: "hash-idle", OpenCodeVersion: "1.18.32",
+		OCBenchVersion: "dev", CanonicalJSON: `{"schema":1}`, CreatedAt: "2026-01-02T00:00:00Z",
+	}, []store.ComponentRow{
+		{Kind: "primary", Name: "primary", Hash: "h-primary", CanonicalJSON: `{"default_agent":"build","model":"m"}`},
+	}); err != nil {
+		t.Fatalf("insert idle profile: %v", err)
+	}
+	body = get(t, web.NewHandler(st), "/").Body.String()
+	if !strings.Contains(body, `data-cost="" data-tokens=""`) {
+		t.Errorf("an unscored row must emit empty sort keys")
 	}
 }
 
@@ -112,8 +143,8 @@ func TestOverviewScopeFiltersSuites(t *testing.T) {
 	if !strings.Contains(body, "0.20") {
 		t.Errorf("hard scope should show the 0.20 score:\n%s", body)
 	}
-	if strings.Contains(body, "1.00") {
-		t.Error("hard scope must not include the core profile's score")
+	if strings.Contains(body, `data-score="1.00"`) {
+		t.Error("hard scope must not include the core profile")
 	}
 }
 
@@ -153,14 +184,15 @@ func TestOverviewSecurityHeaders(t *testing.T) {
 	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'none'") {
 		t.Errorf("CSP %q is not restrictive", got)
 	}
-	// No script may be served: the dashboard is server-rendered HTML only.
-	if strings.Contains(rec.Body.String(), "<script") {
-		t.Error("overview must not emit script tags")
+	// The only script is the deferred, same-origin enhancement layer.
+	if !strings.Contains(rec.Body.String(), `src="/static/dashboard.js"`) {
+		t.Error("overview must load the first-party dashboard enhancement")
 	}
 }
 
-// The leaderboard shows the cache hit rate beside the token figure it explains.
-func TestOverviewShowsCacheHitRate(t *testing.T) {
+// The prototype-aligned leaderboard keeps the compact score/pass/cost/tokens/N
+// column set, while cache hit remains available on the selected run detail.
+func TestOverviewUsesPrototypeLeaderboardColumns(t *testing.T) {
 	st := testStore(t)
 	seedScoredProfile(t, st, "cache", "core", "task-a", 1, 1, 0.001)
 	// InsertRunMetrics upserts, so the cache counters can be added to the run
@@ -172,10 +204,10 @@ func TestOverviewShowsCacheHitRate(t *testing.T) {
 	}
 
 	body := get(t, web.NewHandler(st), "/").Body.String()
-	if !strings.Contains(body, "<th>Cache hit</th>") {
-		t.Errorf("no cache hit column")
+	if !strings.Contains(body, "<th>Profile</th>") || !strings.Contains(body, `data-sort-key="runs"`) {
+		t.Errorf("prototype leaderboard columns missing")
 	}
-	if !strings.Contains(body, "80%") {
-		t.Errorf("cache hit rate not rendered")
+	if strings.Contains(body, "<th>Cache hit</th>") {
+		t.Errorf("cache hit must not be a prototype leaderboard column")
 	}
 }

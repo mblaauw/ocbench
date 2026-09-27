@@ -1,5 +1,4 @@
-/* ocbench dashboard — design direction C ("Terminal"), dark only.
-   JetBrains Mono throughout, square corners, no CDN, no JavaScript. */
+/* ocbench dashboard — design direction C ("Terminal"). */
 
 @font-face {
   font-family: "JetBrains Mono";
@@ -37,6 +36,23 @@
   --warn: oklch(0.84 0.13 85);
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --r: 0px;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f3f4ef;
+  --panel: #fbfbf8;
+  --panel2: #ecede6;
+  --ink: #121411;
+  --ink2: #4d544a;
+  --ink3: #7c8478;
+  --line: #dcdfd5;
+  --accent: oklch(0.52 0.14 145);
+  --accent-ink: #fbfbf8;
+  --good: oklch(0.52 0.14 145);
+  --bad: oklch(0.55 0.17 28);
+  --warn: oklch(0.62 0.13 80);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -134,6 +150,15 @@ h3 { font-size: 13px; }
   color: var(--ink3);
 }
 .page-head .sub { color: var(--ink2); font-size: 13px; }
+.head-actions { display: flex; align-items: center; gap: 10px; }
+.mode-toggle, .profile-filter {
+  height: 32px; border: 1px solid var(--line); background: var(--panel); color: var(--ink2);
+  display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; font: 400 12px var(--mono);
+}
+.mode-toggle { cursor: pointer; }
+.mode-toggle > span:first-child { width: 12px; height: 12px; border: 1.5px solid var(--ink2); border-radius: 50%; background: linear-gradient(90deg, var(--ink2) 50%, transparent 50%); }
+.profile-filter select { border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; }
+.profile-filter button { height: 24px; border: 1px solid var(--line); background: var(--panel2); color: var(--ink); font: inherit; cursor: pointer; }
 
 .scope {
   display: inline-flex; padding: 3px; gap: 2px;
@@ -141,7 +166,7 @@ h3 { font-size: 13px; }
 }
 .scope a {
   height: 26px; display: inline-flex; align-items: center;
-  padding: 0 11px; font-size: 12px; color: var(--ink2);
+  padding: 0 9px; font-size: 12px; color: var(--ink2);
 }
 .scope a:hover { text-decoration: none; background: var(--panel2); }
 .scope a[aria-current="true"] {
@@ -164,11 +189,11 @@ h3 { font-size: 13px; }
 /* --------------------------------------------------------------- hero */
 
 .hero-main .stats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px; background: var(--line); border: 1px solid var(--line);
 }
 .hero-main .stat { background: var(--panel); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
-.hero-main .stat .k { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3); }
+.hero-main .stat .k { font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink3); }
 .hero-main .stat .v { font-size: 16px; font-weight: 600; }
 .hero-main .stat .n { font-size: 11px; color: var(--ink3); }
 
@@ -181,7 +206,9 @@ h3 { font-size: 13px; }
   color: var(--ink3); font-weight: 500; white-space: nowrap;
 }
 .board th a { color: inherit; }
+.board th button { border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .board th[aria-sort] a { color: var(--ink); }
+.board th[aria-sort] button { color: var(--ink); }
 .board td { font-size: 13px; vertical-align: middle; }
 .board tr:last-child td { border-bottom: 0; }
 .board .rank { width: 34px; color: var(--ink3); }
@@ -284,9 +311,8 @@ footer.site-footer {
 
 .runs-layout {
   display: grid; gap: 20px; align-items: start;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 560px), 1fr));
 }
-@media (max-width: 1100px) { .runs-layout { grid-template-columns: minmax(0, 1fr); } }
 
 .runs-layout > .card { overflow-x: auto; }
 .runs { width: 100%; border-collapse: collapse; }
@@ -313,10 +339,8 @@ footer.site-footer {
 .aside-head .task { font-size: 17px; font-weight: 600; }
 .aside-head .dim { font-size: 12px; }
 
-/* Four columns over eight cells: the grid is filled exactly, so no empty
-   track shows the gap colour as a block. */
 .stats-grid {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px; background: var(--line); border-bottom: 1px solid var(--line);
 }
 .stats-grid .cell { background: var(--panel); padding: 9px 12px; display: flex; flex-direction: column; gap: 2px; }
@@ -440,6 +464,7 @@ details.detail[open] summary { margin-bottom: 10px; }
 .who { display: flex; flex-direction: column; gap: 12px; }
 .who-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .who-name { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.who-name .dim { overflow-wrap: anywhere; }
 .who-name .name { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
 .headline { display: flex; align-items: baseline; gap: 8px; }
 .headline .big { font-size: 52px; font-weight: 600; line-height: 0.9; letter-spacing: -0.03em; }
@@ -472,3 +497,38 @@ details.detail[open] summary { margin-bottom: 10px; }
 }
 .verdict.good { border-color: var(--good); color: var(--good); }
 .verdict .head { font-weight: 600; }
+
+/* ---------------------------------------------------------------- prototype C parity */
+.board tr[data-href], .runs tr[data-href] { cursor: pointer; }
+.board tr[data-href]:hover, .runs tr[data-href]:hover { background: var(--panel2); }
+.board .rank { width: 34px; }
+.board .score { width: 190px; }
+.card > header > div { display: flex; flex-direction: column; gap: 2px; }
+.hero-main .stat { min-height: 92px; }
+.diff .row { grid-template-columns: 16px minmax(0, 1fr) minmax(120px, 1fr); }
+.diff .row .change { margin-right: 8px; }
+.suite-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; }
+.suite-card { overflow: hidden; }
+.suite-card > header { border-bottom: 1px solid var(--line); }
+.suite-tasks td { vertical-align: top; }
+.task-detail > summary { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(0, 2fr) auto; gap: 10px; cursor: pointer; list-style: none; }
+.task-detail > summary::-webkit-details-marker { display: none; }
+.task-meta { color: var(--ink3); font-size: 11px; white-space: nowrap; }
+.task-body { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 4px; }
+.task-validators { display: grid; gap: 5px; font-size: 12px; }
+
+@media (max-width: 760px) {
+  body { overflow-x: hidden; }
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; gap: 16px; }
+  .env { display: none; }
+  .nav { flex-direction: row; overflow-x: auto; }
+  .nav a { flex: 0 0 auto; white-space: nowrap; }
+  .main { padding: 20px 16px 48px; }
+  .hero-main .stats, .arch-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hero-split { grid-template-columns: minmax(0, 1fr); }
+  .hero-main, .hero-diff { min-width: 0; padding: 20px 24px; }
+  .who-name .name { overflow-wrap: anywhere; }
+  .head-actions { width: 100%; justify-content: flex-start; overflow-x: auto; }
+  .scope, .mode-toggle { flex: 0 0 auto; }
+}

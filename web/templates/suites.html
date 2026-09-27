@@ -1,0 +1,17 @@
+{{define "content"}}
+{{if not .Suites}}
+<section class="card"><div class="empty">No suite definitions have been persisted yet. Run a suite to catalogue its tasks here.</div></section>
+{{else}}
+<div class="suite-grid">
+  {{range .Suites}}
+  <section class="card suite-card">
+    <header><div><h2>{{.Name}}</h2><span class="muted">v{{.Version}} · {{.Source}}</span></div><span class="tag">{{len .Tasks}} tasks</span></header>
+    <table class="runs suite-tasks">
+      <thead><tr><th>Task</th><th>Tags</th><th>Timeout</th></tr></thead>
+      <tbody>{{range .Tasks}}<tr><td colspan="3"><details class="task-detail"><summary><span class="name">{{.ID}}</span><span class="muted">{{.Name}}</span><span class="task-meta">{{.Timeout}}{{if .Difficulty}} · {{.Difficulty}}{{end}}{{if .HiddenTests}} · hidden tests{{end}}</span></summary><div class="task-body"><div class="chips">{{range .Tags}}<span class="tag">{{.}}</span>{{end}}{{range .Capabilities}}<span class="tag">{{.}}</span>{{end}}</div>{{if .ExpectedTokens}}<div class="muted">expected {{.ExpectedTokens}} tokens</div>{{end}}{{if .Validators}}<div class="task-validators">{{range .Validators}}<div><span class="muted">{{.Kind}}</span> {{.Name}} <span class="muted">w{{.Weight}}</span></div>{{end}}</div>{{else}}<span class="muted">Validator metadata will appear for newly persisted suites.</span>{{end}}</div></details></td></tr>{{end}}</tbody>
+    </table>
+  </section>
+  {{end}}
+</div>
+{{end}}
+{{end}}

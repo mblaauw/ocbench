@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}} · ocbench</title>
+<script src="/static/theme.js"></script>
 <link rel="stylesheet" href="/static/site.css">
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 </head>
@@ -33,13 +34,14 @@
         <h1>{{.PageTitle}}</h1>
         <div class="sub">{{.Sub}}</div>
       </div>
-      {{if .ShowScope}}
-      <div class="scope">{{range .Scope}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}</div>
-      {{end}}
+      <div class="head-actions">
+        {{if .ShowScope}}<div class="scope">{{range .Scope}}<a href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}</div>{{end}}
+        <button class="mode-toggle" type="button" data-theme-toggle aria-pressed="false" aria-label="Toggle colour mode"><span aria-hidden="true"></span><span data-theme-label>Dark</span></button>
+      </div>
     </header>
     {{template "content" .}}
-    <footer class="site-footer">ocbench — read-only benchmark dashboard. Statistics are derived from stored runs at read time.</footer>
   </main>
 </div>
+<script defer src="/static/dashboard.js"></script>
 </body>
 </html>{{end}}

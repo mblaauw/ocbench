@@ -34,6 +34,7 @@ type runRow struct {
 // filterChip is one link in the status or profile filter row.
 type filterChip struct {
 	Label   string
+	Value   string
 	Href    string
 	Current bool
 }
@@ -78,6 +79,7 @@ type runAside struct {
 	Status       string
 	StatusClass  string
 	Stats        []statCell
+	CacheHit     string
 	Validators   []validatorRow
 
 	Primary        *agentCard
@@ -93,10 +95,13 @@ type runsPage struct {
 	layout
 	StatusChips  []filterChip
 	ProfileChips []filterChip
-	Rows         []runRow
-	Shown        int
-	Total        int
-	Selected     *runAside
+	// StatusValue is the active status filter, carried by the profile form so
+	// the select still filters without JavaScript.
+	StatusValue string
+	Rows        []runRow
+	Shown       int
+	Total       int
+	Selected    *runAside
 }
 
 // runFilters are the query filters the runs page understands.
@@ -140,6 +145,7 @@ func (h *handler) renderRuns(w http.ResponseWriter, r *http.Request, filters run
 		layout:      h.page(r, "runs", "History", "Runs", "Every run persisted to the store, newest first. Select one for validators and per-agent roll-up."),
 		Total:       len(all),
 		StatusChips: statusChips(filters),
+		StatusValue: filters.status,
 	}
 	page.ProfileChips = profileChips(filters, all)
 
@@ -218,10 +224,10 @@ func profileChips(filters runFilters, runs []history.RunDetail) []filterChip {
 	}
 	sort.Strings(hashes)
 
-	out := []filterChip{{Label: "all profiles", Href: runsHref(filters.status, ""), Current: filters.profile == ""}}
+	out := []filterChip{{Label: "All profiles", Value: "", Href: runsHref(filters.status, ""), Current: filters.profile == ""}}
 	for _, hash := range hashes {
 		out = append(out, filterChip{
-			Label:   shortHash(hash),
+			Label: shortHash(hash), Value: hash,
 			Href:    runsHref(filters.status, hash),
 			Current: filters.profile == hash,
 		})
@@ -298,18 +304,16 @@ func (h *handler) newRunAside(detail history.RunDetail) *runAside {
 	if _, ok := detail.Metrics["score"]; !ok {
 		score = detail.Metrics["success"]
 	}
-	cacheHit := "—"
+	aside.CacheHit = "—"
 	if rate, ok := history.CacheHitRate(detail.Metrics); ok {
-		cacheHit = fmt.Sprintf("%.0f%%", rate*100)
+		aside.CacheHit = fmt.Sprintf("%.0f%%", rate*100)
 	}
 	aside.Stats = []statCell{
 		{"Score", fmt.Sprintf("%.2f", score)},
 		{"Duration", duration},
 		{"Tokens", tokensText(int64(detail.Metrics["tokens_total"]))},
-		{"Cache hit", cacheHit},
 		{"Tools", fmt.Sprintf("%.0f", detail.Metrics["tool_calls_total"])},
 		{"Files", fmt.Sprintf("%.0f", detail.Metrics["files_changed"])},
-		{"Subagents", fmt.Sprintf("%.0f", detail.Metrics["subagent_calls"])},
 		{"Cost", fmt.Sprintf("$%.4f", detail.Metrics["cost"])},
 	}
 

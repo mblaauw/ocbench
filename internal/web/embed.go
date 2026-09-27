@@ -18,6 +18,9 @@ var overviewTmpl = mustParsePage("templates/overview.html")
 // listTmpl renders the `/runs` listing.
 var listTmpl = mustParsePage("templates/runs.html")
 
+// suitesTmpl renders the persisted suite catalogue at `/suites`.
+var suitesTmpl = mustParsePage("templates/suites.html")
+
 // runTmpl, compareTmpl and profileTmpl render the detail views that the
 // dashboard routes task wires up. Parsing them here means a malformed template
 // fails at startup rather than per request.

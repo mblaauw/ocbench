@@ -31,6 +31,14 @@ type TaskRow struct {
 	SpecJSON       string
 }
 
+// SuiteTaskRow is the persisted suite/task metadata used by the read-only
+// dashboard. JSON fields are returned verbatim so callers never reload a suite.
+type SuiteTaskRow struct {
+	SuiteID, SuiteName, SuiteVersion, Source, ManifestJSON, CreatedAt string
+	TaskID, Version, Name, TagsJSON, FixtureSHA, SpecJSON             string
+	TimeoutSeconds                                                    int
+}
+
 // RunRow is one runs row. Empty optional strings are stored as SQL NULL and
 // read back as ""; ExitCode and DurationMS are pointers so "unset" is distinct
 // from zero.
@@ -289,6 +297,34 @@ func (s *Store) InsertTask(ctx context.Context, row TaskRow) error {
 		return fmt.Errorf("insert task %s/%s: %w", row.SuiteID, row.TaskID, err)
 	}
 	return nil
+}
+
+// ListSuiteTasks returns persisted tasks grouped by suite order, including
+// suites that have no runs yet.
+func (s *Store) ListSuiteTasks(ctx context.Context) ([]SuiteTaskRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT s.id, s.name, s.version, s.source, s.manifest_json, s.created_at,
+		       t.task_id, t.version, t.name, t.tags_json, t.timeout_seconds,
+		       t.fixture_sha, t.spec_json
+		FROM suites s JOIN tasks t ON t.suite_id = s.id
+		ORDER BY s.name, s.created_at DESC, t.task_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list suite tasks: %w", err)
+	}
+	defer rows.Close()
+	var out []SuiteTaskRow
+	for rows.Next() {
+		var row SuiteTaskRow
+		if err := rows.Scan(&row.SuiteID, &row.SuiteName, &row.SuiteVersion, &row.Source, &row.ManifestJSON, &row.CreatedAt,
+			&row.TaskID, &row.Version, &row.Name, &row.TagsJSON, &row.TimeoutSeconds, &row.FixtureSHA, &row.SpecJSON); err != nil {
+			return nil, fmt.Errorf("scan suite task: %w", err)
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list suite tasks: %w", err)
+	}
+	return out, nil
 }
 
 // InsertRun writes a run row in one transaction.

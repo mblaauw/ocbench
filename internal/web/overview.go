@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"strconv"
 
 	"mbl/ocbench/internal/history"
 )
@@ -17,7 +18,16 @@ func (h *handler) page(r *http.Request, current, crumb, title, sub string) layou
 			hints["runs"] = fmt.Sprintf("%d", n)
 		}
 		if n, err := h.store.ListProfiles(r.Context()); err == nil {
-			hints["profiles"] = fmt.Sprintf("%d", len(n))
+			hints["overview"] = fmt.Sprintf("%d profiles", len(n))
+		}
+		if tasks, err := h.store.ListSuiteTasks(r.Context()); err == nil {
+			// The catalogue shows one revision per suite name, so the hint
+			// counts names rather than every historical task row.
+			names := make(map[string]bool, len(tasks))
+			for _, t := range tasks {
+				names[t.SuiteName] = true
+			}
+			hints["suites"] = fmt.Sprintf("%d", len(names))
 		}
 	}
 	return layout{
@@ -50,7 +60,12 @@ type leaderRow struct {
 	PassText       string
 	CostText       string
 	TokensText     string
-	Runs           int
+	// CostSort and TokensSort are the raw sort keys for the client-side
+	// leaderboard. They are empty when the value is missing, so the script can
+	// keep "—" rows last instead of sorting them as zero.
+	CostSort   string
+	TokensSort string
+	Runs       int
 	// TaskCount is the sample size behind the score; MDEText is the smallest
 	// difference that sample could resolve. Together they say whether the
 	// ranking means anything.
@@ -264,18 +279,7 @@ func scoredProfiles(profiles []history.ProfileScore) int {
 }
 
 func overviewSub(ov history.OverviewReport) string {
-	scored := 0
-	for _, p := range ov.Profiles {
-		if p.HasRuns {
-			scored++
-		}
-	}
-	sub := fmt.Sprintf("%d profiles · %d scored · %d runs · %d suites",
-		len(ov.Profiles), scored, ov.TotalRuns, len(ov.Suites))
-	if ov.ExcludedRuns > 0 {
-		sub += fmt.Sprintf(" · %d runs excluded (older suite versions)", ov.ExcludedRuns)
-	}
-	return sub
+	return fmt.Sprintf("%d suites · %d profiles · %d runs", len(ov.Suites), len(ov.Profiles), ov.TotalRuns)
 }
 
 func leaderRows(profiles []history.ProfileScore) []leaderRow {
@@ -292,6 +296,8 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 			HasRuns:      p.HasRuns,
 			Runs:         p.Runs,
 			TokensText:   tokensText(p.MedianTokens),
+			CostSort:     "",
+			TokensSort:   "",
 			TaskCount:    p.TaskCount,
 			CacheText:    "—",
 		}
@@ -316,8 +322,12 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 			row.PassText = fmt.Sprintf("%.0f%%", p.PassRate*100)
 			if p.CostPerSolvedOK {
 				row.CostText = fmt.Sprintf("$%.3f", p.CostPerSolved)
+				row.CostSort = strconv.FormatFloat(p.CostPerSolved, 'f', 6, 64)
 			} else {
 				row.CostText = "—"
+			}
+			if p.MedianTokens > 0 {
+				row.TokensSort = strconv.FormatInt(p.MedianTokens, 10)
 			}
 		} else {
 			row.ScoreText = "—"

@@ -663,6 +663,9 @@ func persist(ctx context.Context, st *store.Store, req Request, res Result, base
 	spec, err := canon.JSON(map[string]any{
 		"id": req.Task.ID, "version": req.Task.Version,
 		"spec_hash": req.Task.SpecHash, "fixture_hash": req.Task.FixtureHash,
+		"difficulty": req.Task.Difficulty, "capabilities": req.Task.Capabilities,
+		"expected_tokens": req.Task.ExpectedTokens,
+		"hidden_tests":    req.Task.HiddenTests != nil, "validators": req.Task.Validators,
 	})
 	if err != nil {
 		return err
