@@ -416,3 +416,53 @@ the fixture — naming a directory with none would fail the command for a reason
 unrelated to the task. The module root is `.` to `go test`, not `./.`. An empty
 result falls back to the whole module rather than emitting a command that tests
 nothing. Tests pin all three behaviours.
+
+## A real corpus, assembled and run
+
+Eleven candidates were exported and verified (14 attempted, 11 passed the check,
+3 rejected), assembled into a private suite at
+`~/.local/share/ocbench/suites/harvested/`, and run.
+
+**Nine of eleven runs passed.** One errored, one timed out (the oversized task
+from earlier).
+
+| Task | Status | Duration | Tokens |
+|---|---|---|---|
+| match-answer-validators-against-the-final-text | passed | 173s | 657k |
+| keep-completion-commands-out-of-usage-error | passed | 120s | 676k |
+| allow-no-overlay-arms-and-require-two-arms | passed | 125s | 445k |
+| harden-fixture-hash-guard-pin-sha1-object-format | passed | 97s | 448k |
+| bind-code-review-answer-patterns-to-defects | passed | 88s | 367k |
+| honor-spec-defaults-timeout-and-reject-unknown | passed | 82s | 326k |
+| discriminate-message-level-rollup-and-clamp-duration | passed | 78s | 164k |
+| embed-underscore-prefixed-fixture-files | passed | 56s | 296k |
+| recognize-extended-sqlite-busy-locked-codes | **error** | 61s | 109k |
+| measure-the-run-to-run-noise-floor (verbatim prompt) | passed | 146s | 781k |
+| measure-the-run-to-run-noise-floor (spec prompt) | **timeout** | 926s | 3044k |
+
+### What real work costs
+
+| Suite | Runs | Average tokens | Average duration |
+|---|---|---|---|
+| **harvested (real work)** | 11 | **665k** | **177s** |
+| hard (synthetic) | 3 | 98k | 37s |
+| agentic (synthetic) | 3 | 68k | 19s |
+| standard (synthetic) | 5 | 59k | 18s |
+| core (synthetic) | 2 | 39k | 10s |
+
+**Real work costs 6.8x the hardest synthetic suite in tokens and 4.8x in
+wall-clock.** Every statistic the dashboard reported before this — a $0.003 cost
+per solved task, a ±1% noise floor, a 2% detectable effect — was measured in a
+regime 7 to 17 times cheaper than the work it was meant to predict.
+
+### What the corpus still is not
+
+`ocbench calibrate` now sees 19 tasks: 2 informative, 2 saturated, and **15
+unclassified**, because each harvested task has been run once. The harvested
+tasks all passed, so at n=1 they are neither informative nor saturated — they are
+unmeasured, and they will not discriminate until they have repeats.
+
+So the honest summary: the corpus now contains **real, solvable, expensive
+tasks**, which is what it needed for cost and context tuning. It does not yet
+contain tasks that discriminate *quality*, because everything passes. Those are
+different requirements and the second one is not solved by harvesting more.
