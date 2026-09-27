@@ -136,12 +136,52 @@ type overviewPage struct {
 	TotalRuns    int
 }
 
+// significanceView is the verdict box under the hero. The prototype states it
+// as a bordered callout with a headline and the evidence behind it, rather than
+// as a tag with a sentence.
 type significanceView struct {
 	Distinguishable bool
-	Note            string
-	GapText         string
-	MDEText         string
-	TasksText       string
+	Head            string
+	Body            string
+	// Class is the colour of the border and text: good when the lead is
+	// distinguishable, warn when it is not.
+	Class string
+}
+
+// newSignificanceView states the verdict the way the prototype does: a signed
+// gap over the runner-up, and the evidence behind it.
+func newSignificanceView(sig *history.Significance, rows []leaderRow) *significanceView {
+	sign := "+"
+	gap := sig.Gap
+	if gap < 0 {
+		sign, gap = "−", -gap
+	}
+	verdict := "within noise"
+	if sig.Distinguishable {
+		verdict = "is significant"
+	}
+	v := &significanceView{
+		Distinguishable: sig.Distinguishable,
+		Head:            fmt.Sprintf("%s%.2f over #2 %s", sign, gap, verdict),
+		Class:           "warn",
+	}
+	if sig.Distinguishable {
+		v.Class = "good"
+	}
+	leader, runnerUp := 0, 0
+	if len(rows) > 0 {
+		leader = rows[0].Runs
+	}
+	if len(rows) > 1 {
+		runnerUp = rows[1].Runs
+	}
+	v.Body = fmt.Sprintf("p = %.3f, permutation test, n = %d vs %d", sig.P, leader, runnerUp)
+	if !sig.Distinguishable {
+		v.Body += " — run an experiment with more repeats before acting."
+	} else {
+		v.Body += "."
+	}
+	return v
 }
 
 // mdeText renders a detectable effect, or a dash when the scores did not vary
@@ -206,13 +246,7 @@ func (h *handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if ov.Significance != nil {
-		page.Significance = &significanceView{
-			Distinguishable: ov.Significance.Distinguishable,
-			Note:            ov.Significance.Note,
-			GapText:         fmt.Sprintf("%.2f", ov.Significance.Gap),
-			MDEText:         mdeText(ov.Significance.MDE),
-			TasksText:       fmt.Sprintf("%d", ov.Significance.TasksMax),
-		}
+		page.Significance = newSignificanceView(ov.Significance, page.Rows)
 	}
 	render(w, overviewTmpl, page)
 }

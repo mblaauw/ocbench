@@ -463,3 +463,12 @@ details.detail[open] summary { margin-bottom: 10px; }
 .arch-stat .v { font-size: 20px; font-weight: 500; }
 .arch-stat .v .good { color: var(--good); font-size: 12px; }
 .arch-stat .v .bad { color: var(--bad); font-size: 12px; }
+
+/* The verdict box: the prototype states the leader's lead and the evidence
+   behind it in a bordered callout rather than a tag. */
+.verdict {
+  display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px;
+  padding: 10px 12px; border: 1px solid var(--warn); color: var(--warn);
+}
+.verdict.good { border-color: var(--good); color: var(--good); }
+.verdict .head { font-weight: 600; }

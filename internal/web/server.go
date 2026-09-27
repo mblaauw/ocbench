@@ -28,6 +28,21 @@ const defaultListLimit = 20
 // resource the dashboard loads.
 const contentSecurityPolicy = "default-src 'none'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
+// prototypeContentSecurityPolicy governs the design prototype only. It is
+// deliberately weaker than the dashboard's: the prototype is a React
+// application whose template runtime compiles code with new Function, whose
+// markup is built from inline styles, and whose fonts and React build come from
+// a CDN. None of that is allowed on the dashboard's own pages, and none of it
+// needs to be, because the prototype is a development reference served on
+// loopback.
+const prototypeContentSecurityPolicy = "default-src 'none'; " +
+	"script-src 'self' 'unsafe-eval' 'unsafe-inline' https://unpkg.com; " +
+	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+	"font-src 'self' https://fonts.gstatic.com; " +
+	"img-src 'self' data:; " +
+	"connect-src 'self' https://unpkg.com; " +
+	"base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
 // handler serves the dashboard from an immutable store handle.
 type handler struct {
 	store *store.Store
@@ -64,6 +79,10 @@ func NewHandler(st *store.Store, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /arch", h.handleProfiles)
 	mux.HandleFunc("GET /arch/{hash}", h.handleProfile)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
+	// The design prototype, for comparing the dashboard against the canvas it
+	// was built from. It is a development reference, not part of the dashboard.
+	mux.Handle("GET /prototype/", http.StripPrefix("/prototype/",
+		http.FileServerFS(prototypeFS)))
 	mux.HandleFunc("/", http.NotFound)
 
 	return securityHeaders(dirtyPathGuard(mux))
@@ -117,7 +136,11 @@ func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
+		if strings.HasPrefix(r.URL.Path, "/prototype/") {
+			w.Header().Set("Content-Security-Policy", prototypeContentSecurityPolicy)
+		} else {
+			w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
+		}
 		next.ServeHTTP(w, r)
 	})
 }

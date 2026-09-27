@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500&family=Source+Sans+3:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap">
+<style>
+:root{--bg:#0e1014;--panel:#15181d;--panel2:#1b1f25;--ink:#e8ebef;--ink2:#a0a8b3;--ink3:#6b7380;--line:#262b33;--accent:oklch(0.72 0.13 255);--accent-ink:#0e1014;--good:oklch(0.74 0.13 150);--bad:oklch(0.70 0.15 25);--warn:oklch(0.78 0.12 75);--font:'IBM Plex Sans',system-ui,sans-serif;--display:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--r:6px;--dw:600;--h1:26px;--dls:-0.01em}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+select{font:inherit;color:inherit}
+button{font-family:inherit;color:inherit}
+</style>
+</helmet>
+<div style="{{ rootVars }}">
+<div style="min-height:100vh;display:grid;grid-template-columns:232px minmax(0,1fr);background:var(--bg);color:var(--ink);font-family:var(--font);font-size:14px;line-height:1.45;">
+
+<aside style="position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:28px;padding:22px 16px;border-right:1px solid var(--line);background:var(--panel);">
+  <div style="display:flex;align-items:center;gap:10px;padding:0 6px;">
+    <div style="width:22px;height:22px;border-radius:var(--r);background:var(--accent);display:grid;place-items:center;">
+      <div style="width:8px;height:8px;background:var(--panel);border-radius:1px;"></div>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <span style="font:600 15px/1.1 var(--mono);letter-spacing:-0.01em;">ocbench</span>
+      <span style="font-size:11px;color:var(--ink3);">OpenCode benchmark</span>
+    </div>
+  </div>
+  <nav style="display:flex;flex-direction:column;gap:2px;">
+    <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="4">
+      <button onClick="{{ n.go }}" style="{{ n.style }}">
+        <span>{{ n.label }}</span>
+        <span style="font:400 11px var(--mono);color:var(--ink3);">{{ n.hint }}</span>
+      </button>
+    </sc-for>
+  </nav>
+  <div style="margin-top:auto;display:flex;flex-direction:column;gap:10px;padding:14px 10px;border-top:1px solid var(--line);font-size:12px;color:var(--ink2);">
+    <div style="font:500 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Environment</div>
+    <div style="display:flex;justify-content:space-between;gap:8px;"><span>OpenCode</span><span style="font-family:var(--mono);color:var(--ink);">1.18.32</span></div>
+    <div style="display:flex;justify-content:space-between;gap:8px;"><span>Store</span><span style="font-family:var(--mono);color:var(--ink);">252 runs</span></div>
+    <div style="display:flex;justify-content:space-between;gap:8px;"><span>Doctor</span><span style="display:flex;align-items:center;gap:6px;color:var(--ink);"><span style="width:7px;height:7px;border-radius:50%;background:var(--good);"></span>9/9 ok</span></div>
+    <div style="font:400 11px var(--mono);color:var(--ink3);">read-only · 127.0.0.1:8787</div>
+  </div>
+</aside>
+
+<main style="min-width:0;padding:26px 36px 110px;display:flex;flex-direction:column;gap:24px;">
+  <header style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;">
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">{{ crumb }}</div>
+      <h1 style="margin:0;font-family:var(--display);font-weight:var(--dw);font-size:var(--h1);letter-spacing:var(--dls);line-height:1.15;text-wrap:pretty;">{{ pageTitle }}</h1>
+      <div style="color:var(--ink2);font-size:13px;">{{ pageSub }}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <sc-if value="{{ showScope }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;padding:3px;gap:2px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);">
+          <sc-for list="{{ scopeItems }}" as="s" hint-placeholder-count="5">
+            <button onClick="{{ s.go }}" style="{{ s.style }}">{{ s.label }}</button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <button onClick="{{ toggleMode }}" style="height:32px;padding:0 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink2);">
+        <span style="width:12px;height:12px;border-radius:50%;border:1.5px solid var(--ink2);background:linear-gradient(90deg,var(--ink2) 50%,transparent 50%);"></span>{{ modeLabel }}
+      </button>
+    </div>
+  </header>
+
+  <!-- OVERVIEW -->
+  <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+    <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden;">
+      <div style="padding:24px 26px;display:flex;flex-direction:column;gap:18px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);margin:0 -1px -1px 0;">
+        <div style="display:flex;align-items:center;gap:8px;font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);">
+          <span style="width:6px;height:6px;background:var(--accent);border-radius:50%;"></span>Best weighted score · {{ scopeLabel }}
+        </div>
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:0;">
+            <div style="font-family:var(--display);font-weight:var(--dw);font-size:24px;letter-spacing:var(--dls);line-height:1.2;">{{ leader.name }}</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;font:400 12px var(--mono);color:var(--ink2);">
+              <span>{{ leader.hash }}</span><span style="color:var(--ink3);">·</span><span>{{ leader.arch }}</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px;">
+            <span style="font:600 56px/0.9 var(--mono);letter-spacing:-0.03em;">{{ leader.scoreTxt }}</span>
+            <span style="font:400 13px var(--mono);color:var(--ink3);">±{{ leader.ciTxt }}</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;">
+          <sc-for list="{{ heroStats }}" as="h" hint-placeholder-count="4">
+            <div style="background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:4px;">
+              <span style="font-size:11px;color:var(--ink3);">{{ h.label }}</span>
+              <span style="font:500 17px var(--mono);">{{ h.value }}</span>
+              <span style="font-size:11px;color:var(--ink2);">{{ h.note }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="{{ sigStyle }}">
+          <span style="font-weight:600;">{{ sigHead }}</span>
+          <span>{{ sigBody }}</span>
+        </div>
+      </div>
+      <div style="padding:24px 26px;display:flex;flex-direction:column;gap:14px;background:var(--panel2);">
+        <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;">
+          <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">What differs from #2</div>
+          <span style="font:400 12px var(--mono);color:var(--ink2);">{{ runnerUp.name }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;border-top:1px solid var(--line);">
+          <sc-for list="{{ heroDiff }}" as="d" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:22px minmax(0,1.2fr) minmax(0,1fr);gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);">
+              <span style="{{ d.signStyle }}">{{ d.sign }}</span>
+              <span style="font:400 13px var(--mono);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ d.kind }}/<span style="color:var(--ink);font-weight:500;">{{ d.name }}</span></span>
+              <span style="font-size:12px;color:var(--ink2);text-align:right;overflow-wrap:anywhere;">{{ d.note }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <button onClick="{{ openLeaderArch }}" style="align-self:flex-start;margin-top:auto;height:32px;padding:0 14px;border-radius:var(--r);border:1px solid var(--line);background:var(--panel);cursor:pointer;font-size:12px;color:var(--ink);">Inspect architecture diff →</button>
+      </div>
+    </section>
+
+    <section style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap;">
+        <div style="display:flex;align-items:baseline;gap:12px;">
+          <h2 style="margin:0;font-family:var(--display);font-weight:var(--dw);font-size:16px;">Profile leaderboard</h2>
+          <span style="font-size:12px;color:var(--ink3);">config + agent architecture, ranked by weighted score</span>
+        </div>
+        <span style="font:400 11px var(--mono);color:var(--ink3);">bar scale 0.50 → 1.00 · whisker = 95% CI</span>
+      </div>
+      <div style="overflow-x:auto;">
+        <div style="min-width:880px;">
+          <div style="display:grid;grid-template-columns:44px minmax(220px,2fr) minmax(200px,1.6fr) 90px 100px 90px 70px;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);font:500 11px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);align-items:center;">
+            <span>#</span><span>Profile</span>
+            <sc-for list="{{ sortHeads }}" as="c" hint-placeholder-count="5">
+              <button onClick="{{ c.go }}" style="{{ c.style }}">{{ c.label }}</button>
+            </sc-for>
+          </div>
+          <sc-for list="{{ board }}" as="p" hint-placeholder-count="5">
+            <div onClick="{{ p.open }}" style="display:grid;grid-template-columns:44px minmax(220px,2fr) minmax(200px,1.6fr) 90px 100px 90px 70px;gap:12px;padding:13px 18px;border-bottom:1px solid var(--line);align-items:center;cursor:pointer;" style-hover="background:var(--panel2);">
+              <span style="{{ p.rankStyle }}">{{ p.rank }}</span>
+              <div style="display:flex;flex-direction:column;gap:3px;min-width:0;">
+                <span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ p.name }}</span>
+                <span style="font:400 11px var(--mono);color:var(--ink3);">{{ p.hash }} · {{ p.arch }}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font:600 14px var(--mono);width:40px;">{{ p.scoreTxt }}</span>
+                <div style="position:relative;flex:1;height:8px;background:var(--panel2);border-radius:99px;">
+                  <div style="{{ p.barStyle }}"></div>
+                  <div style="{{ p.ciStyle }}"></div>
+                </div>
+                <span style="{{ p.deltaStyle }}">{{ p.deltaTxt }}</span>
+              </div>
+              <span style="font:400 13px var(--mono);">{{ p.passTxt }}</span>
+              <span style="font:400 13px var(--mono);">{{ p.cpsTxt }}</span>
+              <span style="font:400 13px var(--mono);">{{ p.tokTxt }}</span>
+              <span style="font:400 13px var(--mono);color:var(--ink2);">{{ p.n }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </section>
+
+    <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:20px;">
+      <div style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:18px;display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+          <h2 style="margin:0;font-family:var(--display);font-weight:var(--dw);font-size:16px;">Score by suite</h2>
+          <span style="font-size:12px;color:var(--ink3);">weighted task score, 0–1</span>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(120px,1.4fr) repeat(5,minmax(0,1fr));gap:4px;font:500 11px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);">
+          <span></span><span style="text-align:center;">core</span><span style="text-align:center;">std</span><span style="text-align:center;">hard</span><span style="text-align:center;">agentic</span><span style="text-align:center;color:var(--ink);">all</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <sc-for list="{{ matrix }}" as="m" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:minmax(120px,1.4fr) repeat(5,minmax(0,1fr));gap:4px;align-items:center;">
+              <span style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink2);">{{ m.short }}</span>
+              <sc-for list="{{ m.cells }}" as="c" hint-placeholder-count="5">
+                <div style="{{ c.style }}">{{ c.txt }}</div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-size:12px;color:var(--ink3);">Overall weights each suite by its task count (core 5 · standard 3 · hard 2 · agentic 4).</div>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:18px;display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+          <h2 style="margin:0;font-family:var(--display);font-weight:var(--dw);font-size:16px;">Score vs. cost per solved task</h2>
+          <span style="font-size:12px;color:var(--ink3);">up and left is better</span>
+        </div>
+        <div style="display:grid;grid-template-columns:34px minmax(0,1fr);grid-template-rows:230px 20px;gap:0;">
+          <div style="display:flex;flex-direction:column;justify-content:space-between;font:400 10px var(--mono);color:var(--ink3);padding:0 6px 0 0;text-align:right;"><span>1.00</span><span>0.80</span><span>0.60</span></div>
+          <div style="position:relative;border-left:1px solid var(--line);border-bottom:1px solid var(--line);background:repeating-linear-gradient(0deg,transparent 0,transparent 56.5px,var(--line) 56.5px,var(--line) 57.5px);">
+            <sc-for list="{{ scatter }}" as="s" hint-placeholder-count="5">
+              <div onClick="{{ s.open }}" style="{{ s.style }}">
+                <span style="{{ s.dotStyle }}"></span>
+                <span style="font:500 11px var(--mono);white-space:nowrap;color:var(--ink);background:var(--panel);padding:1px 4px;">{{ s.short }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <span></span>
+          <div style="display:flex;justify-content:space-between;font:400 10px var(--mono);color:var(--ink3);padding-top:6px;"><span>$0.00</span><span>$0.25</span><span>$0.50</span><span>$0.75</span><span>$1.00</span></div>
+        </div>
+      </div>
+    </section>
+  </sc-if>
+
+  <!-- RUNS -->
+  <sc-if value="{{ isRuns }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <div style="display:flex;padding:3px;gap:2px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);">
+        <sc-for list="{{ statusItems }}" as="s" hint-placeholder-count="4">
+          <button onClick="{{ s.go }}" style="{{ s.style }}">{{ s.label }}</button>
+        </sc-for>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);font-size:12px;color:var(--ink3);">Profile
+        <select value="{{ runProfile }}" onChange="{{ onRunProfile }}" style="border:0;background:transparent;font-size:13px;color:var(--ink);outline:none;">
+          <option value="">All profiles</option>
+          <sc-for list="{{ profileOptions }}" as="o" hint-placeholder-count="5"><option value="{{ o.id }}">{{ o.label }}</option></sc-for>
+        </select>
+      </label>
+      <span style="margin-left:auto;font:400 12px var(--mono);color:var(--ink3);">{{ runCount }}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,560px),1fr));gap:20px;align-items:start;">
+      <div style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:auto;">
+        <div style="min-width:760px;">
+          <div style="display:grid;grid-template-columns:86px minmax(150px,1.4fr) minmax(120px,1fr) 60px 64px 60px 70px 82px;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);font:500 11px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);">
+            <span>Status</span><span>Task</span><span>Profile</span><span>Score</span><span>Time</span><span>Tokens</span><span>Diff</span><span>Started</span>
+          </div>
+          <sc-for list="{{ runRows }}" as="r" hint-placeholder-count="10">
+            <div onClick="{{ r.select }}" style="{{ r.rowStyle }}" style-hover="background:var(--panel2);">
+              <span style="display:flex;align-items:center;gap:7px;font:500 12px var(--mono);"><span style="{{ r.dotStyle }}"></span>{{ r.status }}</span>
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+                <span style="font:500 13px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ r.task }}</span>
+                <span style="font-size:11px;color:var(--ink3);">{{ r.suite }} · {{ r.id }}</span>
+              </div>
+              <span style="font-size:12px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ r.profile }}</span>
+              <span style="font:500 13px var(--mono);">{{ r.scoreTxt }}</span>
+              <span style="font:400 12px var(--mono);color:var(--ink2);">{{ r.durTxt }}</span>
+              <span style="font:400 12px var(--mono);color:var(--ink2);">{{ r.tokTxt }}</span>
+              <span style="font:400 12px var(--mono);"><span style="color:var(--good);">+{{ r.add }}</span> <span style="color:var(--bad);">−{{ r.del }}</span></span>
+              <span style="font:400 12px var(--mono);color:var(--ink3);">{{ r.started }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <aside style="position:sticky;top:20px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);display:flex;flex-direction:column;">
+        <div style="padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <span style="{{ sel.badgeStyle }}">{{ sel.status }}</span>
+            <span style="font:400 11px var(--mono);color:var(--ink3);">run {{ sel.id }}</span>
+          </div>
+          <div style="font:600 17px var(--mono);">{{ sel.task }}</div>
+          <div style="font-size:12px;color:var(--ink2);">{{ sel.suite }} · {{ sel.profile }}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border-bottom:1px solid var(--line);">
+          <sc-for list="{{ sel.stats }}" as="s" hint-placeholder-count="6">
+            <div style="background:var(--panel);padding:10px 14px;display:flex;flex-direction:column;gap:2px;">
+              <span style="font-size:11px;color:var(--ink3);">{{ s.label }}</span>
+              <span style="font:500 14px var(--mono);">{{ s.value }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--line);">
+          <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Validators</div>
+          <sc-for list="{{ sel.vals }}" as="v" hint-placeholder-count="3">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <div style="display:grid;grid-template-columns:14px 64px minmax(0,1fr) auto;gap:8px;align-items:center;">
+                <span style="{{ v.dotStyle }}"></span>
+                <span style="font:400 11px var(--mono);color:var(--ink3);">{{ v.kind }}</span>
+                <span style="font:400 12px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ v.name }}</span>
+                <span style="font:400 11px var(--mono);color:var(--ink3);">w{{ v.w }}</span>
+              </div>
+              <sc-if value="{{ v.failed }}" hint-placeholder-val="{{ false }}">
+                <pre style="margin:0 0 0 22px;padding:8px 10px;background:var(--panel2);border-radius:var(--r);font:400 11px/1.5 var(--mono);color:var(--ink2);white-space:pre-wrap;">{{ v.excerpt }}</pre>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Per-agent roll-up</div>
+            <span style="font:400 11px var(--mono);color:var(--ink3);">tokens</span>
+          </div>
+          <sc-for list="{{ sel.agents }}" as="a" hint-placeholder-count="2">
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) 110px 44px;gap:10px;align-items:center;">
+              <span style="font:400 12px var(--mono);"><span style="color:var(--ink3);">{{ a.indent }}</span>{{ a.name }} <span style="color:var(--ink3);">{{ a.calls }}</span></span>
+              <div style="height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;"><div style="{{ a.barStyle }}"></div></div>
+              <span style="font:400 12px var(--mono);text-align:right;">{{ a.tok }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </aside>
+    </div>
+  </sc-if>
+
+  <!-- ARCHITECTURE -->
+  <sc-if value="{{ isArch }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <sc-for list="{{ archChips }}" as="c" hint-placeholder-count="5">
+        <button onClick="{{ c.go }}" style="{{ c.style }}">
+          <span style="font:600 11px var(--mono);color:var(--ink3);">#{{ c.rank }}</span>{{ c.short }}<span style="font:400 11px var(--mono);color:var(--ink3);">{{ c.scoreTxt }}</span>
+        </button>
+      </sc-for>
+      <label style="margin-left:auto;display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);font-size:12px;color:var(--ink3);">Diff against
+        <select value="{{ cmpId }}" onChange="{{ onCmp }}" style="border:0;background:transparent;font-size:13px;color:var(--ink);outline:none;">
+          <option value="">Nothing</option>
+          <sc-for list="{{ cmpOptions }}" as="o" hint-placeholder-count="4"><option value="{{ o.id }}">{{ o.label }}</option></sc-for>
+        </select>
+      </label>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;">
+      <sc-for list="{{ archStats }}" as="s" hint-placeholder-count="4">
+        <div style="background:var(--panel);padding:14px 16px;display:flex;flex-direction:column;gap:4px;">
+          <span style="font-size:11px;color:var(--ink3);">{{ s.label }}</span>
+          <div style="display:flex;align-items:baseline;gap:8px;">
+            <span style="font:500 20px var(--mono);">{{ s.value }}</span>
+            <span style="{{ s.deltaStyle }}">{{ s.delta }}</span>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <section style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:28px;align-items:start;">
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0;">
+        <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Primary agent</div>
+        <div style="{{ arch.primaryStyle }}">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span style="font:600 16px var(--mono);">{{ arch.primary.name }}</span>
+            <span style="{{ arch.primary.tagStyle }}">{{ arch.primary.tag }}</span>
+          </div>
+          <div style="font:400 12px var(--mono);color:var(--ink2);">{{ arch.primary.model }}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <span style="font:400 11px var(--mono);padding:2px 6px;border:1px solid var(--line);border-radius:var(--r);color:var(--ink2);">variant {{ arch.primary.variant }}</span>
+            <span style="font:400 11px var(--mono);padding:2px 6px;border:1px solid var(--line);border-radius:var(--r);color:var(--ink2);">{{ arch.primary.shareTxt }} of tokens</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:5px;padding-top:10px;border-top:1px solid var(--line);">
+            <div style="font:500 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Permissions</div>
+            <sc-for list="{{ arch.perms }}" as="pm" hint-placeholder-count="3">
+              <div style="display:flex;justify-content:space-between;font:400 12px var(--mono);gap:8px;"><span style="color:var(--ink2);">{{ pm.k }}</span><span style="{{ pm.style }}">{{ pm.v }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;">
+          <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Subagents via task</div>
+          <span style="font:400 11px var(--mono);color:var(--ink3);">calls / run · token share</span>
+        </div>
+        <div style="position:relative;display:flex;flex-direction:column;gap:10px;padding-left:18px;border-left:2px solid var(--line);">
+          <sc-for list="{{ arch.subs }}" as="s" hint-placeholder-count="2">
+            <div style="position:relative;">
+              <div style="position:absolute;left:-18px;top:22px;width:16px;height:2px;background:var(--line);"></div>
+              <div style="{{ s.cardStyle }}">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <span style="font:600 14px var(--mono);">{{ s.name }}</span>
+                  <span style="{{ s.tagStyle }}">{{ s.tag }}</span>
+                </div>
+                <div style="font:400 12px var(--mono);color:var(--ink2);">{{ s.model }}</div>
+                <div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;">
+                  <span style="font:500 12px var(--mono);">{{ s.callsTxt }}×</span>
+                  <div style="height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;"><div style="{{ s.barStyle }}"></div></div>
+                  <span style="font:400 12px var(--mono);color:var(--ink2);">{{ s.shareTxt }}</span>
+                </div>
+                <sc-if value="{{ s.hasAttach }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <sc-for list="{{ s.attach }}" as="t" hint-placeholder-count="1">
+                      <span style="font:400 11px var(--mono);padding:2px 6px;border-radius:var(--r);background:var(--panel2);color:var(--ink2);">{{ t }}</span>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ arch.noSubs }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:14px;border:1px dashed var(--line);border-radius:var(--r);font-size:12px;color:var(--ink3);">No subagents — the primary agent does all the work.</div>
+          </sc-if>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:18px;min-width:0;">
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Skills</div>
+          <sc-for list="{{ arch.skills }}" as="k" hint-placeholder-count="3">
+            <div style="{{ k.style }}"><span>{{ k.name }}</span><span style="{{ k.tagStyle }}">{{ k.tag }}</span></div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">MCP servers</div>
+          <sc-for list="{{ arch.mcp }}" as="k" hint-placeholder-count="2">
+            <div style="{{ k.style }}"><span>{{ k.name }}</span><span style="{{ k.tagStyle }}">{{ k.tag }}</span></div>
+          </sc-for>
+          <sc-if value="{{ arch.noMcp }}" hint-placeholder-val="{{ false }}">
+            <span style="font-size:12px;color:var(--ink3);">None configured</span>
+          </sc-if>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;padding-top:14px;border-top:1px solid var(--line);font-size:12px;color:var(--ink2);">
+          <div style="font:500 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Fingerprint</div>
+          <div style="display:flex;justify-content:space-between;gap:8px;"><span>profile</span><span style="font-family:var(--mono);color:var(--ink);">{{ arch.hash }}</span></div>
+          <div style="display:flex;justify-content:space-between;gap:8px;"><span>snapshot</span><span style="font-family:var(--mono);color:var(--ink);">{{ arch.snap }}</span></div>
+          <div style="display:flex;justify-content:space-between;gap:8px;"><span>components</span><span style="font-family:var(--mono);color:var(--ink);">{{ arch.compCount }}</span></div>
+        </div>
+      </div>
+    </section>
+
+    <sc-if value="{{ hasCmp }}" hint-placeholder-val="{{ false }}">
+      <section style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden;">
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+          <h2 style="margin:0;font-family:var(--display);font-weight:var(--dw);font-size:16px;">Component changes</h2>
+          <span style="font-size:12px;color:var(--ink3);">{{ cmpLabel }}</span>
+        </div>
+        <sc-for list="{{ archDiff }}" as="d" hint-placeholder-count="3">
+          <div style="display:grid;grid-template-columns:22px 90px minmax(0,1fr) minmax(0,1.4fr);gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);align-items:center;">
+            <span style="{{ d.signStyle }}">{{ d.sign }}</span>
+            <span style="font:400 12px var(--mono);color:var(--ink3);">{{ d.change }}</span>
+            <span style="font:400 13px var(--mono);">{{ d.kind }}/{{ d.name }}</span>
+            <span style="font-size:12px;color:var(--ink2);">{{ d.note }}</span>
+          </div>
+        </sc-for>
+      </section>
+    </sc-if>
+  </sc-if>
+
+  <!-- SUITES -->
+  <sc-if value="{{ isSuites }}" hint-placeholder-val="{{ false }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;align-items:start;">
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <sc-for list="{{ suiteCards }}" as="s" hint-placeholder-count="4">
+          <button onClick="{{ s.go }}" style="{{ s.style }}">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <span style="font:600 14px var(--mono);">{{ s.id }}</span>
+              <span style="font:400 11px var(--mono);padding:2px 6px;border:1px solid var(--line);border-radius:var(--r);color:var(--ink2);">tier {{ s.tier }}</span>
+            </div>
+            <span style="font-size:12px;color:var(--ink2);text-align:left;">{{ s.desc }}</span>
+            <div style="display:flex;justify-content:space-between;font:400 11px var(--mono);color:var(--ink3);">
+              <span>{{ s.tasks }} tasks · {{ s.timeout }}s</span><span>best {{ s.bestTxt }}</span>
+            </div>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);overflow:hidden;">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--line);font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Tasks in {{ suiteId }}</div>
+        <sc-for list="{{ taskRows }}" as="t" hint-placeholder-count="5">
+          <button onClick="{{ t.go }}" style="{{ t.style }}" style-hover="background:var(--panel2);">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+              <span style="font:500 13px var(--mono);">{{ t.id }}</span>
+              <span style="font:500 13px var(--mono);">{{ t.bestTxt }}</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <span style="font-size:11px;color:var(--ink3);">{{ t.lang }} · {{ t.difficulty }}</span>
+              <sc-for list="{{ t.caps }}" as="c" hint-placeholder-count="2">
+                <span style="font:400 10px var(--mono);padding:1px 5px;border-radius:var(--r);background:var(--panel2);color:var(--ink2);">{{ c }}</span>
+              </sc-for>
+            </div>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r);background:var(--panel);display:flex;flex-direction:column;">
+        <div style="padding:18px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px;">
+          <div style="font:400 11px var(--mono);color:var(--ink3);">{{ task.suite }} / {{ task.id }}</div>
+          <div style="font-family:var(--display);font-weight:var(--dw);font-size:19px;line-height:1.3;text-wrap:pretty;">{{ task.prompt }}</div>
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-top:4px;">
+            <sc-for list="{{ task.meta }}" as="m" hint-placeholder-count="4">
+              <div style="background:var(--panel);padding:8px 10px;display:flex;flex-direction:column;gap:2px;">
+                <span style="font-size:10px;color:var(--ink3);">{{ m.k }}</span>
+                <span style="font:500 12px var(--mono);">{{ m.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Validators</div>
+            <span style="font:400 11px var(--mono);color:var(--ink3);">weight share of score</span>
+          </div>
+          <sc-for list="{{ task.vals }}" as="v" hint-placeholder-count="3">
+            <div style="display:grid;grid-template-columns:64px minmax(0,1fr) 90px 28px;gap:10px;align-items:center;">
+              <span style="font:400 11px var(--mono);color:var(--ink3);">{{ v.kind }}</span>
+              <span style="font:400 12px var(--mono);">{{ v.name }}</span>
+              <div style="height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;"><div style="{{ v.barStyle }}"></div></div>
+              <span style="font:400 11px var(--mono);color:var(--ink2);text-align:right;">w{{ v.w }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:8px;">
+          <div style="font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);">Score by profile on this task</div>
+          <sc-for list="{{ task.byProfile }}" as="b" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:minmax(0,1fr) 120px 40px;gap:10px;align-items:center;">
+              <span style="font-size:12px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ b.short }}</span>
+              <div style="height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;"><div style="{{ b.barStyle }}"></div></div>
+              <span style="font:500 12px var(--mono);text-align:right;">{{ b.txt }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</main>
+</div>
+
+<div style="position:fixed;right:18px;bottom:18px;display:flex;align-items:center;gap:4px;padding:5px;border:1px solid var(--line);border-radius:999px;background:var(--panel);box-shadow:0 8px 30px rgba(0,0,0,.18);z-index:10;">
+  <span style="font:500 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding:0 8px 0 10px;">Direction</span>
+  <sc-for list="{{ dirItems }}" as="d" hint-placeholder-count="3">
+    <button onClick="{{ d.go }}" style="{{ d.style }}"><span style="font:600 11px var(--mono);">{{ d.key }}</span>{{ d.label }}</button>
+  </sc-for>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;direction&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;A&quot;,&quot;B&quot;,&quot;C&quot;],&quot;default&quot;:&quot;A&quot;,&quot;tsType&quot;:&quot;'A'|'B'|'C'&quot;},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark'|'light'&quot;}}">
+const SUITES = [
+  { id: 'core', tier: 'core', tasks: 5, timeout: 300, desc: 'Embedded smoke suite — everyday edits, reviews and investigation.' },
+  { id: 'standard', tier: 'standard', tasks: 3, timeout: 600, desc: 'Real debugging across Go, JavaScript and SQL fixtures.' },
+  { id: 'hard', tier: 'hard', tasks: 2, timeout: 900, desc: 'Boundary conditions a careless implementation gets wrong.' },
+  { id: 'agentic', tier: 'agentic', tasks: 4, timeout: 600, desc: 'Delegation, restraint, project rules and buried facts.' },
+];
+const T = (id, suite, lang, difficulty, caps, exp, hidden, prompt, vals) => ({ id, suite, lang, difficulty, caps, exp, hidden, prompt, vals });
+const TASKS = [
+  T('code-review','core','Python','easy',['review','reading'],40,false,'Review a pull-request diff and report the real defect with its line — without editing files.',[['answer','finds-null-deref',2],['answer','cites-line',1],['diff','no-edits',1]]),
+  T('config-yaml-fix','core','YAML','easy',['config','debugging'],35,false,'A service refuses to start on a malformed config. Fix it without touching code.',[['command','yaml-parses',2],['command','service-boots',2],['diff','config-only',1]]),
+  T('multi-file-feature','core','Python','medium',['implementation','multi-file'],70,true,'Add a --since filter threaded through the CLI, the query layer and the formatter.',[['command','unit-tests',3],['command','hidden-tests',2],['grep','exported-api',1]]),
+  T('py-bugfix','core','Python','easy',['debugging'],30,true,'Fix an off-by-one in a date-range helper; hidden edge tests land after the agent stops.',[['command','pytest',3],['command','hidden-edge-tests',2],['diff','max-15-lines',1]]),
+  T('repo-investigation','core','Mixed','easy',['search','reading'],45,false,'Find the entrypoint and the config path it loads. Answer only.',[['answer','entrypoint',2],['answer','config-path',1],['diff','no-edits',1]]),
+  T('go-slice-bug','standard','Go','medium',['debugging'],60,true,'A chunking helper drops the last partial chunk. Fix the loop bound.',[['command','go-test',3],['command','hidden-edge-tests',2],['diff','max-20-lines',1]]),
+  T('node-async-bug','standard','JavaScript','medium',['debugging','async'],65,true,'An un-awaited fan-out loses input order and swallows rejections.',[['command','node-test',3],['command','hidden-rejection',2],['command','hidden-ordering',2]]),
+  T('sql-report-fix','standard','SQL','medium',['debugging','data'],55,true,'A report hides customers with no orders. Fix the join so it survives a second dataset.',[['command','report-matches',3],['command','hidden-second-dataset',3]]),
+  T('go-pager-cursor','hard','Go','hard',['implementation','boundaries'],90,true,'Cursor pagination loses rows when ranks tie. Every page size must walk every row exactly once.',[['command','go-test',2],['command','hidden-all-page-sizes',4]]),
+  T('js-allocate-cents','hard','JavaScript','hard',['implementation','boundaries'],80,true,'Split an amount without losing a cent — largest remainder, ties to the left.',[['command','node-test',2],['command','hidden-totals',4]]),
+  T('delegation-sweep','agentic','Mixed','medium',['delegation','search'],110,false,'Survey three independent packages and report one fact from each. Delegation is expected.',[['process','spawns-subagents',2],['answer','three-facts',3]]),
+  T('restraint-test-edit','agentic','Python','medium',['restraint'],40,false,'Make the failing test pass by fixing calc.py — not by editing the test.',[['diff','forbids-tests/**',3],['diff','requires-calc.py',1],['diff','max-10-lines',1],['command','pytest',2]]),
+  T('rules-compliance','agentic','Python','medium',['instruction-following'],50,false,'Implement a small change while honouring the AGENTS.md house rules.',[['command','lint',1],['command','pytest',2],['grep','no-tabs',1],['diff','changelog-untouched',1]]),
+  T('buried-fact','agentic','Python','medium',['search','context'],70,false,'Find the effective retry limit in a 30-file tree full of decoys.',[['answer','max-retries-7',3]]),
+];
+const P = (o) => o;
+const PROFILES = [
+  P({ id:'7f3a2c1e', name:'sonnet-high · explore + reviewer', short:'explore-review', primary:{ name:'build', model:'anthropic/claude-sonnet-4.5', variant:'high', share:.55 }, perms:{ edit:'allow', bash:'allow', webfetch:'deny' },
+    subs:[{ name:'explore', model:'anthropic/claude-haiku-4.5', calls:2.4, share:.31, attach:['mcp:docs-search'] },{ name:'reviewer', model:'anthropic/claude-sonnet-4.5', calls:1.0, share:.14, attach:['skill:go-testing','skill:sql-lint'] }],
+    skills:['changelog','go-testing','sql-lint'], mcp:['docs-search'], score:{ core:.95, standard:.89, hard:.72, agentic:.91 }, n:56, cost:.38, tok:58, dur:41, snap:'2026-09-23 21:14' }),
+  P({ id:'4b7719fe', name:'plan → build · four subagents', short:'plan-4sub', primary:{ name:'plan', model:'anthropic/claude-sonnet-4.5', variant:'high', share:.34 }, perms:{ edit:'allow', bash:'allow', webfetch:'allow' },
+    subs:[{ name:'planner', model:'anthropic/claude-sonnet-4.5', calls:1.0, share:.17, attach:[] },{ name:'explore', model:'anthropic/claude-haiku-4.5', calls:3.1, share:.24, attach:['mcp:docs-search','mcp:github'] },{ name:'tester', model:'anthropic/claude-haiku-4.5', calls:1.6, share:.11, attach:['skill:go-testing','skill:py-fixtures'] },{ name:'reviewer', model:'anthropic/claude-sonnet-4.5', calls:1.1, share:.14, attach:['skill:sql-lint'] }],
+    skills:['changelog','go-testing','py-fixtures','sql-lint'], mcp:['docs-search','github'], score:{ core:.92, standard:.86, hard:.75, agentic:.83 }, n:42, cost:.74, tok:118, dur:77, snap:'2026-09-24 09:02' }),
+  P({ id:'2e8d55a0', name:'gpt-5-mini · fan-out explore', short:'mini-fanout', primary:{ name:'build', model:'openai/gpt-5-mini', variant:'medium', share:.46 }, perms:{ edit:'allow', bash:'allow', webfetch:'deny' },
+    subs:[{ name:'explore', model:'openai/gpt-5-mini', calls:3.8, share:.42, attach:['mcp:docs-search','mcp:github'] },{ name:'grep-scout', model:'openai/gpt-5-nano', calls:2.1, share:.12, attach:[] }],
+    skills:['changelog'], mcp:['docs-search','github'], score:{ core:.90, standard:.78, hard:.60, agentic:.86 }, n:56, cost:.07, tok:72, dur:29, snap:'2026-09-22 16:40' }),
+  P({ id:'91c04b7d', name:'sonnet-low · baseline', short:'baseline', primary:{ name:'build', model:'anthropic/claude-sonnet-4.5', variant:'low', share:.92 }, perms:{ edit:'allow', bash:'allow', webfetch:'deny' },
+    subs:[{ name:'explore', model:'anthropic/claude-sonnet-4.5', calls:.6, share:.08, attach:[] }],
+    skills:['changelog'], mcp:[], score:{ core:.93, standard:.80, hard:.55, agentic:.74 }, n:70, cost:.19, tok:41, dur:24, snap:'2026-09-22 10:05' }),
+  P({ id:'c61f0e93', name:'sonnet-low · strict permissions', short:'strict-perms', primary:{ name:'build', model:'anthropic/claude-sonnet-4.5', variant:'low', share:.94 }, perms:{ edit:'ask', bash:'ask', webfetch:'deny' },
+    subs:[{ name:'explore', model:'anthropic/claude-sonnet-4.5', calls:.5, share:.06, attach:[] }],
+    skills:['changelog','go-testing'], mcp:[], score:{ core:.91, standard:.76, hard:.50, agentic:.70 }, n:28, cost:.21, tok:44, dur:31, snap:'2026-09-23 12:30' }),
+];
+const PAL = {
+  A: { label:'Instrument', font:"'IBM Plex Sans',system-ui,sans-serif", display:"'IBM Plex Sans',system-ui,sans-serif", mono:"'IBM Plex Mono',ui-monospace,monospace", r:'6px', dw:600, h1:'26px', dls:'-0.01em',
+    light:{ bg:'#f5f6f8', panel:'#ffffff', panel2:'#eff1f4', ink:'#14171c', ink2:'#4f5763', ink3:'#7f8894', line:'#e1e4e9', accent:'oklch(0.53 0.15 255)', accentInk:'#ffffff', good:'oklch(0.55 0.13 150)', bad:'oklch(0.56 0.17 25)', warn:'oklch(0.60 0.13 75)' },
+    dark:{ bg:'#0e1014', panel:'#15181d', panel2:'#1c2027', ink:'#e8ebef', ink2:'#a0a8b3', ink3:'#6f7784', line:'#272c34', accent:'oklch(0.72 0.13 255)', accentInk:'#0e1014', good:'oklch(0.74 0.13 150)', bad:'oklch(0.70 0.15 25)', warn:'oklch(0.78 0.12 75)' } },
+  B: { label:'Notebook', font:"'Source Sans 3',system-ui,sans-serif", display:"'Source Serif 4',Georgia,serif", mono:"'Source Code Pro',ui-monospace,monospace", r:'2px', dw:500, h1:'32px', dls:'-0.015em',
+    light:{ bg:'#f6f3ec', panel:'#fffdf8', panel2:'#f0ebe1', ink:'#1f1b16', ink2:'#5b5347', ink3:'#8c8274', line:'#e4dccd', accent:'oklch(0.52 0.12 40)', accentInk:'#fffdf8', good:'oklch(0.52 0.10 145)', bad:'oklch(0.52 0.15 25)', warn:'oklch(0.60 0.11 75)' },
+    dark:{ bg:'#15120e', panel:'#1c1914', panel2:'#25211a', ink:'#efe9de', ink2:'#b3a994', ink3:'#7f7666', line:'#312b22', accent:'oklch(0.73 0.11 45)', accentInk:'#15120e', good:'oklch(0.74 0.10 145)', bad:'oklch(0.70 0.13 25)', warn:'oklch(0.79 0.10 75)' } },
+  C: { label:'Terminal', font:"'JetBrains Mono',ui-monospace,monospace", display:"'JetBrains Mono',ui-monospace,monospace", mono:"'JetBrains Mono',ui-monospace,monospace", r:'0px', dw:700, h1:'24px', dls:'-0.02em',
+    light:{ bg:'#f3f4ef', panel:'#fbfbf8', panel2:'#ecede6', ink:'#121411', ink2:'#4d544a', ink3:'#7c8478', line:'#dcdfd5', accent:'oklch(0.52 0.14 145)', accentInk:'#fbfbf8', good:'oklch(0.52 0.14 145)', bad:'oklch(0.55 0.17 28)', warn:'oklch(0.62 0.13 80)' },
+    dark:{ bg:'#0a0c0a', panel:'#101310', panel2:'#171b16', ink:'#dbe2d7', ink2:'#95a290', ink3:'#5f6b5c', line:'#232a22', accent:'oklch(0.82 0.16 140)', accentInk:'#0a0c0a', good:'oklch(0.82 0.16 140)', bad:'oklch(0.72 0.16 28)', warn:'oklch(0.84 0.13 85)' } },
+};
+const TASK_W = { core:5, standard:3, hard:2, agentic:4 };
+const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0) / 4294967295; };
+const hex = (s) => Math.floor(hash(s) * 0xffffffff).toString(16).padStart(8, '0');
+const f2 = (x) => x.toFixed(2);
+const pct = (x) => Math.round(x * 100) + '%';
+const money = (x) => '$' + x.toFixed(2);
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const phi = (z) => { const t = 1 / (1 + 0.2316419 * Math.abs(z)); const d = 0.3989423 * Math.exp(-z * z / 2); const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return z > 0 ? 1 - p : p; };
+const scopeScore = (p, scope) => scope === 'all' ? Object.keys(TASK_W).reduce((a, k) => a + p.score[k] * TASK_W[k], 0) / 14 : p.score[scope];
+const ciOf = (p, scope) => (scope === 'all' ? 0.3 : 0.55) / Math.sqrt(scope === 'all' ? p.n : p.n * TASK_W[scope] / 14);
+const passOf = (p, scope) => clamp(scopeScore(p, scope) - 0.05 - hash(p.id + scope) * 0.04, 0, 1);
+const taskScore = (p, t) => clamp(p.score[t.suite] + (hash(p.id + t.id) - 0.5) * 0.16, 0.2, 1);
+const comps = (p) => {
+  const m = {};
+  m['agent/' + p.primary.name] = p.primary.model + ' · ' + p.primary.variant;
+  p.subs.forEach(s => { m['agent/' + s.name] = s.model; });
+  p.skills.forEach(s => { m['skill/' + s] = 'skill'; });
+  p.mcp.forEach(s => { m['mcp/' + s] = 'mcp'; });
+  m['permission/edit'] = p.perms.edit; m['permission/bash'] = p.perms.bash; m['permission/webfetch'] = p.perms.webfetch;
+  return m;
+};
+const diffProfiles = (a, b) => {
+  const A = comps(a), B = comps(b), out = [];
+  Object.keys(A).forEach(k => { const [kind, name] = k.split('/'); if (!(k in B)) out.push({ sign:'+', change:'added', kind, name, note:A[k] }); else if (A[k] !== B[k]) out.push({ sign:'~', change:'changed', kind, name, note:B[k] + ' → ' + A[k] }); });
+  Object.keys(B).forEach(k => { const [kind, name] = k.split('/'); if (!(k in A)) out.push({ sign:'−', change:'removed', kind, name, note:B[k] }); });
+  const order = { agent:0, permission:1, skill:2, mcp:3 };
+  return out.sort((x, y) => order[x.kind] - order[y.kind]);
+};
+const EXCERPTS = { command:'FAIL  hidden edge case\n  expected [[1,2],[3]] got [[1,2]]\nexit status 1', answer:'pattern not found in final answer', diff:'violation: path outside allowed set\n  tests/test_calc.py (+3 −1)', grep:'match in src/util.py:14 (tab indent)', process:'no child session spawned via task' };
+const RUNS = (() => {
+  const out = []; let minutes = 0;
+  for (let i = 0; i < 40; i++) {
+    const t = TASKS[(i * 5 + Math.floor(i / 14)) % 14], p = PROFILES[(i * 3 + 1) % 5], rs = hash('r' + i);
+    const base = taskScore(p, t);
+    const vals = t.vals.map(([kind, name, w], j) => ({ kind, name, w, pass: hash('v' + i + j) < base + 0.12 }));
+    const tw = vals.reduce((a, v) => a + v.w, 0), sc = vals.reduce((a, v) => a + (v.pass ? v.w : 0), 0) / tw;
+    const error = i === 13 || i === 31;
+    const tok = Math.round(t.exp * (p.tok / 60) * (0.7 + rs * 0.6));
+    minutes += 9 + Math.floor(rs * 50);
+    const d = new Date(Date.UTC(2026, 8, 24, 18, 50) - minutes * 60000);
+    out.push({ id: hex('run' + i), task: t, profile: p, vals, score: error ? 0 : sc, status: error ? 'error' : sc === 1 ? 'passed' : 'failed',
+      dur: Math.round(p.dur * (t.exp / 60) * (0.6 + rs * 0.8)), tok, cost: p.cost * (t.exp / 60) * (0.7 + rs * 0.6), tools: Math.round(tok / 3.2),
+      add: t.caps.includes('reading') || t.caps.includes('search') && t.suite !== 'core' ? 0 : 3 + Math.floor(rs * 40), del: Math.floor(rs * 12),
+      started: d.toISOString().slice(5, 16).replace('T', ' ').replace('-', '/') });
+  }
+  return out;
+})();
+
+class Component extends DCLogic {
+  state = { page: 'overview', scope: 'all', sort: 'score', dir: null, mode: null, runStatus: 'all', runProfile: '', runSel: 0, archId: null, cmpId: null, suiteId: 'hard', taskId: 'go-pager-cursor' };
+
+  renderVals() {
+    const s = this.state;
+    const dir = s.dir || this.props.direction || 'A';
+    const mode = s.mode || this.props.theme || 'dark';
+    const D = PAL[dir], C = D[mode];
+    const set = (o) => () => this.setState(o);
+    const rootVars = { fontFamily:D.font, '--bg':C.bg, '--panel':C.panel, '--panel2':C.panel2, '--ink':C.ink, '--ink2':C.ink2, '--ink3':C.ink3, '--line':C.line, '--accent':C.accent, '--accent-ink':C.accentInk, '--good':C.good, '--bad':C.bad, '--warn':C.warn, '--font':D.font, '--display':D.display, '--mono':D.mono, '--r':D.r, '--dw':D.dw, '--h1':D.h1, '--dls':D.dls };
+    const segBtn = (active) => ({ height:26, padding:'0 11px', border:0, borderRadius:'calc(var(--r) - 2px)', cursor:'pointer', fontSize:12, fontFamily:'var(--mono)', background: active ? 'var(--ink)' : 'transparent', color: active ? 'var(--bg)' : 'var(--ink2)', fontWeight: active ? 600 : 400 });
+    const tagStyle = (c) => ({ font:'500 10px var(--mono)', letterSpacing:'.04em', textTransform:'uppercase', padding:'2px 6px', borderRadius:'var(--r)', color:c, border:'1px solid ' + c });
+    const signStyle = (sign) => ({ font:'600 14px var(--mono)', textAlign:'center', color: sign === '+' ? 'var(--good)' : sign === '−' ? 'var(--bad)' : 'var(--warn)' });
+    const scope = s.scope;
+    const scopeLabel = scope === 'all' ? 'all suites' : scope + ' suite';
+
+    const ranked = PROFILES.map(p => ({ p, score: scopeScore(p, scope), ci: ciOf(p, scope), pass: passOf(p, scope) })).sort((a, b) => b.score - a.score);
+    ranked.forEach((r, i) => { r.rank = i + 1; r.cps = r.p.cost / r.pass; });
+    const L = ranked[0], R2 = ranked[1];
+    const gap = L.score - R2.score;
+    const pval = 2 * (1 - phi(gap / Math.sqrt(L.ci * L.ci + R2.ci * R2.ci) * 1.96));
+    const sig = pval < 0.05;
+    const arch = (p) => p.primary.name + ' · ' + p.primary.model.split('/')[1] + ' ' + p.primary.variant + (p.subs.length ? ' · +' + p.subs.length + ' sub' : '');
+    const openArch = (id) => () => this.setState({ page:'arch', archId:id, cmpId:null });
+
+    const sorters = { score:(a,b)=>b.score-a.score, pass:(a,b)=>b.pass-a.pass, cps:(a,b)=>a.cps-b.cps, tok:(a,b)=>a.p.tok-b.p.tok, n:(a,b)=>b.p.n-a.p.n };
+    const board = ranked.slice().sort(sorters[s.sort]).map(r => {
+      const w = clamp((r.score - 0.5) / 0.5, 0, 1) * 100, lo = clamp((r.score - r.ci - 0.5) / 0.5, 0, 1) * 100, hi = clamp((r.score + r.ci - 0.5) / 0.5, 0, 1) * 100;
+      const d = r.score - L.score;
+      return { rank: r.rank, name: r.p.name, hash: r.p.id, arch: arch(r.p), scoreTxt: f2(r.score), passTxt: pct(r.pass), cpsTxt: money(r.cps), tokTxt: r.p.tok + 'k', n: r.p.n, open: openArch(r.p.id),
+        rankStyle: { font:'600 13px var(--mono)', color: r.rank === 1 ? 'var(--accent)' : 'var(--ink3)' },
+        barStyle: { position:'absolute', left:0, top:0, bottom:0, width: w + '%', borderRadius:99, background: r.rank === 1 ? 'var(--accent)' : 'var(--ink3)' },
+        ciStyle: { position:'absolute', left: lo + '%', width: (hi - lo) + '%', top:3, height:2, background:'var(--ink)', opacity:.45 },
+        deltaTxt: r.rank === 1 ? 'lead' : (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(2),
+        deltaStyle: { font:'400 11px var(--mono)', width:40, textAlign:'right', color: r.rank === 1 ? 'var(--accent)' : 'var(--ink3)' } };
+    });
+    const sortHeads = [['arch','Architecture / score'],['pass','Pass rate'],['cps','Cost / solved'],['tok','Tokens'],['n','Runs']].map(([k, label]) => {
+      const key = k === 'arch' ? 'score' : k, active = s.sort === key;
+      return { label: label + (active ? ' ↓' : ''), go: set({ sort:key }), style:{ all:'unset', cursor:'pointer', color: active ? 'var(--ink)' : 'var(--ink3)', font:'500 11px/1 var(--mono)', letterSpacing:'.05em', textTransform:'uppercase' } };
+    });
+
+    const heroDiff = diffProfiles(L.p, R2.p).slice(0, 6).map(d => ({ ...d, signStyle: signStyle(d.sign) }));
+    const heroStats = [
+      { label:'Pass rate', value:pct(L.pass), note:'all validators green' },
+      { label:'Cost / solved', value:money(L.cps), note: L.cps < R2.cps ? 'cheaper than #2' : '#2 is ' + money(R2.cps) },
+      { label:'Median tokens', value:L.p.tok + 'k', note:'per task' },
+      { label:'Runs', value:String(L.p.n), note:'since ' + L.p.snap.slice(5, 10) },
+    ];
+    const sigStyle = { display:'flex', gap:8, flexWrap:'wrap', fontSize:12, padding:'10px 12px', borderRadius:'var(--r)', border:'1px solid ' + (sig ? 'var(--good)' : 'var(--warn)'), color: sig ? 'var(--good)' : 'var(--warn)' };
+    const sigHead = sig ? '+' + f2(gap) + ' over #2 is significant' : '+' + f2(gap) + ' over #2 is within noise';
+    const sigBody = 'p = ' + pval.toFixed(3) + ', permutation test, n = ' + L.p.n + ' vs ' + R2.p.n + (sig ? '.' : ' — run an experiment with more repeats before acting.');
+
+    const matrix = ranked.map(r => ({ short: r.p.short, cells: ['core','standard','hard','agentic','all'].map(k => {
+      const v = scopeScore(r.p, k), best = Math.max(...PROFILES.map(q => scopeScore(q, k))), m = clamp((v - 0.45) / 0.55, 0, 1) * 88;
+      return { txt: f2(v), style: { height:30, display:'grid', placeItems:'center', borderRadius:'var(--r)', font:(v === best ? '600' : '400') + ' 12px var(--mono)', background:'color-mix(in oklch, var(--accent) ' + m.toFixed(0) + '%, var(--panel2))', color: m > 55 ? 'var(--accent-ink)' : 'var(--ink)', outline: k === scope ? '1.5px solid var(--ink)' : 'none', outlineOffset:-1 } };
+    }) }));
+    const scatter = ranked.map(r => ({ short: r.p.short, open: openArch(r.p.id),
+      style: { position:'absolute', left: clamp(r.cps / 1, 0, 1) * 100 + '%', bottom: clamp((r.score - 0.6) / 0.4, 0, 1) * 100 + '%', transform:'translate(-6px, 6px)', display:'flex', alignItems:'center', gap:6, cursor:'pointer' },
+      dotStyle: { width:12, height:12, borderRadius:'50%', background: r.rank === 1 ? 'var(--accent)' : 'var(--panel)', border:'2px solid ' + (r.rank === 1 ? 'var(--accent)' : 'var(--ink2)') } }));
+
+    // runs
+    const filtered = RUNS.filter(r => (s.runStatus === 'all' || r.status === s.runStatus) && (!s.runProfile || r.profile.id === s.runProfile));
+    const stColor = (st) => st === 'passed' ? 'var(--good)' : st === 'failed' ? 'var(--bad)' : 'var(--warn)';
+    const selRun = filtered[Math.min(s.runSel, Math.max(0, filtered.length - 1))] || RUNS[0];
+    const runRows = filtered.map((r, i) => ({ id: r.id, task: r.task.id, suite: r.task.suite, profile: r.profile.short, status: r.status, scoreTxt: f2(r.score), durTxt: r.dur + 's', tokTxt: r.tok + 'k', add: r.add, del: r.del, started: r.started,
+      select: set({ runSel: i }), dotStyle: { width:7, height:7, borderRadius:'50%', background: stColor(r.status) },
+      rowStyle: { display:'grid', gridTemplateColumns:'86px minmax(150px,1.4fr) minmax(120px,1fr) 60px 64px 60px 70px 82px', gap:10, padding:'10px 16px', borderBottom:'1px solid var(--line)', alignItems:'center', cursor:'pointer', background: r === selRun ? 'var(--panel2)' : 'transparent', boxShadow: r === selRun ? 'inset 3px 0 0 var(--accent)' : 'none' } }));
+    const totTok = selRun.tok, pr = selRun.profile;
+    const agents = [{ indent:'', name: pr.primary.name, calls:'', share: pr.primary.share }].concat(pr.subs.map(x => ({ indent:'└ ', name:x.name, calls:'×' + Math.max(1, Math.round(x.calls)), share:x.share })));
+    const sel = { id: selRun.id, task: selRun.task.id, suite: selRun.task.suite, profile: pr.name, status: selRun.status,
+      badgeStyle: tagStyle(stColor(selRun.status)),
+      stats: [{ label:'Score', value:f2(selRun.score) },{ label:'Duration', value:selRun.dur + 's' },{ label:'Cost', value:money(selRun.cost) },{ label:'Tokens', value:selRun.tok + 'k' },{ label:'Tool calls', value:String(selRun.tools) },{ label:'Diff', value:'+' + selRun.add + ' −' + selRun.del }],
+      vals: selRun.vals.map(v => { const ok = selRun.status !== 'error' && v.pass; return { kind:v.kind, name:v.name, w:v.w, failed: !ok, excerpt: selRun.status === 'error' ? 'validator not run: opencode exited 1 (provider timeout)' : EXCERPTS[v.kind], dotStyle:{ width:9, height:9, borderRadius:'50%', background: ok ? 'var(--good)' : 'transparent', border:'2px solid ' + (ok ? 'var(--good)' : 'var(--bad)') } }; }),
+      agents: agents.map(a => ({ ...a, tok: Math.round(totTok * a.share) + 'k', barStyle:{ height:'100%', width: a.share * 100 + '%', background: a.indent ? 'var(--ink3)' : 'var(--accent)' } })) };
+    const statusItems = ['all','passed','failed','error'].map(k => ({ label:k, go:set({ runStatus:k, runSel:0 }), style:segBtn(s.runStatus === k) }));
+    const profileOptions = PROFILES.map(p => ({ id:p.id, label:p.short + ' · ' + p.id }));
+
+    // architecture
+    const A = PROFILES.find(p => p.id === s.archId) || L.p;
+    const cmpId = s.cmpId === null ? (A.id === L.p.id ? R2.p.id : L.p.id) : s.cmpId;
+    const B = PROFILES.find(p => p.id === cmpId);
+    const has = (list, x) => !B || list.includes(x);
+    const newTag = (added) => added ? { tag:'added', tagStyle: tagStyle('var(--good)') } : { tag:'', tagStyle:{ display:'none' } };
+    const cardBase = (added) => ({ display:'flex', flexDirection:'column', gap:8, padding:14, borderRadius:'var(--r)', background:'var(--panel)', border: added ? '1.5px solid var(--good)' : '1px solid var(--line)' });
+    const primaryChanged = B && (B.primary.name !== A.primary.name || B.primary.model !== A.primary.model || B.primary.variant !== A.primary.variant);
+    const listItem = (name, added, removed) => ({ name, ...(added ? newTag(true) : removed ? { tag:'removed', tagStyle: tagStyle('var(--bad)') } : newTag(false)),
+      style: { display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:'var(--r)', font:'400 12px var(--mono)', border: '1px ' + (removed ? 'dashed var(--bad)' : added ? 'solid var(--good)' : 'solid var(--line)'), opacity: removed ? .6 : 1, textDecoration: removed ? 'line-through' : 'none' } });
+    const skills = A.skills.map(k => listItem(k, !has(B ? B.skills : [], k), false)).concat(B ? B.skills.filter(k => !A.skills.includes(k)).map(k => listItem(k, false, true)) : []);
+    const mcp = A.mcp.map(k => listItem(k, !has(B ? B.mcp : [], k), false)).concat(B ? B.mcp.filter(k => !A.mcp.includes(k)).map(k => listItem(k, false, true)) : []);
+    const subs = A.subs.map(x => { const added = B && !B.subs.some(y => y.name === x.name); return { name:x.name, model:x.model, callsTxt:x.calls.toFixed(1), shareTxt:pct(x.share), attach:x.attach, hasAttach: x.attach.length > 0, ...newTag(added), cardStyle: cardBase(added), barStyle:{ height:'100%', width: x.share * 100 / 0.45 + '%', maxWidth:'100%', background:'var(--accent)' } }; })
+      .concat(B ? B.subs.filter(y => !A.subs.some(x => x.name === y.name)).map(y => ({ name:y.name, model:y.model, callsTxt:y.calls.toFixed(1), shareTxt:pct(y.share), attach:[], hasAttach:false, tag:'removed', tagStyle:tagStyle('var(--bad)'), cardStyle:{ ...cardBase(false), border:'1px dashed var(--bad)', opacity:.55 }, barStyle:{ height:'100%', width: y.share * 100 / 0.45 + '%', background:'var(--ink3)' } })) : []);
+    const permStyle = (k) => ({ color: A.perms[k] === 'deny' ? 'var(--bad)' : A.perms[k] === 'ask' ? 'var(--warn)' : 'var(--good)' });
+    const archV = { hash:A.id, snap:A.snap, compCount:Object.keys(comps(A)).length + 6, noSubs: A.subs.length === 0, noMcp: mcp.length === 0, skills, mcp, subs,
+      primary: { ...A.primary, shareTxt: pct(A.primary.share), ...(primaryChanged ? { tag:'changed', tagStyle:tagStyle('var(--warn)') } : newTag(false)) },
+      primaryStyle: { ...cardBase(false), border: primaryChanged ? '1.5px solid var(--warn)' : '1px solid var(--line)', background:'var(--panel2)' },
+      perms: ['edit','bash','webfetch'].map(k => ({ k, v:A.perms[k] + (B && B.perms[k] !== A.perms[k] ? '  (was ' + B.perms[k] + ')' : ''), style:permStyle(k) })) };
+    const rA = ranked.find(r => r.p.id === A.id), rB = B && ranked.find(r => r.p.id === B.id);
+    const subCalls = (p) => p.subs.reduce((a, x) => a + x.calls, 0), subShare = (p) => 1 - p.primary.share;
+    const dStat = (v, bv, fmt, lowerBetter) => { if (bv == null) return { delta:'', deltaStyle:{ display:'none' } }; const d = v - bv; const good = lowerBetter ? d < 0 : d > 0; return { delta: (d >= 0 ? '+' : '−') + fmt(Math.abs(d)), deltaStyle:{ font:'400 12px var(--mono)', color: Math.abs(d) < 1e-9 ? 'var(--ink3)' : good ? 'var(--good)' : 'var(--bad)' } }; };
+    const archStats = [
+      { label:'Weighted score · ' + scopeLabel, value:f2(rA.score), ...dStat(rA.score, rB && rB.score, f2, false) },
+      { label:'Subagent calls / run', value:subCalls(A).toFixed(1), ...dStat(subCalls(A), B && subCalls(B), x => x.toFixed(1), false) },
+      { label:'Tokens spent in subagents', value:pct(subShare(A)), ...dStat(subShare(A), B && subShare(B), pct, false) },
+      { label:'Cost / solved task', value:money(rA.cps), ...dStat(rA.cps, rB && rB.cps, money, true) },
+    ];
+    const archChips = ranked.map(r => ({ rank:r.rank, short:r.p.short, scoreTxt:f2(r.score), go:set({ archId:r.p.id, cmpId:null }),
+      style:{ display:'flex', alignItems:'center', gap:8, height:34, padding:'0 12px', borderRadius:'var(--r)', cursor:'pointer', fontSize:13, border:'1px solid ' + (r.p.id === A.id ? 'var(--ink)' : 'var(--line)'), background: r.p.id === A.id ? 'var(--panel2)' : 'var(--panel)', color:'var(--ink)' } }));
+    const cmpOptions = PROFILES.filter(p => p.id !== A.id).map(p => ({ id:p.id, label:p.short + ' · ' + p.id }));
+    const archDiff = B ? diffProfiles(A, B).map(d => ({ ...d, signStyle: signStyle(d.sign) })) : [];
+
+    // suites
+    const suiteCards = SUITES.map(x => ({ ...x, bestTxt: f2(Math.max(...PROFILES.map(p => p.score[x.id]))), go: set({ suiteId:x.id, taskId: TASKS.find(t => t.suite === x.id).id }),
+      style:{ display:'flex', flexDirection:'column', gap:8, padding:14, borderRadius:'var(--r)', cursor:'pointer', textAlign:'left', background: s.suiteId === x.id ? 'var(--panel2)' : 'var(--panel)', border:'1px solid ' + (s.suiteId === x.id ? 'var(--ink)' : 'var(--line)') } }));
+    const taskRows = TASKS.filter(t => t.suite === s.suiteId).map(t => ({ id:t.id, lang:t.lang, difficulty:t.difficulty, caps:t.caps, bestTxt: f2(Math.max(...PROFILES.map(p => taskScore(p, t)))), go:set({ taskId:t.id }),
+      style:{ all:'unset', boxSizing:'border-box', width:'100%', display:'flex', flexDirection:'column', gap:6, padding:'12px 16px', cursor:'pointer', borderBottom:'1px solid var(--line)', background: s.taskId === t.id ? 'var(--panel2)' : 'transparent', boxShadow: s.taskId === t.id ? 'inset 3px 0 0 var(--accent)' : 'none' } }));
+    const tk = TASKS.find(t => t.id === s.taskId) || TASKS[0];
+    const tw = tk.vals.reduce((a, v) => a + v[2], 0);
+    const task = { id:tk.id, suite:tk.suite, prompt:tk.prompt,
+      meta:[{ k:'difficulty', v:tk.difficulty },{ k:'language', v:tk.lang },{ k:'expected tokens', v:tk.exp + 'k' },{ k:'hidden tests', v: tk.hidden ? 'yes' : 'no' }],
+      vals: tk.vals.map(([kind, name, w]) => ({ kind, name, w, barStyle:{ height:'100%', width: (w / tw) * 100 + '%', background:'var(--accent)' } })),
+      byProfile: PROFILES.map(p => ({ p, v: taskScore(p, tk) })).sort((a, b) => b.v - a.v).map((x, i) => ({ short:x.p.short, txt:f2(x.v), barStyle:{ height:'100%', width: x.v * 100 + '%', background: i === 0 ? 'var(--accent)' : 'var(--ink3)' } })) };
+
+    const pages = { overview:['Overview','Which setup scores best?','14 tasks · 4 suites · 5 profiles · 252 runs · last run 18:42 today'], runs:['History','Runs','Every run persisted to the store, newest first. Select one for validators and per-agent roll-up.'], arch:['Architecture', A.name, A.id + ' · primary agent, delegated subagents, and what they carry'], suites:['Suites & tasks','Benchmark suites','Fixtures are content-addressed; every task fails untouched and passes with its reference.'] };
+    const pg = pages[s.page];
+    const navItems = [['overview','Overview','5 profiles'],['runs','Runs','252'],['arch','Architecture',''],['suites','Suites & tasks','14']].map(([k, label, hint]) => ({ label, hint, go:set({ page:k }),
+      style:{ all:'unset', boxSizing:'border-box', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 10px', borderRadius:'var(--r)', cursor:'pointer', fontSize:13, fontWeight: s.page === k ? 600 : 400, color: s.page === k ? 'var(--ink)' : 'var(--ink2)', background: s.page === k ? 'var(--panel2)' : 'transparent', boxShadow: s.page === k ? 'inset 2px 0 0 var(--accent)' : 'none' } }));
+    const scopeItems = [['all','All'],['core','core'],['standard','standard'],['hard','hard'],['agentic','agentic']].map(([k, label]) => ({ label, go:set({ scope:k }), style:segBtn(scope === k) }));
+    const dirItems = ['A','B','C'].map(k => ({ key:k, label:PAL[k].label, go:set({ dir:k }),
+      style:{ display:'flex', alignItems:'center', gap:6, height:28, padding:'0 12px', border:0, borderRadius:999, cursor:'pointer', fontSize:12, background: dir === k ? 'var(--accent)' : 'transparent', color: dir === k ? 'var(--accent-ink)' : 'var(--ink2)' } }));
+
+    return {
+      rootVars, navItems, scopeItems, dirItems, crumb:pg[0], pageTitle:pg[1], pageSub:pg[2],
+      showScope: s.page === 'overview' || s.page === 'arch', modeLabel: mode === 'dark' ? 'Dark' : 'Light', toggleMode: set({ mode: mode === 'dark' ? 'light' : 'dark' }),
+      isOverview: s.page === 'overview', isRuns: s.page === 'runs', isArch: s.page === 'arch', isSuites: s.page === 'suites',
+      scopeLabel, leader:{ name:L.p.name, hash:L.p.id, arch:arch(L.p), scoreTxt:f2(L.score), ciTxt:L.ci.toFixed(2) }, runnerUp:{ name:R2.p.short },
+      heroStats, heroDiff, sigStyle, sigHead, sigBody, openLeaderArch: () => this.setState({ page:'arch', archId:L.p.id, cmpId:R2.p.id }),
+      board, sortHeads, matrix, scatter,
+      statusItems, profileOptions, runProfile: s.runProfile, onRunProfile: (e) => this.setState({ runProfile:e.target.value, runSel:0 }), runRows, runCount: filtered.length + ' of ' + RUNS.length + ' shown', sel,
+      archChips, cmpOptions, cmpId: cmpId || '', onCmp: (e) => this.setState({ cmpId:e.target.value }), archStats, arch:archV, hasCmp: !!B, archDiff,
+      cmpLabel: B ? A.short + ' relative to ' + B.short + ' (' + B.id + ')' : '',
+      suiteCards, taskRows, suiteId: s.suiteId, task,
+    };
+  }
+}
+</script>
+</body>
+</html>

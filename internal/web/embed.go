@@ -30,6 +30,13 @@ var (
 // staticFS is the embedded static/ subtree.
 var staticFS = mustSub(webassets.FS(), "static")
 
+// prototypeFS is the design prototype, kept for comparing the dashboard against
+// the canvas it was built from. It is served only at /prototype/ and under its
+// own content security policy: it is a React application that needs a CDN, an
+// eval-based template runtime and inline styles, none of which the dashboard
+// itself may use.
+var prototypeFS = mustSub(webassets.FS(), "prototype")
+
 // mustParsePage parses baseTemplate plus one page file into an isolated
 // template set.
 func mustParsePage(page string) *template.Template {

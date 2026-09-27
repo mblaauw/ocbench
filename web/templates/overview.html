@@ -33,10 +33,9 @@
       <div class="stat"><span class="k">Median tokens</span><span class="v">{{$leader.TokensText}}</span><span class="n">per task</span></div>
     </div>
     {{with .Significance}}
-    <div>
-      <span class="tag {{if .Distinguishable}}good{{else}}warn{{end}}">{{if .Distinguishable}}distinguishable{{else}}not distinguishable{{end}}</span>
-      <span class="dim">{{.Note}}</span>
-      <div class="dim">gap {{.GapText}} · smallest resolvable {{.MDEText}} over {{.TasksText}} task(s)</div>
+    <div class="verdict {{.Class}}">
+      <span class="head">{{.Head}}</span>
+      <span class="body">{{.Body}}</span>
     </div>
     {{end}}
   </div>
