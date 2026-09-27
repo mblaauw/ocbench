@@ -535,9 +535,13 @@ func TestArchitecturePageRendersAgentsTreeAndCapturedText(t *testing.T) {
 			t.Errorf("body missing %q", want)
 		}
 	}
-	// The subagent tree is the permission edge build → explore.
-	if !strings.Contains(body, `class="arrow"`) {
-		t.Errorf("subagent tree edges not rendered")
+	// The subagent tree draws one trunk per primary agent with a branch per
+	// subagent it may call, which is the shape the prototype uses.
+	if !strings.Contains(body, `class="trunk"`) || !strings.Contains(body, `class="branch"`) {
+		t.Errorf("subagent tree not rendered as trunks and branches")
+	}
+	if !strings.Contains(body, "may call") {
+		t.Errorf("subagent tree does not say how many a primary may call")
 	}
 }
 

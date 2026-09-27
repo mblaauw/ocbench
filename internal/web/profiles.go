@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mbl/ocbench/internal/history"
 	"mbl/ocbench/internal/profile"
 )
 
@@ -100,10 +101,16 @@ type profilePageView struct {
 	ComponentCount int
 	RunCount       int
 
-	Primary      *agentRow
-	Agents       []agentRow
-	Subagents    []agentRow
-	Edges        []edgeRow
+	// Stats is the strip across the top: score, pass rate, cost and tokens, with
+	// deltas when another profile is selected to compare against.
+	Stats     []archStat
+	Primary   *agentRow
+	Agents    []agentRow
+	Subagents []agentRow
+	Edges     []edgeRow
+	// Tree is the edges grouped by primary agent, which is how the prototype
+	// draws the delegation: a trunk per primary, a stub per subagent.
+	Tree         []treeGroup
 	Instructions []instructionRow
 	Skills       []skillRow
 	MCP          []mcpRow
@@ -127,6 +134,23 @@ type profilePageView struct {
 type edgeRow struct {
 	From string
 	To   string
+}
+
+// archStat is one figure in the architecture page's stat strip. Delta is the
+// change against the profile being compared with, and is empty when there is
+// nothing to compare against.
+type archStat struct {
+	Label string
+	Value string
+	Delta string
+	Class string
+}
+
+// treeGroup is one primary agent and the subagents it may call, which is how the
+// prototype draws the tree: a trunk per primary with a stub per subagent.
+type treeGroup struct {
+	Primary string
+	Subs    []string
 }
 
 // mcpRow is one MCP server with its configuration keys.
@@ -232,6 +256,8 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	page.Primary, page.Agents, page.Subagents = agentRows(view, set)
 	page.Edges = edgeRows(view)
+	page.Tree = treeGroups(page.Edges)
+	page.Stats = h.archStats(r, row.ProfileHash, "")
 	page.Instructions = instructionRows(view, set)
 	page.Skills = skillRows(view, set)
 	for _, m := range view.MCP {
@@ -254,6 +280,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		page.Against = other.Hash
 		page.AgainstShort = shortHash(other.Hash)
+		page.Stats = h.archStats(r, row.ProfileHash, other.Hash)
 		for _, note := range profile.DiffNotes(other, p) {
 			page.Changes = append(page.Changes, changeNoteRow{
 				Sign: note.Sign, Kind: note.Kind, Name: note.Name, Note: note.Note, Change: note.Change,
@@ -415,6 +442,122 @@ func edgeRows(view profile.View) []edgeRow {
 	out := make([]edgeRow, 0, len(arch.Edges))
 	for _, e := range arch.Edges {
 		out = append(out, edgeRow{From: e.From, To: e.To})
+	}
+	return out
+}
+
+// archStats builds the profile's stat strip, with deltas against compareWith
+// when a comparison is selected.
+func (h *handler) archStats(r *http.Request, hash, compareWith string) []archStat {
+	ov, err := history.Overview(r.Context(), h.store, history.ScopeAll)
+	if err != nil {
+		return nil
+	}
+	find := func(want string) *history.ProfileScore {
+		for i := range ov.Profiles {
+			if ov.Profiles[i].Hash == want {
+				return &ov.Profiles[i]
+			}
+		}
+		return nil
+	}
+	self := find(hash)
+	if self == nil || !self.HasRuns {
+		return nil
+	}
+	var other *history.ProfileScore
+	if compareWith != "" {
+		other = find(compareWith)
+	}
+
+	stat := func(label, value string, mine float64, better func(float64) bool) archStat {
+		s := archStat{Label: label, Value: value}
+		if other == nil {
+			return s
+		}
+		// The delta is against the other profile's same figure, coloured by
+		// whether this profile is better or worse on it.
+		var theirs float64
+		switch label {
+		case "Score":
+			theirs = other.Score
+		case "Pass rate":
+			theirs = other.PassRate * 100
+		case "Cost / solved":
+			theirs = other.CostPerSolved
+		case "Median tokens":
+			theirs = float64(other.MedianTokens)
+		}
+		d := mine - theirs
+		if d == 0 {
+			s.Delta = "±0"
+			return s
+		}
+		sign := "+"
+		if d < 0 {
+			sign = "−"
+		}
+		switch label {
+		case "Cost / solved":
+			s.Delta = sign + fmt.Sprintf("%.3f", abs(d))
+			if abs(d) < 0.0005 {
+				// Below the displayed precision: a signed zero reads as noise.
+				s.Delta = "±0"
+				return s
+			}
+		case "Median tokens":
+			s.Delta = sign + tokensText(int64(abs(d)))
+			if int64(abs(d)) == 0 {
+				s.Delta = "±0"
+				return s
+			}
+		default:
+			s.Delta = sign + fmt.Sprintf("%.2f", abs(d))
+			if abs(d) < 0.005 {
+				s.Delta = "±0"
+				return s
+			}
+		}
+		if better(d) {
+			s.Class = "good"
+		} else {
+			s.Class = "bad"
+		}
+		return s
+	}
+
+	out := []archStat{
+		stat("Score", fmt.Sprintf("%.2f", self.Score), self.Score, func(d float64) bool { return d > 0 }),
+		stat("Pass rate", fmt.Sprintf("%.0f%%", self.PassRate*100), self.PassRate*100, func(d float64) bool { return d > 0 }),
+	}
+	if self.CostPerSolvedOK {
+		out = append(out, stat("Cost / solved", fmt.Sprintf("$%.3f", self.CostPerSolved),
+			self.CostPerSolved, func(d float64) bool { return d < 0 }))
+	} else {
+		out = append(out, archStat{Label: "Cost / solved", Value: "—"})
+	}
+	out = append(out, stat("Median tokens", tokensText(self.MedianTokens),
+		float64(self.MedianTokens), func(d float64) bool { return d < 0 }))
+	return out
+}
+
+// abs returns the magnitude of a float.
+func abs(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// treeGroups groups the edges by their primary agent, keeping the sorted order
+// the edges already have.
+func treeGroups(edges []edgeRow) []treeGroup {
+	var out []treeGroup
+	for _, e := range edges {
+		if len(out) == 0 || out[len(out)-1].Primary != e.From {
+			out = append(out, treeGroup{Primary: e.From})
+		}
+		out[len(out)-1].Subs = append(out[len(out)-1].Subs, e.To)
 	}
 	return out
 }

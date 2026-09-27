@@ -29,14 +29,32 @@
 </section>
 {{end}}
 
+{{if .Stats}}
+<div class="arch-stats">
+  {{range .Stats}}
+  <div class="arch-stat">
+    <span class="k">{{.Label}}</span>
+    <span class="v">{{.Value}}{{if .Delta}} <span class="{{.Class}}">{{.Delta}}</span>{{end}}</span>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
 {{if .CaptureNote}}<div class="notice">{{.CaptureNote}}</div>{{end}}
 
 <section class="card">
   <div class="card-head"><h2>Subagent tree</h2><span class="muted">which primary agent may call which subagent</span></div>
-  {{if .Edges}}
-  <ul class="tree">
-    {{range .Edges}}<li><span class="node">{{.From}}</span><span class="arrow">→</span><span class="node sub">{{.To}}</span></li>{{end}}
-  </ul>
+  {{if .Tree}}
+  <div class="tree">
+    {{range .Tree}}
+    <div class="trunk">
+      <div class="trunk-head"><span class="node">{{.Primary}}</span><span class="muted">may call {{len .Subs}}</span></div>
+      <div class="branches">
+        {{range .Subs}}<div class="branch"><span class="node sub">{{.}}</span></div>{{end}}
+      </div>
+    </div>
+    {{end}}
+  </div>
   {{else}}
   <div class="empty">No agent may call a subagent: no <code>task</code> permission allows one.</div>
   {{end}}
