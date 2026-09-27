@@ -32,15 +32,18 @@ func (h *handler) page(r *http.Request, current, crumb, title, sub string) layou
 
 // leaderRow is one line of the leaderboard.
 type leaderRow struct {
-	Rank           int
-	First          bool
-	Label          string
-	Hash           string
-	ShortHash      string
-	Architecture   string
-	Href           string
-	HasRuns        bool
-	ScoreText      string
+	Rank         int
+	First        bool
+	Label        string
+	Hash         string
+	ShortHash    string
+	Architecture string
+	Href         string
+	HasRuns      bool
+	ScoreText    string
+	// CIText is the half-width of the score's interval, which the hero shows
+	// beside the score the way the prototype does.
+	CIText         string
 	ScorePercent   int
 	CILowPercent   int
 	CIDeltaPercent int
@@ -57,6 +60,26 @@ type leaderRow struct {
 	// CacheText is the share of prompt tokens served from cache, which is what
 	// explains a token figure as much as the token figure itself.
 	CacheText string
+}
+
+// matrixHeads abbreviates suite names for the matrix header.
+func matrixHeads(suites []string) []string {
+	out := make([]string, 0, len(suites))
+	for _, s := range suites {
+		if short, ok := suiteAbbrev[s]; ok {
+			out = append(out, short)
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// suiteAbbrev shortens the suite names that do not fit a matrix column.
+var suiteAbbrev = map[string]string{
+	"standard":  "std",
+	"harvested": "harv",
+	"agentic":   "agent",
 }
 
 // matrixCell is one profile-by-suite score. Tint is a 0..5 band so the cell
@@ -97,9 +120,12 @@ type diffNote struct {
 type overviewPage struct {
 	layout
 
-	HasRuns      bool
-	Rows         []leaderRow
-	Suites       []string
+	HasRuns bool
+	Rows    []leaderRow
+	Suites  []string
+	// MatrixHeads abbreviates the suite names for the matrix header, where a
+	// column per suite has to fit beside the profile name.
+	MatrixHeads  []string
 	Matrix       []matrixRow
 	Scatter      []scatterDot
 	ScatterXMax  string
@@ -154,6 +180,7 @@ func (h *handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 	page := overviewPage{
 		layout:       h.page(r, "overview", "Overview", "Which setup scores best?", overviewSub(ov)),
 		Suites:       ov.Suites,
+		MatrixHeads:  matrixHeads(ov.Suites),
 		ExcludedRuns: ov.ExcludedRuns,
 		TotalRuns:    ov.TotalRuns,
 		HasRuns:      scoredProfiles(ov.Profiles) > 0,
@@ -249,6 +276,9 @@ func leaderRows(profiles []history.ProfileScore) []leaderRow {
 			}
 			row.ScorePercent = band(p.Score)
 			row.CILowPercent, row.CIDeltaPercent = ciSpan(p.ScoreCI)
+			if p.ScoreCIOK {
+				row.CIText = fmt.Sprintf("±%.2f", (p.ScoreCI[1]-p.ScoreCI[0])/2)
+			}
 			row.PassText = fmt.Sprintf("%.0f%%", p.PassRate*100)
 			if p.CostPerSolvedOK {
 				row.CostText = fmt.Sprintf("$%.3f", p.CostPerSolved)

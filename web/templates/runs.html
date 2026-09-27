@@ -26,7 +26,7 @@
         <tr{{if .Selected}} class="selected"{{end}}>
           <td><a class="status" href="{{.Href}}"><span class="dot {{.StatusClass}}"></span>{{.Status}}</a></td>
           <td>
-            <div>{{.TaskID}}</div>
+            <span class="ellipsis" title="{{.TaskID}}">{{.TaskID}}</span>
             <div class="muted">{{.Suite}}</div>
           </td>
           <td class="dim">{{.ProfileShort}}</td>
