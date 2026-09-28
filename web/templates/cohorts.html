@@ -1,0 +1,15 @@
+{{define "content"}}
+<section class="card">
+  <header>
+    <div><h2>Controlled cohorts</h2><span class="muted">An experiment is one comparable benchmark session, not a global profile ranking.{{if .Uncontrolled}} {{.Uncontrolled}} unarmed historic session(s) excluded.{{end}}</span></div>
+  </header>
+  {{if .Rows}}
+  <table class="board">
+    <thead><tr><th>Cohort</th><th>Created</th><th>Arms</th><th>Evidence</th></tr></thead>
+    <tbody>{{range .Rows}}
+      <tr data-href="{{.Href}}" tabindex="0"><td><a href="{{.Href}}">{{.Name}}</a><div class="muted">{{.ID}}</div></td><td>{{.CreatedAt}}</td><td>{{.Arms}}</td><td><span class="badge {{if eq .Status "eligible"}}pass{{else}}warn{{end}}">{{.Status}}</span><div class="muted">{{.Gate}}</div></td></tr>
+    {{end}}</tbody>
+  </table>
+  {{else}}<div class="empty">No controlled cohorts yet. Run <code>ocbench experiment run … --repeat 3</code>; only cohorts with three validated runs per task can rank cost efficiency.</div>{{end}}
+</section>
+{{end}}

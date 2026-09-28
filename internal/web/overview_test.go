@@ -1,182 +1,33 @@
 package web_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
-	"mbl/ocbench/internal/store"
 	"mbl/ocbench/internal/web"
 )
 
-// seedScoredProfile inserts a profile with a component set and one scored run.
-func seedScoredProfile(t *testing.T, st *store.Store, id, suite, task string, score, success, cost float64) {
-	t.Helper()
-	ctx := context.Background()
-	profileID := "profile-" + id
-	hash := "hash-" + id
-	if err := st.InsertProfile(ctx, store.ProfileRow{
-		ID: profileID, ProfileHash: hash, OpenCodeVersion: "1.18.32",
-		OCBenchVersion: "dev", CanonicalJSON: `{"schema":1}`,
-		CreatedAt: "2026-01-01T00:00:00Z",
-	}, []store.ComponentRow{
-		{Kind: "primary", Name: "primary", Hash: "h-primary", CanonicalJSON: `{"default_agent":"build","model":"opencode-go/deepseek-v4.1-flash","variant":"high"}`},
-		{Kind: "agent", Name: "build", Hash: "h-build", CanonicalJSON: `{"mode":"primary","model":"opencode-go/deepseek-v4.1-flash","variant":"high"}`},
-	}); err != nil {
-		t.Fatalf("insert profile: %v", err)
-	}
-	exit := 0
-	dur := int64(1500)
-	runID := "run-" + id + "-" + task
-	if err := st.InsertRun(ctx, store.RunRow{
-		ID: runID, ProfileID: profileID, ProfileHash: hash,
-		SuiteName: suite, SuiteVersion: "1", SuiteHash: "hash-" + suite,
-		TaskID: task, TaskVersion: "1", FixtureSHA: "fixture",
-		OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", Model: "p/m", Agent: "build",
-		Status: "passed", ExitCode: &exit, StartedAt: "2026-01-01T00:00:00Z",
-		FinishedAt: "2026-01-01T00:00:01Z", DurationMS: &dur, ArtifactsDir: "/runs/" + runID,
-	}); err != nil {
-		t.Fatalf("insert run: %v", err)
-	}
-	if err := st.InsertRunMetrics(ctx, runID, map[string]float64{
-		"score": score, "success": success, "tokens_total": 1000, "cost": cost,
-	}); err != nil {
-		t.Fatalf("insert metrics: %v", err)
-	}
-}
-
-func TestOverviewRendersLeaderboard(t *testing.T) {
+// The landing page deliberately refuses to pool independent historic runs into
+// a winner. A controlled experiment is the comparable unit, so a fresh store
+// must direct the user to create one rather than show a synthetic leaderboard.
+func TestOverviewDirectsUsersToControlledCohorts(t *testing.T) {
 	st := testStore(t)
-	seedScoredProfile(t, st, "a", "core", "task-one", 1.0, 1, 0.02)
-	seedScoredProfile(t, st, "b", "hard", "task-two", 0.4, 1, 0.05)
-
-	rec := get(t, web.NewHandler(st), "/")
-	if rec.Code != 200 {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	body := rec.Body.String()
-
-	for _, want := range []string{
-		"Which setup scores best?",
-		"Profile leaderboard",
-		"Score by suite",
-		"Score vs. cost per solved task",
-		"build · deepseek-v4.1-flash high", // the architecture label
-		"hash-a",                           // a profile link
-		"scope=",                           // the suite switcher
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("overview body missing %q", want)
-		}
-	}
-	// The leading profile scores 1.00 and its run passed.
-	if !strings.Contains(body, "1.00") {
-		t.Error("leader score missing")
-	}
-	// A scatter dot per scored profile.
-	if got := strings.Count(body, `<circle`); got != 2 {
-		t.Errorf("scatter dots = %d, want 2", got)
-	}
-	// Both suites appear as matrix columns.
-	if !strings.Contains(body, ">core<") || !strings.Contains(body, ">hard<") {
-		t.Error("matrix columns missing")
-	}
-}
-
-// The leaderboard's client-side sort keys must be raw numbers, so the script
-// orders "$0.020" by value and keeps a missing "—" last rather than sorting it
-// as zero.
-func TestOverviewLeaderboardEmitsNumericSortKeys(t *testing.T) {
-	st := testStore(t)
-	seedScoredProfile(t, st, "a", "core", "task-one", 1.0, 1, 0.02)
+	seedRun(t, st, "historic-run", "task-one")
 
 	body := get(t, web.NewHandler(st), "/").Body.String()
-	if !strings.Contains(body, `data-cost="0.020000"`) {
-		t.Errorf("cost sort key is not a raw number:\n%s", body)
+	if !strings.Contains(body, "Controlled cohorts") {
+		t.Fatalf("landing page does not explain controlled cohorts:\n%s", body)
 	}
-	if !strings.Contains(body, `data-tokens="1000"`) {
-		t.Errorf("token sort key is not a raw number")
+	if !strings.Contains(body, "No controlled cohorts yet") {
+		t.Fatalf("landing page does not state the evidence gate:\n%s", body)
 	}
-
-	// A profile with no runs has no cost or token value: the keys are empty so
-	// the script treats them as missing.
-	if err := st.InsertProfile(context.Background(), store.ProfileRow{
-		ID: "profile-idle", ProfileHash: "hash-idle", OpenCodeVersion: "1.18.32",
-		OCBenchVersion: "dev", CanonicalJSON: `{"schema":1}`, CreatedAt: "2026-01-02T00:00:00Z",
-	}, []store.ComponentRow{
-		{Kind: "primary", Name: "primary", Hash: "h-primary", CanonicalJSON: `{"default_agent":"build","model":"m"}`},
-	}); err != nil {
-		t.Fatalf("insert idle profile: %v", err)
-	}
-	body = get(t, web.NewHandler(st), "/").Body.String()
-	if !strings.Contains(body, `data-cost="" data-tokens=""`) {
-		t.Errorf("an unscored row must emit empty sort keys")
+	if strings.Contains(body, "Profile leaderboard") || strings.Contains(body, "Which setup scores best?") {
+		t.Fatalf("landing page still ranks mixed historic runs:\n%s", body)
 	}
 }
 
-func TestOverviewEmptyStateSaysSo(t *testing.T) {
+func TestCohortLandingKeepsSecurityAndFirstPartyEnhancement(t *testing.T) {
 	st := testStore(t)
-
-	rec := get(t, web.NewHandler(st), "/")
-	body := rec.Body.String()
-
-	if !strings.Contains(body, "No scored runs in this scope yet") {
-		t.Errorf("expected an honest empty state, got:\n%s", body)
-	}
-	if strings.Contains(body, "<circle") {
-		t.Error("an empty store must not draw scatter points")
-	}
-}
-
-func TestOverviewScopeFiltersSuites(t *testing.T) {
-	st := testStore(t)
-	seedScoredProfile(t, st, "a", "core", "task-one", 1.0, 1, 0.02)
-	seedScoredProfile(t, st, "b", "hard", "task-two", 0.2, 0, 0.05)
-
-	rec := get(t, web.NewHandler(st), "/?scope=hard")
-	if rec.Code != 200 {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	body := rec.Body.String()
-
-	// In the hard scope only the 0.20 profile is scored, so it leads.
-	if !strings.Contains(body, "0.20") {
-		t.Errorf("hard scope should show the 0.20 score:\n%s", body)
-	}
-	if strings.Contains(body, `data-score="1.00"`) {
-		t.Error("hard scope must not include the core profile")
-	}
-}
-
-func TestOverviewListsProfilesWithoutRuns(t *testing.T) {
-	st := testStore(t)
-	seedScoredProfile(t, st, "a", "core", "task-one", 1.0, 1, 0.02)
-	// A profile with no runs at all.
-	if err := st.InsertProfile(context.Background(), store.ProfileRow{
-		ID: "profile-idle", ProfileHash: "hash-idle", OpenCodeVersion: "1.18.32",
-		OCBenchVersion: "dev", CanonicalJSON: `{"schema":1}`, CreatedAt: "2026-01-02T00:00:00Z",
-	}, []store.ComponentRow{
-		{Kind: "primary", Name: "primary", Hash: "h-primary", CanonicalJSON: `{"default_agent":"build","model":"opencode-go/deepseek-v4-flash"}`},
-	}); err != nil {
-		t.Fatalf("insert idle profile: %v", err)
-	}
-
-	rec := get(t, web.NewHandler(st), "/")
-	body := rec.Body.String()
-
-	if !strings.Contains(body, "hash-idle") {
-		t.Error("a profile with no runs should still be listed")
-	}
-	// It is listed but not scored: its score cell shows a dash.
-	if strings.Count(body, "—") < 1 {
-		t.Error("expected an unscored placeholder for the profile without runs")
-	}
-}
-
-func TestOverviewSecurityHeaders(t *testing.T) {
-	st := testStore(t)
-	seedScoredProfile(t, st, "a", "core", "task-one", 0.5, 1, 0.01)
-
 	rec := get(t, web.NewHandler(st), "/")
 	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control = %q", got)
@@ -184,30 +35,7 @@ func TestOverviewSecurityHeaders(t *testing.T) {
 	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "default-src 'none'") {
 		t.Errorf("CSP %q is not restrictive", got)
 	}
-	// The only script is the deferred, same-origin enhancement layer.
 	if !strings.Contains(rec.Body.String(), `src="/static/dashboard.js"`) {
-		t.Error("overview must load the first-party dashboard enhancement")
-	}
-}
-
-// The prototype-aligned leaderboard keeps the compact score/pass/cost/tokens/N
-// column set, while cache hit remains available on the selected run detail.
-func TestOverviewUsesPrototypeLeaderboardColumns(t *testing.T) {
-	st := testStore(t)
-	seedScoredProfile(t, st, "cache", "core", "task-a", 1, 1, 0.001)
-	// InsertRunMetrics upserts, so the cache counters can be added to the run
-	// the helper already recorded.
-	if err := st.InsertRunMetrics(context.Background(), "run-cache-task-a", map[string]float64{
-		"tokens_cache_read": 800, "tokens_input": 200,
-	}); err != nil {
-		t.Fatalf("metrics: %v", err)
-	}
-
-	body := get(t, web.NewHandler(st), "/").Body.String()
-	if !strings.Contains(body, "<th>Profile</th>") || !strings.Contains(body, `data-sort-key="runs"`) {
-		t.Errorf("prototype leaderboard columns missing")
-	}
-	if strings.Contains(body, "<th>Cache hit</th>") {
-		t.Errorf("cache hit must not be a prototype leaderboard column")
+		t.Error("cohort landing must load the first-party dashboard enhancement")
 	}
 }

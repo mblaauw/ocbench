@@ -306,6 +306,10 @@ footer.site-footer {
 
 .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .filters .muted { margin-left: auto; font-size: 12px; }
+.architecture-switches { display: flex; gap: 4px; flex-wrap: wrap; }
+.architecture-switches .tag { text-decoration: none; }
+.architecture-switches .tag.current { border-color: var(--ink); color: var(--ink); }
+.architecture-note { margin: 12px 0; }
 
 /* ------------------------------------------------------------ runs table */
 

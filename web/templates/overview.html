@@ -2,7 +2,7 @@
 {{if not .HasRuns}}
 <section class="card">
   <div class="empty">
-    No scored runs in this scope yet, so there is nothing to rank. Run a suite to populate the leaderboard, for example
+    No scored runs in this scope yet, so there is nothing to inspect. Run a suite to record exploratory history, for example
     <code>ocbench run standard --suite-dir suites/standard</code>.
     {{if .ExcludedRuns}}<br>{{.ExcludedRuns}} run(s) were recorded against an older version of their suite and are excluded from scoring.{{end}}
   </div>
@@ -10,72 +10,16 @@
 {{end}}
 
 {{if .HasRuns}}
-{{$leader := index .Rows 0}}
-<section class="card hero-split">
-  <div class="hero-main">
-    <div class="who">
-       <span class="eyebrow"><span class="pip"></span>Best weighted score · all suites</span>
-      <div class="who-row">
-        <div class="who-name">
-          <span class="name">{{$leader.Label}}</span>
-          <span class="dim">{{$leader.Hash}}</span>
-        </div>
-        <div class="headline">
-          <span class="big">{{$leader.ScoreText}}</span>
-          <span class="ci">{{$leader.CIText}}</span>
-        </div>
-      </div>
-    </div>
-    <div class="stats">
-       <div class="stat"><span class="k">Pass rate</span><span class="v">{{$leader.PassText}}</span><span class="n">runs with every validator green</span></div>
-       <div class="stat"><span class="k">Cost / solved</span><span class="v">{{$leader.CostText}}</span><span class="n">per run that passed</span></div>
-       <div class="stat"><span class="k">Median tokens</span><span class="v">{{$leader.TokensText}}</span><span class="n">per task</span></div>
-       <div class="stat"><span class="k">Runs</span><span class="v">{{$leader.Runs}}</span><span class="n">in this scope</span></div>
-    </div>
-    {{with .Significance}}
-    <div class="verdict {{.Class}}">
-      <span class="head">{{.Head}}</span>
-      <span class="body">{{.Body}}</span>
-    </div>
-    {{end}}
-  </div>
-
-  {{if .HeroDiff}}
-  <div class="hero-diff">
-    <div class="hero-diff-head">
-      <span class="eyebrow">What differs from #2</span>
-       {{if gt (len .Rows) 1}}<span class="dim">{{(index .Rows 1).Label}}</span>{{end}}
-    </div>
-    <div class="diff">
-    {{range .HeroDiff}}
-    <div class="row">
-      <span class="sign {{.Class}}">{{.Sign}}</span>
-       <span class="what"><span class="change">{{.Change}}</span> {{.What}}</span>
-      <span class="note">{{.Note}}</span>
-    </div>
-    {{end}}
-    {{if .HeroDiffMore}}
-    <div class="row">
-      <span class="sign"></span>
-      <span class="what muted">… and {{.HeroDiffMore}} more</span>
-      <span class="note"></span>
-    </div>
-    {{end}}
-    </div>
-    <a class="hero-action" href="/arch/{{$leader.Hash}}">Inspect architecture diff →</a>
-  </div>
-  {{end}}
-</section>
+<div class="notice">Historic observations are not repetitions. Cost, token and score values below are diagnostic; use <a href="/">a controlled cohort</a> for an efficiency standing.</div>
 
 <section class="card">
   <header>
-    <div><h2>Profile leaderboard</h2><span class="muted">config + agent architecture, ranked by weighted score</span></div>
-    <span class="muted">bar scale 0.50 → 1.00 · whisker = 95% CI</span>
+    <div><h2>Recorded profile observations</h2><span class="muted">config + agent architecture across independent historic runs</span></div>
+    <span class="muted">not an efficiency ranking</span>
   </header>
   <table class="board" data-sortable>
     <thead>
       <tr>
-        <th class="rank">#</th>
         <th>Profile</th>
         <th class="score"><button type="button" data-sort-key="score">Score</button></th>
         <th><button type="button" data-sort-key="pass">Pass</button></th>
@@ -87,7 +31,6 @@
     <tbody>
       {{range .Rows}}
       <tr data-score="{{.ScoreText}}" data-pass="{{.PassText}}" data-cost="{{.CostSort}}" data-tokens="{{.TokensSort}}" data-runs="{{.Runs}}" data-href="{{.Href}}" tabindex="0">
-        <td class="rank{{if .First}} first{{end}}">{{.Rank}}</td>
         <td>
           <div>{{.Label}}</div>
           <div class="muted"><a class="hash" href="{{.Href}}">{{.ShortHash}}</a></div>
@@ -96,7 +39,7 @@
           <div class="score-cell">
             <span class="value">{{.ScoreText}}</span>
             {{if .HasRuns}}
-            <svg class="bar{{if .First}} first{{end}}" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">
+            <svg class="bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true">
               <rect class="track" x="0" y="0" width="100" height="8"></rect>
               <rect class="fill" x="0" y="0" width="{{.ScorePercent}}" height="8"></rect>
               <rect class="ci" x="{{.CILowPercent}}" y="3" width="{{.CIDeltaPercent}}" height="2"></rect>
@@ -117,8 +60,8 @@
 <div class="grid-2">
   <section class="card">
     <header>
-      <h2>Score by suite</h2>
-      <span class="muted">weighted task score, 0–1</span>
+      <h2>Historic score by suite</h2>
+      <span class="muted">diagnostic only, 0–1</span>
     </header>
     <div class="matrix-scroll">
     <table class="matrix">
@@ -145,8 +88,8 @@
 
   <section class="card">
     <header>
-      <h2>Score vs. cost per solved task</h2>
-      <span class="muted">up and left is better</span>
+      <h2>Historic score and cost</h2>
+      <span class="muted">not comparable across sessions</span>
     </header>
     <div class="scatter">
       <svg viewBox="0 0 320 230" role="img" aria-label="Score against cost per solved task">

@@ -49,6 +49,7 @@ type ArmTaskStats struct {
 	PassRate, WilsonLo, WilsonHi     float64
 	PassAtK, PassAllK                bool
 	MedianTokens, Q1Tokens, Q3Tokens float64
+	HasTokenMetrics                  bool
 	MedianCost, MedianDurationMS     float64
 }
 
@@ -73,6 +74,7 @@ type ExperimentSummary struct {
 	// non-baseline arm, so the decision never re-derives a comparison.
 	PassRateTests map[string]StatTest
 	CostTests     map[string]StatTest
+	runs          []store.RunRow
 }
 
 // RegressionDecision is the outcome of applying spec §12.4 to a summary. Arm
@@ -143,7 +145,7 @@ func Summarize(ctx context.Context, st *store.Store, experimentID, baseline stri
 	taskRuns := map[string][]store.RunRow{}
 	for _, run := range runs {
 		// Runs with no arm belong to single-profile runs, not to a comparison.
-		if run.ArmID == nil {
+		if run.ArmID == nil || run.DryRun {
 			continue
 		}
 		label, ok := labelByArm[*run.ArmID]
@@ -170,13 +172,19 @@ func Summarize(ctx context.Context, st *store.Store, experimentID, baseline stri
 		if runSucceeded(run, metrics, validations) {
 			agg.successes++
 		}
-		tokens, _ := metricValue(metrics, "tokens_total")
-		cost, _ := metricValue(metrics, "cost")
+		tokens, hasTokens := metricValue(metrics, "tokens_total")
+		cost, hasCost := metricValue(metrics, "cost")
 		duration, _ := metricValue(metrics, "duration_ms")
-		agg.tokens = append(agg.tokens, tokens)
-		agg.costs = append(agg.costs, cost)
+		if hasTokens {
+			agg.tokens = append(agg.tokens, tokens)
+		}
+		if hasCost {
+			agg.costs = append(agg.costs, cost)
+		}
 		agg.durations = append(agg.durations, duration)
-		agg.costSum += cost
+		if hasCost {
+			agg.costSum += cost
+		}
 		taskRuns[run.TaskID] = append(taskRuns[run.TaskID], run)
 	}
 
@@ -206,7 +214,7 @@ func Summarize(ctx context.Context, st *store.Store, experimentID, baseline stri
 		var vals []float64
 		for _, id := range taskIDs {
 			agg := grouped[a.Label][id]
-			if agg == nil || agg.successes == 0 {
+			if agg == nil || agg.successes == 0 || len(agg.costs) != agg.executions {
 				continue
 			}
 			v := agg.costSum / float64(agg.successes)
@@ -226,6 +234,7 @@ func Summarize(ctx context.Context, st *store.Store, experimentID, baseline stri
 		CostPerSolved: costPerSolved,
 		PassRateTests: map[string]StatTest{},
 		CostTests:     map[string]StatTest{},
+		runs:          runs,
 	}
 	summary.DriftWarnings, summary.SignificanceSuppressed = driftWarnings(taskIDs, taskRuns)
 	summary.InsufficientData = insufficientData(arms, tasks)
@@ -386,6 +395,7 @@ func summarizeArmTask(agg *armTaskAgg) ArmTaskStats {
 		MedianTokens:     stats.Median(agg.tokens),
 		Q1Tokens:         q1,
 		Q3Tokens:         q3,
+		HasTokenMetrics:  len(agg.tokens) == agg.executions,
 		MedianCost:       stats.Median(agg.costs),
 		MedianDurationMS: stats.Median(agg.durations),
 	}

@@ -830,8 +830,12 @@ instruction-following, restraint, debugging, multi-file, search
 ## 15. Dashboard
 
 The dashboard answers the question the tool exists for: **which configuration
-scores best?** It is profile-first — the profile is the subject under test, and
-every number is attributed to a profile.
+delivers the same validated outcomes with fewer tokens and lower cost?** Its
+unit of comparison is a controlled experiment cohort, not a profile's entire
+historic run list. A profile is still the subject under test, but an armed
+experiment pins the task selection, suite hash, arms and repeat count that make
+a standing meaningful; unarmed experiment rows are single-profile sessions and
+are excluded.
 
 ### 15.1 Information architecture
 
@@ -839,34 +843,32 @@ Four pages, served from the store and the profile captures:
 
 | Page | Question it answers |
 |---|---|
-| **Overview** (`/`) | Which setup scores best? A leaderboard with confidence, a score-by-suite matrix, and score against cost per solved task |
+| **Cohorts** (`/`, `/cohorts`, `/cohorts/{id}`) | Which validated configuration is most cost-efficient in one controlled experiment? |
 | **Runs** (`/runs`, `/runs/{id}`) | What happened, run by run — validators, excerpts, and the architecture that produced it |
 | **Architecture** (`/arch`, `/arch/{hash}`) | How is this profile built up — primary agent, delegated subagents, skills, MCP, and how it differs from another profile |
 | **Suites & tasks** (`/suites`, `/suites/{name}`) | What is being measured — tiers, task metadata, validators and their weights, per-profile scores |
 
-A **scope switcher** (all suites, or one suite) applies to Overview and
-Architecture. The dashboard is read-only and binds to loopback only, as before.
+The dashboard is read-only and binds to loopback only, as before. Historic
+profile aggregation remains a read model for analysis, but the dashboard does
+not name a global winner from it.
 
 ### 15.2 Scoring
 
-- **Task score** — the mean of the `score` metric across that task's runs, where
-  `score` is the weighted fraction of validators that passed.
-- **Task pass** — the mean of `success` across that task's runs.
-- **Suite score** — the mean of task scores over the tasks of that suite that
-  have at least one run.
-- **Overall score** — suite scores weighted by task count (core 5, standard 3,
-  hard 2, agentic 4).
-- **Cost per solved task** — total cost divided by the number of runs with
-  `success = 1`; shown as "—" when nothing was solved.
-- **Confidence** — a seeded bootstrap over the task scores in scope, so the same
-  data always yields the same interval. Pass rate uses a Wilson interval.
-- **Significance** — the seeded permutation test over the leader's and runner-up's
-  task scores. The dashboard states whether the gap is distinguishable from
-  noise, and never claims causation.
+- **Eligibility** — every arm must have at least three executions for each
+  selected task, and every execution must pass deterministic validation. A
+  cheaply failing configuration is never called efficient.
+- **Cost per solved task** — each task's total provider cost divided by its
+  successful executions; the arm standing is the median over its tasks. It is
+  shown only when an arm solved work.
+- **Median tokens** — the median of per-task token medians, displayed beside
+  cost as a provider-price-independent efficiency measure.
+- **Runner environment** — OS, architecture and logical CPU count are shown as
+  strata. They never enter a latency ranking; wall-clock remains diagnostic.
+- **Compatibility** — model, agent, variant, OpenCode version, suite hash, task
+  version and fixture SHA drift suppresses the standing and is named.
 
-A suite is identified by **name**, and scored only from runs carrying its most
-recently recorded `suite_hash`; runs from older hashes are counted and disclosed
-rather than silently mixed into the score.
+The old score/pass/interval read model remains useful for analysis, but it is
+not a dashboard ranking because independent experiments are not repetitions.
 
 ### 15.3 What may be rendered
 
@@ -887,6 +889,6 @@ switching, filtering — becomes query parameters and links.
 
 ### 15.5 Empty states
 
-A profile with no runs appears in the leaderboard as "no runs" and is excluded
-from the matrix and the scatter. A suite with no runs renders "—". Nothing is
-interpolated or estimated: with few runs the dashboard is sparse, and it says so.
+With no experiment, the landing page explains how to create one with
+`ocbench experiment run … --repeat 3`. An ineligible cohort states why it cannot
+rank rather than inventing a winner. Nothing is interpolated or estimated.

@@ -314,6 +314,7 @@ type experimentJSONLRun struct {
 	Model           string `json:"model"`
 	OpenCodeVersion string `json:"opencode_version"`
 	OCBenchVersion  string `json:"ocbench_version"`
+	RunnerEnv       string `json:"runner_env"`
 }
 
 // experimentJSONLValidation is one validator outcome on a line.
@@ -385,6 +386,7 @@ func renderExperimentJSONL(ctx context.Context, w io.Writer, st *store.Store, id
 				Model:           run.Model,
 				OpenCodeVersion: run.OpenCodeVersion,
 				OCBenchVersion:  run.OCBenchVersion,
+				RunnerEnv:       run.RunnerEnv,
 			},
 			Metrics:     experimentMetricMap(metricRows),
 			Validations: experimentValidationList(valRows),

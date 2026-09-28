@@ -1,31 +1,10 @@
 {{define "content"}}
 <div class="filters">
-  <form class="profile-filter" method="get" action="/arch/{{.Hash}}"><label>Diff against <select name="against">{{range .CompareChips}}<option value="{{.Value}}"{{if .Current}} selected{{end}}>{{.Label}}</option>{{end}}</select></label><button type="submit">Apply</button></form>
+  <span class="label">Profile</span><span class="architecture-switches">{{range .ProfileChips}}<a class="tag{{if .Current}} current{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}</span>
+  <span class="label">Cohort</span><span class="architecture-switches">{{range .CohortChips}}<a class="tag{{if .Current}} current{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}</span>
+  <form class="profile-filter" method="get" action="/arch/{{.Hash}}"><input type="hidden" name="cohort" value="{{.Cohort}}"><label>Diff against <select name="against">{{range .CompareChips}}<option value="{{.Value}}"{{if .Current}} selected{{end}}>{{.Label}}</option>{{end}}</select></label><button type="submit">Apply</button></form>
   <span class="muted">{{.ComponentCount}} components</span>
 </div>
-
-{{if .Against}}
-<section class="card">
-  <div class="card-head"><h2>Changes vs {{.AgainstShort}}</h2><span class="muted">reference → this profile</span></div>
-  {{if .Changes}}
-  <table class="runs">
-    <thead><tr><th></th><th>Component</th><th>Change</th><th>Meaning</th></tr></thead>
-    <tbody>
-      {{range .Changes}}
-      <tr>
-        <td class="sign">{{.Sign}}</td>
-        <td><span class="dim">{{.Kind}}</span> {{.Name}}</td>
-        <td class="dim">{{.Change}}</td>
-        <td>{{.Note}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <div class="empty">These two profiles are identical.</div>
-  {{end}}
-</section>
-{{end}}
 
 {{if .Stats}}
 <div class="arch-stats">
@@ -37,18 +16,20 @@
   {{end}}
 </div>
 {{end}}
+<div class="notice architecture-note">{{.CohortNote}}</div>
 
 <section class="card architecture-summary">
   <div class="architecture-column primary-summary">
     <div class="label">Primary agent</div>
     {{with .Primary}}
     <div class="architecture-agent primary">
-      <div class="agent-head"><span class="name">{{.Name}}</span><span class="tag">primary</span></div>
+      <div class="agent-head"><span class="name">{{.Name}}</span><span class="tag">primary</span>{{if .DiffSign}}<span class="tag">{{.DiffSign}} changed</span>{{end}}</div>
       <div class="dim">{{.Model}} {{.Variant}}</div>
+      {{if .DiffNote}}<div class="dim">{{.DiffNote}}</div>{{end}}
       <div class="chips"><span class="tag">variant {{if .Variant}}{{.Variant}}{{else}}default{{end}}</span>{{if .HasUsage}}<span class="tag">{{.TokenShare}} of measured tokens</span>{{end}}</div>
       <div class="permission-summary">
         <div class="label">Permissions</div>
-        {{range .Permissions}}<div class="permission-row"><span>{{.Permission}} {{.Pattern}}</span><span class="{{if eq .Action "allow"}}good{{else if eq .Action "deny"}}bad{{else}}warn{{end}}">{{.Action}}</span></div>{{else}}<span class="muted">No captured permission rules.</span>{{end}}
+        {{if .Permissions}}<div class="chips"><span class="tag">{{.PermissionAllow}} allow</span>{{if .PermissionAsk}}<span class="tag">{{.PermissionAsk}} ask</span>{{end}}{{if .PermissionDeny}}<span class="tag">{{.PermissionDeny}} deny</span>{{end}}</div>{{range .PermissionExceptions}}<div class="permission-row"><span>{{.Permission}} {{.Pattern}}</span><span class="{{if eq .Action "deny"}}bad{{else}}warn{{end}}">{{.Action}}</span></div>{{end}}{{if .PermissionMore}}<div class="muted">{{.PermissionMore}} more exception rules in agent details.</div>{{end}}{{else}}<span class="muted">No captured permission rules.</span>{{end}}
       </div>
     </div>
     {{else}}<div class="empty small">No primary agent is configured.</div>{{end}}
@@ -60,8 +41,9 @@
     <div class="summary-branches">
       {{range .Subagents}}
       <div class="architecture-agent">
-        <div class="agent-head"><span class="name">{{.Name}}</span><span class="tag">{{if .HasUsage}}{{.MessagesPerRun}}× / run{{else}}configured{{end}}</span></div>
+        <div class="agent-head"><span class="name">{{.Name}}</span><span class="tag">{{if .HasUsage}}{{.MessagesPerRun}}× / run{{else}}configured{{end}}</span>{{if .DiffSign}}<span class="tag">{{.DiffSign}} changed</span>{{end}}</div>
         <div class="dim">{{.Model}} {{.Variant}}</div>
+        {{if .DiffNote}}<div class="dim">{{.DiffNote}}</div>{{end}}
         {{if .HasUsage}}<div class="usage-row"><span>{{.MessagesPerRun}}×</span><svg class="share" viewBox="0 0 100 6" preserveAspectRatio="none" aria-label="{{.TokenShare}} of measured tokens"><rect class="track" x="0" y="0" width="100" height="6"></rect><rect class="fill" x="0" y="0" width="{{.TokenPercent}}" height="6"></rect></svg><span>{{.TokenShare}}</span></div>{{end}}
         {{if .Tools}}<div class="chips">{{range .Tools}}<span class="tag">{{.}}</span>{{end}}</div>{{end}}
       </div>
@@ -71,8 +53,8 @@
   </div>
 
   <div class="architecture-column resource-summary">
-    <div><div class="label">Skills</div><div class="summary-list">{{range .Skills}}<div><span>{{.Name}}</span><span class="tag">skill</span></div>{{else}}<span class="muted">None configured</span>{{end}}</div></div>
-    <div><div class="label">MCP servers</div><div class="summary-list">{{range .MCP}}<div><span>{{.Name}}</span><span class="tag">mcp</span></div>{{else}}<span class="muted">None configured</span>{{end}}</div></div>
+    <div><div class="label">Skills</div><div class="summary-list">{{range .Skills}}<div><span>{{.Name}}</span><span class="tag">{{if .DiffSign}}{{.DiffSign}} changed{{else}}skill{{end}}</span></div>{{if .DiffNote}}<div class="dim">{{.DiffNote}}</div>{{end}}{{else}}<span class="muted">None configured</span>{{end}}</div></div>
+    <div><div class="label">MCP servers</div><div class="summary-list">{{range .MCP}}<div><span>{{.Name}}</span><span class="tag">{{if .DiffSign}}{{.DiffSign}} changed{{else}}mcp{{end}}</span></div>{{if .DiffNote}}<div class="dim">{{.DiffNote}}</div>{{end}}{{else}}<span class="muted">None configured</span>{{end}}</div></div>
     <div class="fingerprint">
       <div class="label">Fingerprint</div>
       <div class="row"><span>profile</span><b class="hash">{{.ShortHash}}</b></div>
@@ -81,6 +63,18 @@
     </div>
   </div>
 </section>
+
+{{if .Against}}
+<section class="card">
+  <div class="card-head"><h2>Changes vs {{.AgainstShort}}</h2><span class="muted">reference → this profile</span></div>
+  {{if .Changes}}
+  <table class="runs">
+    <thead><tr><th></th><th>Component</th><th>Change</th><th>Meaning</th></tr></thead>
+    <tbody>{{range .Changes}}<tr><td class="sign">{{.Sign}}</td><td><span class="dim">{{.Kind}}</span> {{.Name}}</td><td class="dim">{{.Change}}</td><td>{{.Note}}</td></tr>{{end}}</tbody>
+  </table>
+  {{else}}<div class="empty">These two profiles are identical.</div>{{end}}
+</section>
+{{end}}
 
 {{if .CaptureNote}}<div class="notice">{{.CaptureNote}}</div>{{end}}
 

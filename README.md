@@ -1,8 +1,8 @@
 # ocbench
 
 A local, single-binary benchmark harness for a resolved OpenCode setup. It
-answers one question: **did this change to my agents, skills, MCP servers or
-permissions actually make things better?**
+answers one question: **which setup delivers the same validated work with fewer
+tokens and lower cost?**
 
 It fingerprints your resolved OpenCode profile, runs fixed tasks in throwaway
 git worktrees under a restricted environment, records the raw event stream,
@@ -35,10 +35,11 @@ cross-compiles with `make cross`.
 | `ocbench run <suite> [task...] [--repeat N] [--dry-run] [--suite-dir P] [--json]` | Runs tasks in disposable worktrees and persists runs, metrics and validations |
 | `ocbench experiment run <suite> [task...] --profile A=<path> --profile B=<path> [--repeat N] [--baseline A] [--exit-on-regression]` | Interleaved A/B over config overlays, with statistics and a regression gate |
 | `ocbench experiment list\|show <id> [--format jsonl]` | Experiment summaries, and a versioned per-run export |
+| `ocbench report <experiment-id> [--format md\|html]` | Portable, redacted cost-efficiency report for one controlled experiment |
 | `ocbench history [--task T] [--limit N] [--json]` | Persisted runs, newest first |
 | `ocbench compare <a> <b> [--json]` | One run against another: metric deltas, validation changes, profile component changes |
 | `ocbench trace <run-id> [--json]` | A run as a timeline: steps, tool calls, and subagent spans nested under the `task` call that produced them |
-| `ocbench serve [--listen 127.0.0.1:8787]` | Read-only dashboard over the same data (loopback only) |
+| `ocbench serve [--listen 127.0.0.1:8787]` | Read-only, cohort-first dashboard over the same data (loopback only) |
 
 Exit codes: `0` completed, `1` infrastructure error, `2` usage/config error,
 `3` the opted-in-failure family (`--exit-on-task-failure`,
@@ -50,7 +51,7 @@ Exit codes: `0` completed, `1` infrastructure error, `2` usage/config error,
   prompt), skills, MCP servers, plugins, instruction files, and everything else
   in the resolved config, canonicalised and hashed. Secrets are redacted; MCP
   environment values are recorded as names only.
-- **The run**: raw JSONL events, `stderr`, the exported session, delegated child
+- **The run**: runner environment (OS, architecture and logical CPU count), raw JSONL events, `stderr`, the exported session, delegated child
   sessions, the diff against the baseline commit, changed and untracked files,
   validator output, and normalised metrics (tokens, cost, steps, tool calls,
   files and diff lines, per-agent roll-ups, process metrics).
@@ -71,7 +72,9 @@ suite + task  →  fixture materialised to a deterministic git commit
 ```
 
 Fixtures are content-addressed: the same fixture produces the same baseline
-commit SHA on any machine, so runs are comparable across time.
+commit SHA on any machine. Cost/token standings are only made inside a controlled
+experiment with the same benchmark inputs; wall-clock time remains a
+runner-specific diagnostic.
 
 ## Repository layout
 

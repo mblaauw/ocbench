@@ -1,7 +1,9 @@
 package runner
 
 import (
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -9,6 +11,13 @@ import (
 type EnvPolicy struct {
 	Inherit bool     // true only for --inherit-environment
 	PassEnv []string // additional names forwarded in allowlist mode
+}
+
+// RunnerEnvironment identifies the execution stratum without recording a
+// hostname or another machine identifier. It is a disclosure for interpreting
+// shared cost/token results; wall-clock latency remains host-specific.
+func RunnerEnvironment() string {
+	return runtime.GOOS + "/" + runtime.GOARCH + " · " + strconv.Itoa(runtime.NumCPU()) + " CPU"
 }
 
 // envAllowlist is always kept in allowlist mode. Any LC_* variable is kept too.

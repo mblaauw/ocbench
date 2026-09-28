@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -34,27 +35,34 @@ type profilesPage struct {
 
 // agentRow is one agent on the architecture page.
 type agentRow struct {
-	Name        string
-	Mode        string
-	Model       string
-	Variant     string
-	Steps       int
-	Temperature string
-	Native      bool
-	Description string
-	Prompt      string
-	Tools       []string
-	ToolOff     []string
-	Permissions []permissionRow
-	TaskRules   []string
-	Options     []optionRow
-	Primary     bool
+	Name                 string
+	Mode                 string
+	Model                string
+	Variant              string
+	Steps                int
+	Temperature          string
+	Native               bool
+	Description          string
+	Prompt               string
+	Tools                []string
+	ToolOff              []string
+	Permissions          []permissionRow
+	PermissionAllow      int
+	PermissionAsk        int
+	PermissionDeny       int
+	PermissionExceptions []permissionRow
+	PermissionMore       int
+	TaskRules            []string
+	Options              []optionRow
+	Primary              bool
 	// Usage fields are aggregated from stored runs for the prototype-style
 	// summary cards. They remain blank when this profile has no measured usage.
 	MessagesPerRun string
 	TokenShare     string
 	TokenPercent   int
 	HasUsage       bool
+	DiffSign       string
+	DiffNote       string
 }
 
 // optionRow is one model option set on an agent.
@@ -87,6 +95,8 @@ type skillRow struct {
 	Description string
 	Location    string
 	SHA         string
+	DiffSign    string
+	DiffNote    string
 }
 
 // changeNoteRow is one difference against a reference profile.
@@ -136,6 +146,10 @@ type profilePageView struct {
 	AgainstHref  string
 	Changes      []changeNoteRow
 	CompareChips []filterChip
+	ProfileChips []filterChip
+	CohortChips  []filterChip
+	Cohort       string
+	CohortNote   string
 }
 
 // edgeRow is one primary-agent to subagent permission edge.
@@ -163,8 +177,16 @@ type treeGroup struct {
 
 // mcpRow is one MCP server with its configuration keys.
 type mcpRow struct {
-	Name string
-	Keys string
+	Name     string
+	Keys     string
+	DiffSign string
+	DiffNote string
+}
+
+type archUsage struct {
+	Measured           bool
+	MessagesPerRun     float64
+	SubagentTokenShare float64
 }
 
 // handleProfiles lists the fingerprinted profiles.
@@ -264,10 +286,8 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		page.CapturesAvailable = true
 	}
 	page.Primary, page.Agents, page.Subagents = agentRows(view, set)
-	h.addProfileUsage(r, page.Hash, page.Primary, page.Subagents)
 	page.Edges = edgeRows(view)
 	page.Tree = treeGroups(page.Edges)
-	page.Stats = h.archStats(r, row.ProfileHash, "")
 	page.Instructions = instructionRows(view, set)
 	page.Skills = skillRows(view, set)
 	for _, m := range view.MCP {
@@ -276,7 +296,12 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	for _, pl := range view.Plugins {
 		page.Plugins = append(page.Plugins, pl.Spec)
 	}
+	page.Cohort = r.URL.Query().Get("cohort")
+	page.CohortChips = h.cohortChips(r, page.Hash)
+	page.ProfileChips = h.profileSwitchChips(r, page.Hash)
 	page.CompareChips = h.profileCompareChips(r, page.Hash)
+	usage := h.addProfileUsage(r, page.Hash, page.Cohort, page.Primary, page.Subagents)
+	page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, "", page.Cohort, usage)
 	if against := r.URL.Query().Get("against"); against != "" && against != page.Hash {
 		otherRow, otherComps, err := h.store.GetProfileByHash(r.Context(), against)
 		if err != nil {
@@ -290,12 +315,13 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		page.Against = other.Hash
 		page.AgainstShort = shortHash(other.Hash)
-		page.Stats = h.archStats(r, row.ProfileHash, other.Hash)
+		page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, other.Hash, page.Cohort, usage)
 		for _, note := range profile.DiffNotes(other, p) {
 			page.Changes = append(page.Changes, changeNoteRow{
 				Sign: note.Sign, Kind: note.Kind, Name: note.Name, Note: note.Note, Change: note.Change,
 			})
 		}
+		annotateDiffs(&page)
 	}
 	render(w, profileTmpl, page)
 }
@@ -305,10 +331,13 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 // metrics and leaves the cards explicitly unmeasured when those metrics are
 // absent. Agent metric keys are sanitised the way the runner writes them, so a
 // configured name like "code-reviewer" still matches its usage.
-func (h *handler) addProfileUsage(r *http.Request, hash string, primary *agentRow, subs []agentRow) {
-	runs, err := h.store.ListRunsByProfile(r.Context(), hash)
+func (h *handler) addProfileUsage(r *http.Request, hash, cohort string, primary *agentRow, subs []agentRow) archUsage {
+	if cohort == "" || !h.isControlledCohort(r, cohort) {
+		return archUsage{}
+	}
+	runs, err := h.store.RunsForExperiment(r.Context(), cohort)
 	if err != nil || len(runs) == 0 {
-		return
+		return archUsage{}
 	}
 	type usage struct {
 		messages int
@@ -316,8 +345,17 @@ func (h *handler) addProfileUsage(r *http.Request, hash string, primary *agentRo
 	}
 	byName := map[string]*usage{}
 	totalTokens := 0.0
+	subagentTokens := 0.0
+	totalMessages := 0
 	measuredRuns := 0
+	subagents := map[string]bool{}
+	for _, sub := range subs {
+		subagents[evaluation.SanitizeName(sub.Name)] = true
+	}
 	for _, run := range runs {
+		if run.DryRun || run.ProfileHash != hash {
+			continue
+		}
 		rows, err := h.store.GetRunMetrics(r.Context(), run.ID)
 		if err != nil {
 			continue
@@ -341,11 +379,15 @@ func (h *handler) addProfileUsage(r *http.Request, hash string, primary *agentRo
 			}
 			current.messages += u.Messages
 			current.tokens += u.Tokens
+			totalMessages += u.Messages
 			totalTokens += u.Tokens
+			if subagents[u.Name] {
+				subagentTokens += u.Tokens
+			}
 		}
 	}
 	if measuredRuns == 0 {
-		return
+		return archUsage{}
 	}
 	decorate := func(agent *agentRow) {
 		if agent == nil {
@@ -367,13 +409,19 @@ func (h *handler) addProfileUsage(r *http.Request, hash string, primary *agentRo
 	for i := range subs {
 		decorate(&subs[i])
 	}
+	out := archUsage{Measured: true, MessagesPerRun: float64(totalMessages) / float64(measuredRuns)}
+	if totalTokens > 0 {
+		out.SubagentTokenShare = subagentTokens / totalTokens * 100
+	}
+	return out
 }
 
 // profileCompareChips links the other profiles this one can be compared with.
 func (h *handler) profileCompareChips(r *http.Request, hash string) []filterChip {
 	against := r.URL.Query().Get("against")
+	cohort := r.URL.Query().Get("cohort")
 	out := []filterChip{{
-		Label: "Nothing", Value: "", Href: "/arch/" + hash, Current: against == "",
+		Label: "Nothing", Value: "", Href: archURL(hash, cohort, ""), Current: against == "",
 	}}
 	rows, err := h.store.ListProfiles(r.Context())
 	if err != nil {
@@ -385,11 +433,75 @@ func (h *handler) profileCompareChips(r *http.Request, hash string) []filterChip
 		}
 		out = append(out, filterChip{
 			Label: shortHash(row.ProfileHash), Value: row.ProfileHash,
-			Href:    "/arch/" + hash + "?against=" + row.ProfileHash,
+			Href:    archURL(hash, cohort, row.ProfileHash),
 			Current: against == row.ProfileHash,
 		})
 	}
 	return out
+}
+
+// profileSwitchChips makes changing the subject of an architecture inspection a
+// direct, no-JavaScript navigation while preserving the chosen cohort.
+func (h *handler) profileSwitchChips(r *http.Request, hash string) []filterChip {
+	rows, err := h.store.ListProfiles(r.Context())
+	if err != nil {
+		return nil
+	}
+	cohort := r.URL.Query().Get("cohort")
+	out := make([]filterChip, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, filterChip{
+			Label: shortHash(row.ProfileHash), Value: row.ProfileHash,
+			Href: archURL(row.ProfileHash, cohort, ""), Current: row.ProfileHash == hash,
+		})
+	}
+	return out
+}
+
+// cohortChips lists recorded experiments as optional evidence scopes. A blank
+// scope leaves Architecture as configuration evidence only.
+func (h *handler) cohortChips(r *http.Request, hash string) []filterChip {
+	cohort := r.URL.Query().Get("cohort")
+	against := r.URL.Query().Get("against")
+	out := []filterChip{{
+		Label: "No cohort", Href: archURL(hash, "", against), Current: cohort == "",
+	}}
+	experiments, err := h.store.ListExperiments(r.Context(), 0)
+	if err != nil {
+		return out
+	}
+	armCounts, err := h.store.ExperimentArmCounts(r.Context())
+	if err != nil {
+		return out
+	}
+	for _, experiment := range experiments {
+		if armCounts[experiment.ID] < 2 {
+			continue
+		}
+		label := experiment.Name
+		if label == "" {
+			label = shortHash(experiment.ID)
+		}
+		out = append(out, filterChip{
+			Label: label, Value: experiment.ID, Href: archURL(hash, experiment.ID, against),
+			Current: cohort == experiment.ID,
+		})
+	}
+	return out
+}
+
+func archURL(hash, cohort, against string) string {
+	values := url.Values{}
+	if cohort != "" {
+		values.Set("cohort", cohort)
+	}
+	if against != "" && against != hash {
+		values.Set("against", against)
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return "/arch/" + hash + "?" + encoded
+	}
+	return "/arch/" + hash
 }
 
 // stampText renders an RFC3339 stamp as "YYYY-MM-DD HH:MM", the precision the
@@ -455,9 +567,28 @@ func agentRows(view profile.View, set profile.CaptureSet) (*agentRow, []agentRow
 				row.Temperature = fmt.Sprintf("%g", *cap.Temperature)
 			}
 			for _, perm := range cap.Permissions {
-				row.Permissions = append(row.Permissions, permissionRow{
+				permission := permissionRow{
 					Permission: perm.Permission, Pattern: perm.Pattern, Action: perm.Action,
-				})
+				}
+				row.Permissions = append(row.Permissions, permission)
+				switch perm.Action {
+				case "allow":
+					row.PermissionAllow++
+				case "deny":
+					row.PermissionDeny++
+					if len(row.PermissionExceptions) < 5 {
+						row.PermissionExceptions = append(row.PermissionExceptions, permission)
+					} else {
+						row.PermissionMore++
+					}
+				default:
+					row.PermissionAsk++
+					if len(row.PermissionExceptions) < 5 {
+						row.PermissionExceptions = append(row.PermissionExceptions, permission)
+					} else {
+						row.PermissionMore++
+					}
+				}
 			}
 		}
 		rows = append(rows, row)
@@ -481,6 +612,39 @@ func agentRows(view profile.View, set profile.CaptureSet) (*agentRow, []agentRow
 		}
 	}
 	return primary, rows, subs
+}
+
+func annotateDiffs(page *profilePageView) {
+	type marker struct{ sign, note string }
+	markers := map[string]marker{}
+	for _, change := range page.Changes {
+		markers[change.Kind+"\x00"+change.Name] = marker{sign: change.Sign, note: change.Note}
+	}
+	apply := func(agent *agentRow, kind string) {
+		if agent == nil {
+			return
+		}
+		if value, ok := markers[kind+"\x00"+agent.Name]; ok {
+			agent.DiffSign, agent.DiffNote = value.sign, value.note
+		}
+	}
+	apply(page.Primary, "primary")
+	if page.Primary != nil && page.Primary.DiffSign == "" {
+		apply(page.Primary, "agent")
+	}
+	for i := range page.Subagents {
+		apply(&page.Subagents[i], "agent")
+	}
+	for i := range page.Skills {
+		if value, ok := markers["skill\x00"+page.Skills[i].Name]; ok {
+			page.Skills[i].DiffSign, page.Skills[i].DiffNote = value.sign, value.note
+		}
+	}
+	for i := range page.MCP {
+		if value, ok := markers["mcp\x00"+page.MCP[i].Name]; ok {
+			page.MCP[i].DiffSign, page.MCP[i].DiffNote = value.sign, value.note
+		}
+	}
 }
 
 // sortedOptionNames returns the model option keys in a stable order.
@@ -535,28 +699,27 @@ func edgeRows(view profile.View) []edgeRow {
 	return out
 }
 
-// archStats builds the profile's stat strip, with deltas against compareWith
-// when a comparison is selected.
-func (h *handler) archStats(r *http.Request, hash, compareWith string) []archStat {
-	ov, err := history.Overview(r.Context(), h.store, history.ScopeAll)
+// archStats builds a profile's observed stat strip only from a selected
+// experiment. Broad profile history is intentionally not a comparable result.
+func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, usage archUsage) ([]archStat, string) {
+	if cohort == "" || !h.isControlledCohort(r, cohort) {
+		return nil, "Choose a controlled cohort to show observed efficiency."
+	}
+	runs, err := h.store.RunsForExperiment(r.Context(), cohort)
 	if err != nil {
-		return nil
+		return nil, "Cohort runs could not be read."
 	}
-	find := func(want string) *history.ProfileScore {
-		for i := range ov.Profiles {
-			if ov.Profiles[i].Hash == want {
-				return &ov.Profiles[i]
-			}
-		}
-		return nil
+	selfValue, err := history.ProfileScoreForRuns(r.Context(), h.store, hash, runs)
+	if err != nil || !selfValue.HasRuns {
+		return nil, "This profile has no measured runs in the selected cohort."
 	}
-	self := find(hash)
-	if self == nil || !self.HasRuns {
-		return nil
-	}
+	self := &selfValue
 	var other *history.ProfileScore
 	if compareWith != "" {
-		other = find(compareWith)
+		otherValue, err := history.ProfileScoreForRuns(r.Context(), h.store, compareWith, runs)
+		if err == nil && otherValue.HasRuns {
+			other = &otherValue
+		}
 	}
 
 	stat := func(label, value string, mine float64, better func(float64) bool) archStat {
@@ -568,9 +731,7 @@ func (h *handler) archStats(r *http.Request, hash, compareWith string) []archSta
 		// whether this profile is better or worse on it.
 		var theirs float64
 		switch label {
-		case "Score":
-			theirs = other.Score
-		case "Pass rate":
+		case "Validated pass rate":
 			theirs = other.PassRate * 100
 		case "Cost / solved":
 			theirs = other.CostPerSolved
@@ -616,8 +777,7 @@ func (h *handler) archStats(r *http.Request, hash, compareWith string) []archSta
 	}
 
 	out := []archStat{
-		stat("Score", fmt.Sprintf("%.2f", self.Score), self.Score, func(d float64) bool { return d > 0 }),
-		stat("Pass rate", fmt.Sprintf("%.0f%%", self.PassRate*100), self.PassRate*100, func(d float64) bool { return d > 0 }),
+		stat("Validated pass rate", fmt.Sprintf("%.0f%%", self.PassRate*100), self.PassRate*100, func(d float64) bool { return d > 0 }),
 	}
 	if self.CostPerSolvedOK {
 		out = append(out, stat("Cost / solved", fmt.Sprintf("$%.3f", self.CostPerSolved),
@@ -625,9 +785,22 @@ func (h *handler) archStats(r *http.Request, hash, compareWith string) []archSta
 	} else {
 		out = append(out, archStat{Label: "Cost / solved", Value: "—"})
 	}
-	out = append(out, stat("Median tokens", tokensText(self.MedianTokens),
-		float64(self.MedianTokens), func(d float64) bool { return d < 0 }))
-	return out
+	if self.MedianTokensOK {
+		out = append(out, stat("Median tokens", tokensText(self.MedianTokens),
+			float64(self.MedianTokens), func(d float64) bool { return d < 0 }))
+	} else {
+		out = append(out, archStat{Label: "Median tokens", Value: "—"})
+	}
+	if usage.Measured {
+		out = append(out, archStat{Label: "Agent messages / run", Value: fmt.Sprintf("%.1f", usage.MessagesPerRun)})
+		out = append(out, archStat{Label: "Subagent token share", Value: fmt.Sprintf("%.0f%%", usage.SubagentTokenShare)})
+	}
+	return out, "Observed only in the selected controlled cohort."
+}
+
+func (h *handler) isControlledCohort(r *http.Request, id string) bool {
+	counts, err := h.store.ExperimentArmCounts(r.Context())
+	return err == nil && counts[id] >= 2
 }
 
 // abs returns the magnitude of a float.

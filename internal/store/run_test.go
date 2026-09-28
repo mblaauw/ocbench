@@ -90,6 +90,7 @@ func sampleRun(id, taskID, started string) RunRow {
 		FixtureSHA:      "abc123",
 		OpenCodeVersion: "1.18.32",
 		OCBenchVersion:  "dev",
+		RunnerEnv:       "linux/amd64 · 4 CPU",
 		Model:           "p/m",
 		Agent:           "build",
 		Variant:         "high",

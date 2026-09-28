@@ -47,7 +47,8 @@ type layout struct {
 // are simply absent rather than shown as dead links.
 func navItems(current string, hints map[string]string) []navItem {
 	order := []struct{ key, label, href string }{
-		{"overview", "Overview", "/"},
+		{"cohorts", "Cohorts", "/"},
+		{"overview", "History", "/overview"},
 		{"runs", "Runs", "/runs"},
 		{"profiles", "Architecture", "/arch"},
 		{"suites", "Suites & tasks", "/suites"},

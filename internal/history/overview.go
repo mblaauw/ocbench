@@ -34,6 +34,7 @@ type TaskScore struct {
 	Solved       int
 	Cost         float64
 	MedianTokens int64
+	HasTokens    bool
 }
 
 // ProfileScore is one configuration's standing in the current scope.
@@ -56,6 +57,7 @@ type ProfileScore struct {
 	CostPerSolved   float64
 	CostPerSolvedOK bool
 	MedianTokens    int64
+	MedianTokensOK  bool
 
 	// CacheHitRate is the share of this profile's prompt tokens served from
 	// the provider's cache, pooled across its runs. CacheHitRateOK is false
@@ -202,6 +204,19 @@ func Overview(ctx context.Context, st *store.Store, scope string) (OverviewRepor
 	return overview, nil
 }
 
+// ProfileScoreForRuns derives one profile's score from an explicitly selected
+// run set. Callers use it for a controlled experiment cohort; unlike Overview,
+// it never reaches into unrelated historic runs.
+func ProfileScoreForRuns(ctx context.Context, st *store.Store, profileHash string, runs []store.RunRow) (ProfileScore, error) {
+	selected := make([]store.RunRow, 0, len(runs))
+	for _, run := range runs {
+		if !run.DryRun && run.ProfileHash == profileHash {
+			selected = append(selected, run)
+		}
+	}
+	return scoreProfile(ctx, st, profileHash, selected)
+}
+
 // finish adds the leader-vs-runner-up comparison, which needs both profiles.
 func (o *OverviewReport) finish(ctx context.Context, st *store.Store) {
 	if len(o.Profiles) < 2 {
@@ -288,7 +303,9 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 			acc.solved++
 		}
 		acc.cost += values["cost"]
-		acc.tokens = append(acc.tokens, int64(values["tokens_total"]))
+		if tokens, ok := values["tokens_total"]; ok {
+			acc.tokens = append(acc.tokens, int64(tokens))
+		}
 		cacheRead += values["tokens_cache_read"]
 		cacheInput += values["tokens_input"]
 
@@ -305,6 +322,7 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 			Pass:   acc.passSum / float64(acc.runs),
 			Solved: acc.solved, Cost: acc.cost,
 			MedianTokens: int64(stats.Median(floats(acc.tokens))),
+			HasTokens:    len(acc.tokens) > 0,
 		}
 		ps.Tasks = append(ps.Tasks, ts)
 	}
@@ -353,9 +371,14 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 	if len(ps.Tasks) > 0 {
 		medians := make([]float64, 0, len(ps.Tasks))
 		for _, ts := range ps.Tasks {
-			medians = append(medians, float64(ts.MedianTokens))
+			if ts.HasTokens {
+				medians = append(medians, float64(ts.MedianTokens))
+			}
 		}
-		ps.MedianTokens = int64(stats.Median(medians))
+		if len(medians) > 0 {
+			ps.MedianTokens = int64(stats.Median(medians))
+			ps.MedianTokensOK = true
+		}
 	}
 	// How large a difference these tasks could resolve. This is what turns the
 	// leaderboard from a ranking into evidence: below this, a lead is noise.

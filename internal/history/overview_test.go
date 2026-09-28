@@ -85,6 +85,32 @@ func TestOverviewRanksProfilesAndComputesIntervals(t *testing.T) {
 	}
 }
 
+func TestProfileScoreForRunsUsesOnlyTheSuppliedCohort(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+	seedScoredRun(t, st, "cohort-run", "2026-03-01T10:00:00Z", "p1", "hash-a", suiteName, "task-one", 1, 1, 100, 0.01)
+	seedScoredRun(t, st, "historic-run", "2026-03-01T10:01:00Z", "p1", "hash-a", suiteName, "task-two", 0, 0, 500, 0.50)
+
+	runs, err := st.ListRuns(context.Background(), 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cohort []store.RunRow
+	for _, run := range runs {
+		if run.ID == "cohort-run" {
+			cohort = append(cohort, run)
+		}
+	}
+	score, err := history.ProfileScoreForRuns(context.Background(), st, "hash-a", cohort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if score.Runs != 1 || score.Score != 1 || score.CostPerSolved != 0.01 {
+		t.Fatalf("cohort score = %+v, want only cohort-run", score)
+	}
+}
+
 func TestOverviewIsDeterministic(t *testing.T) {
 	st := testStore(t)
 	seedSuiteTask(t, st)

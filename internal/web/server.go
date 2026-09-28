@@ -60,10 +60,9 @@ func WithPaths(paths config.Paths) Option {
 }
 
 // NewHandler returns the read-only dashboard handler backed by st. It exposes
-// `GET /` (the profile leaderboard), `GET /runs`, `GET /runs/{id}`,
-// `GET /compare`, `GET /arch`, `GET /arch/{hash}`, the embedded `/static/`
-// assets and a 404 for everything else. It never serves raw artifacts or
-// arbitrary filesystem paths.
+// the profile overview, controlled cohorts, runs, architecture, suites and the
+// embedded static assets. It never serves raw artifacts or arbitrary filesystem
+// paths.
 func NewHandler(st *store.Store, opts ...Option) http.Handler {
 	h := &handler{store: st}
 	for _, opt := range opts {
@@ -71,13 +70,16 @@ func NewHandler(st *store.Store, opts ...Option) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", h.handleOverview)
+	mux.HandleFunc("GET /{$}", h.handleCohorts)
+	mux.HandleFunc("GET /overview", h.handleOverview)
 	mux.HandleFunc("GET /runs", h.handleList)
 	mux.HandleFunc("GET /runs/{id}", h.handleRun)
 	mux.HandleFunc("GET /compare", h.handleCompare)
 	mux.HandleFunc("GET /arch", h.handleProfiles)
 	mux.HandleFunc("GET /arch/{hash}", h.handleProfile)
 	mux.HandleFunc("GET /suites", h.handleSuites)
+	mux.HandleFunc("GET /cohorts", h.handleCohorts)
+	mux.HandleFunc("GET /cohorts/{id}", h.handleCohort)
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
 	// The design prototype, for comparing the dashboard against the canvas it
 	// was built from. It is a development reference, not part of the dashboard.

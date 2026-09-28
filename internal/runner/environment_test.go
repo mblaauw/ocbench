@@ -2,7 +2,9 @@ package runner
 
 import (
 	"reflect"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -278,5 +280,19 @@ func TestEnvNamesEmptyAndKeysOnly(t *testing.T) {
 	}
 	if !sort.StringsAreSorted(names) {
 		t.Errorf("EnvNames not sorted: %v", names)
+	}
+}
+
+func TestRunnerEnvironmentDescribesPlatformWithoutHostIdentity(t *testing.T) {
+	got := RunnerEnvironment()
+	wantPrefix := runtime.GOOS + "/" + runtime.GOARCH + " · "
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("RunnerEnvironment() = %q, want prefix %q", got, wantPrefix)
+	}
+	if !strings.HasSuffix(got, " CPU") {
+		t.Fatalf("RunnerEnvironment() = %q, want CPU suffix", got)
+	}
+	if !strings.Contains(got, strconv.Itoa(runtime.NumCPU())) {
+		t.Fatalf("RunnerEnvironment() = %q, want CPU count %d", got, runtime.NumCPU())
 	}
 }

@@ -21,6 +21,13 @@ var listTmpl = mustParsePage("templates/runs.html")
 // suitesTmpl renders the persisted suite catalogue at `/suites`.
 var suitesTmpl = mustParsePage("templates/suites.html")
 
+// cohortsTmpl and cohortTmpl render controlled experiment cohorts and their
+// evidence-gated efficiency standings.
+var (
+	cohortsTmpl = mustParsePage("templates/cohorts.html")
+	cohortTmpl  = mustParsePage("templates/cohort.html")
+)
+
 // runTmpl, compareTmpl and profileTmpl render the detail views that the
 // dashboard routes task wires up. Parsing them here means a malformed template
 // fails at startup rather than per request.

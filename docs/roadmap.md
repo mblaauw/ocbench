@@ -13,6 +13,7 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | History and comparison — store read model, `history`, `compare` | **done** | `882b7e1`..`806f30b` |
 | Dashboard — embedded web, safe routes, `serve` | **done** | `10b5a9d`..`42a8330` |
 | Dashboard — profile-first Overview, Runs and Architecture pages | **done** | `d25fc42`..`bbc758a` |
+| Efficiency cohorts — runner strata, gated standings, portable reports | **in progress** | `2026-09-27` plan |
 | Measurement validity — noise floor, effect size, attribution, calibration | **in progress** | `9e25b2b`..`2c790e9` |
 | Experiments — arms, overlays, statistics, regression gate, JSONL export | **done** | `2db8b81`..`a29748a` |
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |

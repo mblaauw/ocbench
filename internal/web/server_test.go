@@ -3,6 +3,7 @@ package web_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -187,6 +188,71 @@ func TestSuitesPageEmptyState(t *testing.T) {
 		t.Errorf("expected an honest empty catalogue, got:\n%s", rec.Body.String())
 	}
 }
+
+func TestCohortsShowOnlyEvidenceGatedEfficiencyStandings(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	for _, profile := range []store.ProfileRow{
+		{ID: "profile-base", ProfileHash: "hash-base", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", CanonicalJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "profile-lean", ProfileHash: "hash-lean", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", CanonicalJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := st.InsertProfile(ctx, profile, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.InsertExperiment(ctx, store.ExperimentRow{ID: "exp-cohort", Name: "core efficiency", SpecJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, arm := range []store.ExperimentArmRow{
+		{ID: "arm-base", ExperimentID: "exp-cohort", Label: "base", ProfileID: stringPtr("profile-base"), ProfileHash: "hash-base", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "arm-lean", ExperimentID: "exp-cohort", Label: "lean", ProfileID: stringPtr("profile-lean"), ProfileHash: "hash-lean", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := st.InsertExperimentArm(ctx, arm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, arm := range []struct {
+		id, profileID, hash string
+		cost, tokens        float64
+	}{
+		{"arm-base", "profile-base", "hash-base", 2, 200},
+		{"arm-lean", "profile-lean", "hash-lean", 1, 100},
+	} {
+		for repeat := 0; repeat < 3; repeat++ {
+			armID := arm.id
+			runID := fmt.Sprintf("%s-%d", arm.id, repeat)
+			if err := st.InsertRun(ctx, store.RunRow{
+				ID: runID, ExperimentID: "exp-cohort", ArmID: &armID, RepeatIndex: repeat,
+				ProfileID: arm.profileID, ProfileHash: arm.hash,
+				SuiteName: "core", SuiteVersion: "1", SuiteHash: "suite-h", TaskID: "task", TaskVersion: "1", FixtureSHA: "fixture-h",
+				OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", RunnerEnv: "linux/amd64 · 4 CPU",
+				Status: "passed", StartedAt: fmt.Sprintf("2026-01-01T00:00:0%dZ", repeat), ArtifactsDir: "/runs/" + runID,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.InsertRunMetrics(ctx, runID, map[string]float64{"success": 1, "cost": arm.cost, "tokens_total": arm.tokens}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	h := web.NewHandler(st)
+	list := get(t, h, "/cohorts")
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "core efficiency") || !strings.Contains(list.Body.String(), "eligible") {
+		t.Fatalf("cohort list = %d:\n%s", list.Code, list.Body.String())
+	}
+	detail := get(t, h, "/cohorts/exp-cohort")
+	for _, want := range []string{"Efficiency standing", "lean", "$1.000000", "linux/amd64 · 4 CPU"} {
+		if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), want) {
+			t.Fatalf("cohort detail missing %q (%d):\n%s", want, detail.Code, detail.Body.String())
+		}
+	}
+	if rec := get(t, h, "/cohorts/missing"); rec.Code != http.StatusNotFound {
+		t.Fatalf("missing cohort status = %d, want 404", rec.Code)
+	}
+}
+
+func stringPtr(value string) *string { return &value }
 
 // theme.js is loaded synchronously from the head so a stored light mode applies
 // before the first paint.
@@ -656,6 +722,12 @@ func TestArchitecturePageComparesTwoProfiles(t *testing.T) {
 			t.Errorf("comparison missing %q", want)
 		}
 	}
+	if !strings.Contains(body, "&#43; changed") {
+		t.Errorf("comparison did not annotate changed architecture cards")
+	}
+	if !strings.Contains(body, "Profile") || !strings.Contains(body, "/arch/hash-a") {
+		t.Errorf("architecture page did not provide profile-switch links")
+	}
 	// Without ?against there is no comparison section.
 	plain := get(t, web.NewHandler(st), "/arch/hash-b").Body.String()
 	if strings.Contains(plain, "Changes vs") {
@@ -669,15 +741,27 @@ func TestArchitecturePageComparesTwoProfiles(t *testing.T) {
 func TestArchitectureSummaryShowsMeasuredAgentUsage(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
+	if err := st.InsertExperiment(ctx, store.ExperimentRow{ID: "exp-usage", Name: "usage cohort", SpecJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
 	seedProfile(t, st, "profile-usage", "hash-usage", []store.ComponentRow{
 		{Kind: "primary", Name: "primary", Hash: "h0", CanonicalJSON: `{"default_agent":"build"}`},
 		{Kind: "agent", Name: "build", Hash: "h1", CanonicalJSON: `{"mode":"primary","model":"m","tools":{"task":true}}`},
 		{Kind: "agent", Name: "code-reviewer", Hash: "h2", CanonicalJSON: `{"mode":"subagent","model":"m"}`},
 	})
+	for _, arm := range []store.ExperimentArmRow{
+		{ID: "usage-a", ExperimentID: "exp-usage", Label: "measured", ProfileID: stringPtr("profile-usage"), ProfileHash: "hash-usage", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "usage-b", ExperimentID: "exp-usage", Label: "other", ProfileHash: "hash-other", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := st.InsertExperimentArm(ctx, arm); err != nil {
+			t.Fatal(err)
+		}
+	}
 	exit := 0
 	dur := int64(1000)
+	armID := "usage-a"
 	if err := st.InsertRun(ctx, store.RunRow{
-		ID: "run-usage", ProfileID: "profile-usage", ProfileHash: "hash-usage",
+		ID: "run-usage", ExperimentID: "exp-usage", ArmID: &armID, ProfileID: "profile-usage", ProfileHash: "hash-usage",
 		SuiteName: "core", SuiteVersion: "1", SuiteHash: "suite-hash",
 		TaskID: "task-one", TaskVersion: "1", FixtureSHA: "fixture",
 		OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", Model: "m", Agent: "build",
@@ -693,17 +777,23 @@ func TestArchitectureSummaryShowsMeasuredAgentUsage(t *testing.T) {
 		t.Fatalf("metrics: %v", err)
 	}
 
-	body := get(t, web.NewHandler(st), "/arch/hash-usage").Body.String()
+	body := get(t, web.NewHandler(st), "/arch/hash-usage?cohort=exp-usage").Body.String()
 	for _, want := range []string{
 		"Primary agent", "Subagents via task",
 		"code-reviewer",          // the configured name
 		"4.0× / run",             // sanitised subagent matched its metrics
 		"80% of measured tokens", // primary token share
 		"20%",                    // subagent token share
+		"Agent messages / run",   // cohort-scoped workflow metric
+		"Subagent token share",   // cohort-scoped workflow metric
+		"Observed only in the selected controlled cohort.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("architecture summary missing %q", want)
 		}
+	}
+	if plain := get(t, web.NewHandler(st), "/arch/hash-usage").Body.String(); !strings.Contains(plain, "Choose a controlled cohort") {
+		t.Errorf("architecture without cohort did not disclose unscoped metrics")
 	}
 	// A profile with no measured runs must not invent a usage figure.
 	seedArchProfile(t, st, "hash-nomeasured")
@@ -730,6 +820,22 @@ func TestArchitectureIndexListsProfiles(t *testing.T) {
 	// The old /profiles route is gone rather than left as a dead alias.
 	if rec := get(t, web.NewHandler(st), "/profiles"); rec.Code != http.StatusNotFound {
 		t.Errorf("GET /profiles = %d, want 404", rec.Code)
+	}
+}
+
+func TestOverviewRemainsReachableAsExploratoryHistory(t *testing.T) {
+	st := testStore(t)
+	seedArchProfile(t, st, "hash-history")
+	seedRun(t, st, "run-history", "py-bugfix")
+
+	body := get(t, web.NewHandler(st), "/overview").Body.String()
+	for _, want := range []string{"Exploratory profile history", "Historic observations are not repetitions", "not an efficiency ranking"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("exploratory history missing %q", want)
+		}
+	}
+	if strings.Contains(body, "Which setup scores best?") || strings.Contains(body, "Profile leaderboard") {
+		t.Errorf("exploratory history still claims a global winner")
 	}
 }
 

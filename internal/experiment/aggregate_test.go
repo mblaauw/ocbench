@@ -157,6 +157,121 @@ func aggSeedRepeats(t *testing.T, st *store.Store, expID, armID, task string, co
 	}
 }
 
+func TestSummarizeCohortRanksOnlyCompleteValidatedArms(t *testing.T) {
+	t.Run("ranks fully repeated successful arms by cost", func(t *testing.T) {
+		st := aggStore(t)
+		ids := aggSeed(t, st, "exp-cohort", `{"baseline":"baseline"}`, "baseline", "lean")
+		for _, task := range []string{"t1", "t2"} {
+			aggSeedRepeats(t, st, "exp-cohort", ids["baseline"], task, 3, true, 2, 200, 100)
+			aggSeedRepeats(t, st, "exp-cohort", ids["lean"], task, 3, true, 1, 100, 100)
+		}
+
+		summary, err := SummarizeCohort(context.Background(), st, "exp-cohort")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !summary.Ranked {
+			t.Fatalf("cohort was not ranked: %s", summary.Gate)
+		}
+		if got, want := len(summary.Arms), 2; got != want {
+			t.Fatalf("arms = %d, want %d", got, want)
+		}
+		if got := summary.Arms[0]; got.Label != "lean" || !got.Eligible || got.MinRepeats != 3 || got.TaskCount != 2 {
+			t.Fatalf("first arm = %+v, want eligible lean with 3 repeats over 2 tasks", got)
+		}
+	})
+
+	t.Run("does not reward a cheaply failing or under-repeated arm", func(t *testing.T) {
+		st := aggStore(t)
+		ids := aggSeed(t, st, "exp-incomplete", `{"baseline":"baseline"}`, "baseline", "cheap-fail")
+		aggSeedRepeats(t, st, "exp-incomplete", ids["baseline"], "t1", 3, true, 2, 200, 100)
+		aggSeedRepeats(t, st, "exp-incomplete", ids["cheap-fail"], "t1", 2, false, 0.01, 10, 100)
+
+		summary, err := SummarizeCohort(context.Background(), st, "exp-incomplete")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.Ranked {
+			t.Fatalf("incomplete cohort was ranked: %+v", summary)
+		}
+		if summary.Gate == "" {
+			t.Fatal("missing evidence gate explanation")
+		}
+	})
+
+	t.Run("does not rank when a selected task has no runs", func(t *testing.T) {
+		st := aggStore(t)
+		ids := aggSeed(t, st, "exp-missing-task", `{"tasks":["t1","t2"]}`, "baseline", "lean")
+		for _, arm := range []string{"baseline", "lean"} {
+			aggSeedRepeats(t, st, "exp-missing-task", ids[arm], "t1", 3, true, 1, 100, 100)
+		}
+
+		summary, err := SummarizeCohort(context.Background(), st, "exp-missing-task")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.Ranked {
+			t.Fatalf("cohort ranked despite selected task with no runs: %+v", summary)
+		}
+	})
+
+	t.Run("marks token median unavailable when runs did not record tokens", func(t *testing.T) {
+		st := aggStore(t)
+		ids := aggSeed(t, st, "exp-no-tokens", `{"baseline":"baseline"}`, "baseline", "lean")
+		for _, arm := range []string{"baseline", "lean"} {
+			aggSeedRepeats(t, st, "exp-no-tokens", ids[arm], "t1", 3, true, 1, 100, 100)
+		}
+		if _, err := st.DB().Exec(`DELETE FROM run_metrics WHERE name = 'tokens_total'`); err != nil {
+			t.Fatal(err)
+		}
+		summary, err := SummarizeCohort(context.Background(), st, "exp-no-tokens")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, arm := range summary.Arms {
+			if arm.MedianTokensOK {
+				t.Fatalf("%s token median unexpectedly available: %+v", arm.Label, arm)
+			}
+		}
+	})
+
+	t.Run("does not count dry runs toward the evidence threshold", func(t *testing.T) {
+		st := aggStore(t)
+		ids := aggSeed(t, st, "exp-dry", `{"baseline":"baseline"}`, "baseline", "lean")
+		for _, arm := range []string{"baseline", "lean"} {
+			aggSeedRepeats(t, st, "exp-dry", ids[arm], "t1", 2, true, 1, 100, 100)
+			aggInsert(t, st, "exp-dry", ids[arm], aggRun{task: "t1", repeat: 2, success: true, cost: 1, tokens: 100, duration: 100,
+				mutate: func(run *store.RunRow) { run.DryRun = true },
+			})
+		}
+		summary, err := SummarizeCohort(context.Background(), st, "exp-dry")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.Ranked || summary.Arms[0].MinRepeats != 2 {
+			t.Fatalf("dry runs affected evidence gate: %+v", summary)
+		}
+	})
+
+	t.Run("does not rank runs without recorded cost", func(t *testing.T) {
+		st := aggStore(t)
+		ids := aggSeed(t, st, "exp-no-cost", `{"baseline":"baseline"}`, "baseline", "lean")
+		for _, arm := range []string{"baseline", "lean"} {
+			aggSeedRepeats(t, st, "exp-no-cost", ids[arm], "t1", 3, true, 1, 100, 100)
+		}
+		if _, err := st.DB().Exec(`DELETE FROM run_metrics WHERE name = 'cost'`); err != nil {
+			t.Fatal(err)
+		}
+		summary, err := SummarizeCohort(context.Background(), st, "exp-no-cost")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.Ranked || summary.Gate != "cost metrics are required before efficiency can be ranked" {
+			t.Fatalf("cost-less cohort was ranked: %+v", summary)
+		}
+	})
+}
+
 func TestSummarizeIdenticalArmsNoRegression(t *testing.T) {
 	st := aggStore(t)
 	ids := aggSeed(t, st, "exp-1", `{"baseline":"baseline"}`, "baseline", "candidate")

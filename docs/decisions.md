@@ -207,10 +207,11 @@ reasoning and what it costs if the call was wrong. The design itself is
 
 ## Dashboard
 
-- **Profile-first, not run-first.** The landing page ranks profiles rather than
-  listing runs, because the question is "which configuration is better", and a
-  run list answers it only by proxy. *Cost if wrong:* the newest run takes one
-  more click.
+- **Cohort-first, not profile-first.** The landing page lists controlled
+  experiments rather than global profile history, because only an experiment
+  establishes comparable inputs and repetitions. Exploratory history remains at
+  `/overview` with no efficiency claim. *Cost if wrong:* historic observations
+  take one more click to inspect.
 - **Two pages, rendered from one vertical slice.** Overview and Runs were built
   end to end before Architecture and Suites and tasks, so the scoring rules and
   the layout are exercised against real data early. *Cost if wrong:* two pages
@@ -265,6 +266,17 @@ reasoning and what it costs if the call was wrong. The design itself is
   store, so opening a page cannot touch the machine being benchmarked and cannot
   disagree with the tables below it. *Cost if wrong:* a stale OpenCode version in
   the sidebar is not noticed until a run is started.
+- **Architecture is a compact decision summary over raw configuration evidence.**
+  The top card reports roles, measured delegation and permission counts with
+  non-allow exceptions; complete captured rules, prompts and instructions stay
+  in the detail sections. *Cost if wrong:* an unusual allow rule takes an extra
+  expansion to inspect, instead of pushing the delegation diagram below the
+  fold for every reader.
+- **Architecture observations are cohort-scoped.** `?cohort=<experiment-id>`
+  calculates profile cost, tokens, validation rate and per-agent usage only from
+  that experiment. Without it, Architecture explains configuration but makes no
+  efficiency claim. *Cost if wrong:* an exploratory run is less convenient to
+  inspect, but independent historical runs cannot masquerade as a comparison.
 
 ## Measurement validity
 
@@ -381,4 +393,31 @@ reasoning and what it costs if the call was wrong. The design itself is
   failure. The scope is the directories of the changed files, kept only when they
   hold a `.go` file in the fixture, falling back to the whole module when nothing
   usable is found. *Cost if wrong:* a change whose effect is only visible from a
-  package it did not touch is graded too narrowly, and `Verify` reports it.
+   package it did not touch is graded too narrowly, and `Verify` reports it.
+
+## Efficiency cohorts and portable reports
+
+- **An armed experiment is the benchmark cohort.** Unarmed experiment rows are
+  single-profile run sessions and are excluded; an armed experiment already
+  persists immutable benchmark inputs, arms and interleaved repetitions, so a
+  second cohort table would create two competing parents for a run. *Cost if
+  wrong:* cohorts cannot outlive or combine several experiments without a
+  future schema change.
+- **The dashboard does not rank global history.** Independent runs and
+  experiments are not repetitions, even when their profiles match. The landing
+  page therefore lists controlled cohorts and only a selected experiment can
+  name an efficiency standing. *Cost if wrong:* exploratory profile history is
+  one click less convenient to inspect.
+- **Efficiency has a deterministic validation gate.** Every configuration must
+  pass every selected task at least three times before cost and tokens rank it;
+  a cheaply failing agent is not efficient. *Cost if wrong:* a configuration
+  with useful partial credit is excluded from the efficiency ordering.
+- **Runner environments are strata, not identities.** Runs record only OS,
+  architecture and logical CPU count; hostname and a machine identifier are not
+  stored. Token/cost reports disclose these strata and never rank wall-clock
+  latency across them. *Cost if wrong:* identical hardware configurations cannot
+  be distinguished as separate hosts.
+- **Reports are manual-exchange artifacts, not a hub.** `ocbench report` emits
+  self-contained Markdown or HTML from stored, redacted cohort facts; raw
+  artifacts, prompts and sessions never leave the local store. *Cost if wrong:*
+  recipients cannot import the report automatically yet.

@@ -455,7 +455,8 @@ func TestExperimentShowJSONL(t *testing.T) {
 		var env struct {
 			SchemaVersion int `json:"schema_version"`
 			Run           struct {
-				ID string `json:"id"`
+				ID        string `json:"id"`
+				RunnerEnv string `json:"runner_env"`
 			} `json:"run"`
 			Validations json.RawMessage `json:"validations"`
 			Metrics     json.RawMessage `json:"metrics"`
@@ -465,6 +466,9 @@ func TestExperimentShowJSONL(t *testing.T) {
 		}
 		if env.SchemaVersion != 1 {
 			t.Fatalf("schema_version = %d, want 1", env.SchemaVersion)
+		}
+		if env.Run.RunnerEnv == "" {
+			t.Fatalf("runner_env missing from JSONL line: %s", line)
 		}
 		if env.Run.ID == "run-novalidations" {
 			noValidations = line

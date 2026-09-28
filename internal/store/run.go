@@ -58,18 +58,22 @@ type RunRow struct {
 	FixtureSHA      string
 	OpenCodeVersion string
 	OCBenchVersion  string
-	Model           string
-	Agent           string
-	Variant         string
-	Status          string
-	DryRun          bool
-	ExitCode        *int
-	SessionID       string
-	StartedAt       string
-	FinishedAt      string
-	DurationMS      *int64
-	ArtifactsDir    string
-	Error           string
+	// RunnerEnv is the privacy-preserving execution stratum captured by the
+	// runner (OS, architecture and logical CPU count). An empty value is an
+	// older run recorded before schema v3.
+	RunnerEnv    string
+	Model        string
+	Agent        string
+	Variant      string
+	Status       string
+	DryRun       bool
+	ExitCode     *int
+	SessionID    string
+	StartedAt    string
+	FinishedAt   string
+	DurationMS   *int64
+	ArtifactsDir string
+	Error        string
 }
 
 // ValidationRow is one run_validations row, keyed by (run_id, seq).
@@ -339,14 +343,14 @@ func (s *Store) InsertRun(ctx context.Context, row RunRow) error {
 		INSERT INTO runs (
 			id, experiment_id, arm_id, repeat_index, profile_id, profile_hash,
 			suite_id, suite_name, suite_version, suite_hash,
-			task_id, task_version, fixture_sha, opencode_version, ocbench_version,
+			task_id, task_version, fixture_sha, opencode_version, ocbench_version, runner_env,
 			model, agent, variant, status, dry_run, exit_code, session_id,
 			started_at, finished_at, duration_ms, artifacts_dir, error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		row.ID, nullString(row.ExperimentID), row.ArmID, row.RepeatIndex, row.ProfileID, row.ProfileHash,
 		nullString(row.SuiteID), row.SuiteName, row.SuiteVersion, row.SuiteHash,
 		row.TaskID, row.TaskVersion, row.FixtureSHA, row.OpenCodeVersion, row.OCBenchVersion,
-		nullString(row.Model), nullString(row.Agent), nullString(row.Variant), row.Status, boolInt(row.DryRun),
+		row.RunnerEnv, nullString(row.Model), nullString(row.Agent), nullString(row.Variant), row.Status, boolInt(row.DryRun),
 		nullInt(row.ExitCode), nullString(row.SessionID), rfc3339UTC(row.StartedAt), nullString(row.FinishedAt),
 		nullInt64(row.DurationMS), row.ArtifactsDir, nullString(row.Error)); err != nil {
 		return fmt.Errorf("insert run %s: %w", row.ID, err)
@@ -422,7 +426,7 @@ func (s *Store) InsertRunValidations(ctx context.Context, runID string, vals []V
 // scanRunRow.
 const runColumns = `id, COALESCE(experiment_id, ''), arm_id, repeat_index, profile_id, profile_hash,
 		       COALESCE(suite_id, ''), suite_name, suite_version, suite_hash,
-		       task_id, task_version, fixture_sha, opencode_version, ocbench_version,
+		       task_id, task_version, fixture_sha, opencode_version, ocbench_version, runner_env,
 		       COALESCE(model, ''), COALESCE(agent, ''), COALESCE(variant, ''),
 		       status, dry_run, exit_code, COALESCE(session_id, ''),
 		       started_at, COALESCE(finished_at, ''), duration_ms,
@@ -439,7 +443,7 @@ func scanRunRow(sc rowScanner) (RunRow, error) {
 	var row RunRow
 	err := sc.Scan(&row.ID, &row.ExperimentID, &row.ArmID, &row.RepeatIndex, &row.ProfileID, &row.ProfileHash,
 		&row.SuiteID, &row.SuiteName, &row.SuiteVersion, &row.SuiteHash,
-		&row.TaskID, &row.TaskVersion, &row.FixtureSHA, &row.OpenCodeVersion, &row.OCBenchVersion,
+		&row.TaskID, &row.TaskVersion, &row.FixtureSHA, &row.OpenCodeVersion, &row.OCBenchVersion, &row.RunnerEnv,
 		&row.Model, &row.Agent, &row.Variant, &row.Status, &row.DryRun, &row.ExitCode, &row.SessionID,
 		&row.StartedAt, &row.FinishedAt, &row.DurationMS, &row.ArtifactsDir, &row.Error)
 	return row, err
@@ -547,6 +551,36 @@ func (s *Store) ListExperiments(ctx context.Context, limit int) ([]ExperimentRow
 		return nil, fmt.Errorf("list experiments: %w", err)
 	}
 	return out, nil
+}
+
+// ExperimentArmCounts returns the number of configured arms for every
+// experiment. It lets read models distinguish a controlled comparison from an
+// unarmed single-profile session without one query per experiment.
+func (s *Store) ExperimentArmCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT experiment_id, COUNT(*)
+		FROM experiment_arms
+		GROUP BY experiment_id`)
+	if err != nil {
+		return nil, fmt.Errorf("experiment arm counts: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var (
+			id    string
+			count int
+		)
+		if err := rows.Scan(&id, &count); err != nil {
+			return nil, fmt.Errorf("scan experiment arm count: %w", err)
+		}
+		counts[id] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("experiment arm counts: %w", err)
+	}
+	return counts, nil
 }
 
 // GetRunMetrics returns a run's metrics ordered lexically by name. A run with

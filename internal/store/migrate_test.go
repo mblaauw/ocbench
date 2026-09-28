@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestMigrateAppliesSchemaV1(t *testing.T) {
+func TestMigrateAppliesCurrentSchema(t *testing.T) {
 	st, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -18,8 +18,8 @@ func TestMigrateAppliesSchemaV1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	if v != 2 {
-		t.Fatalf("version = %d, want 2", v)
+	if v != 3 {
+		t.Fatalf("version = %d, want 3", v)
 	}
 	for _, table := range []string{
 		"schema_migrations", "profiles", "profile_components", "suites",
@@ -39,6 +39,11 @@ func TestMigrateAppliesSchemaV1(t *testing.T) {
 		`SELECT name FROM pragma_table_info('runs') WHERE name = 'arm_id'`).Scan(&armCol); err != nil {
 		t.Fatalf("runs.arm_id missing: %v", err)
 	}
+	var runnerEnvCol string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT name FROM pragma_table_info('runs') WHERE name = 'runner_env'`).Scan(&runnerEnvCol); err != nil {
+		t.Fatalf("runs.runner_env missing: %v", err)
+	}
 }
 
 func TestMigrateIsIdempotent(t *testing.T) {
@@ -55,15 +60,15 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
-	if v != 2 {
+	if v != 3 {
 		t.Fatalf("version = %d", v)
 	}
 	var n int
 	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 {
-		t.Fatalf("schema_migrations rows = %d, want 2", n)
+	if n != 3 {
+		t.Fatalf("schema_migrations rows = %d, want 3", n)
 	}
 	// Re-running is a no-op: the v2 table still exists exactly once.
 	var arms int
@@ -109,27 +114,50 @@ func TestMigrateUpgradesExistingV1Database(t *testing.T) {
 	if !applied {
 		t.Fatal("no v1 migration found")
 	}
+	// A real v1 store may already contain runs. The additive migrations must
+	// preserve them while adding nullable arm and runner-environment columns.
+	if _, err := st.DB().ExecContext(ctx, `
+		INSERT INTO profiles (id, profile_hash, opencode_version, ocbench_version, canonical_json, created_at)
+		VALUES ('p1', 'hash-1', '1.18.32', 'dev', '{}', '2026-01-01T00:00:00Z');
+		INSERT INTO runs (id, profile_id, profile_hash, suite_name, suite_version, suite_hash, task_id, task_version, fixture_sha, opencode_version, ocbench_version, status, started_at, artifacts_dir)
+		VALUES ('run-v1', 'p1', 'hash-1', 'core', '1', 'suite', 'task', '1', 'fixture', '1.18.32', 'dev', 'passed', '2026-01-01T00:00:00Z', '/runs/run-v1')
+	`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.DB().ExecContext(ctx,
 		`INSERT INTO schema_migrations (version, applied_at) VALUES (1, '2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatal(err)
 	}
 
-	// Upgrading an existing v1 database applies only the additive v2 migration.
+	// Upgrading an existing v1 database applies the additive v2 and v3 migrations.
 	v, err := st.Migrate(ctx)
 	if err != nil {
-		t.Fatalf("upgrade v1 -> v2: %v", err)
+		t.Fatalf("upgrade v1 -> v3: %v", err)
 	}
-	if v != 2 {
-		t.Fatalf("version after upgrade = %d, want 2", v)
+	if v != 3 {
+		t.Fatalf("version after upgrade = %d, want 3", v)
 	}
 	var armCol string
 	if err := st.DB().QueryRowContext(ctx,
 		`SELECT name FROM pragma_table_info('runs') WHERE name = 'arm_id'`).Scan(&armCol); err != nil {
 		t.Fatalf("runs.arm_id missing after upgrade: %v", err)
 	}
+	var runnerEnvCol string
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT name FROM pragma_table_info('runs') WHERE name = 'runner_env'`).Scan(&runnerEnvCol); err != nil {
+		t.Fatalf("runs.runner_env missing after upgrade: %v", err)
+	}
+	var preservedID string
+	if err := st.DB().QueryRowContext(ctx, `SELECT id FROM runs WHERE id = 'run-v1'`).Scan(&preservedID); err != nil || preservedID != "run-v1" {
+		t.Fatalf("v1 run was not preserved: %q, %v", preservedID, err)
+	}
+	var runnerEnv string
+	if err := st.DB().QueryRowContext(ctx, `SELECT runner_env FROM runs WHERE id = 'run-v1'`).Scan(&runnerEnv); err != nil || runnerEnv != "" {
+		t.Fatalf("v1 runner environment = %q, %v, want empty default", runnerEnv, err)
+	}
 	// Re-running is a no-op.
-	if again, err := st.Migrate(ctx); err != nil || again != 2 {
-		t.Fatalf("second Migrate = %d, %v, want 2, nil", again, err)
+	if again, err := st.Migrate(ctx); err != nil || again != 3 {
+		t.Fatalf("second Migrate = %d, %v, want 3, nil", again, err)
 	}
 }
 

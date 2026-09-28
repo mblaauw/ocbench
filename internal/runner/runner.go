@@ -700,6 +700,7 @@ func persist(ctx context.Context, st *store.Store, req Request, res Result, base
 		FixtureSHA:      baseline.SHA,
 		OpenCodeVersion: req.Profile.OpenCodeVersion,
 		OCBenchVersion:  version.Info().Version,
+		RunnerEnv:       RunnerEnvironment(),
 		Model:           req.Model,
 		Agent:           req.Agent,
 		Variant:         req.Variant,

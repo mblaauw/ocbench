@@ -29,6 +29,17 @@ func (h *handler) page(r *http.Request, current, crumb, title, sub string) layou
 			}
 			hints["suites"] = fmt.Sprintf("%d", len(names))
 		}
+		if cohorts, err := h.store.ListExperiments(r.Context(), 0); err == nil {
+			if armCounts, err := h.store.ExperimentArmCounts(r.Context()); err == nil {
+				count := 0
+				for _, cohort := range cohorts {
+					if armCounts[cohort.ID] >= 2 {
+						count++
+					}
+				}
+				hints["cohorts"] = fmt.Sprintf("%d", count)
+			}
+		}
 	}
 	return layout{
 		Title:     title,
@@ -217,8 +228,8 @@ const minRankableTasks = 2
 // heroDiffLimit caps the "what the leader changes" panel.
 const heroDiffLimit = 6
 
-// handleOverview renders the profile-first front page: who scores best, by how
-// much, and at what cost.
+// handleOverview renders exploratory historic observations. It deliberately
+// does not make a controlled efficiency claim across independent runs.
 func (h *handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
 		http.Error(w, "store unavailable", http.StatusInternalServerError)
@@ -233,7 +244,7 @@ func (h *handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page := overviewPage{
-		layout:       h.page(r, "overview", "Overview", "Which setup scores best?", overviewSub(ov)),
+		layout:       h.page(r, "overview", "History", "Exploratory profile history", "Independent historic runs are diagnostic only; choose a controlled cohort for efficiency standings."),
 		Suites:       ov.Suites,
 		MatrixHeads:  matrixHeads(ov.Suites),
 		ExcludedRuns: ov.ExcludedRuns,
@@ -241,7 +252,7 @@ func (h *handler) handleOverview(w http.ResponseWriter, r *http.Request) {
 		HasRuns:      scoredProfiles(ov.Profiles) > 0,
 	}
 	page.ShowScope = true
-	page.Scope = scopeItems("/", scope, ov.Suites)
+	page.Scope = scopeItems("/overview", scope, ov.Suites)
 
 	page.Rows = leaderRows(ov.Profiles)
 	page.Matrix = matrixRows(ov.Profiles, ov.Suites)
