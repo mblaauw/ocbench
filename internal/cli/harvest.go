@@ -56,6 +56,11 @@ func newHarvestCmd(d Deps) *cobra.Command {
 			"code and only you can decide whether it should become a task.",
 		Args: usageArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Reject an unknown split before resolving paths or reading the
+			// database, so the usage error names the flag.
+			if split != "" && split != harvest.SplitCommit {
+				return &UsageError{Err: fmt.Errorf("--split must be \"commit\", got %q", split)}
+			}
 			resolved, err := d.resolve()
 			if err != nil {
 				return err
@@ -77,9 +82,6 @@ func newHarvestCmd(d Deps) *cobra.Command {
 			})
 			if err != nil {
 				return err
-			}
-			if split != "" && split != harvest.SplitCommit {
-				return &UsageError{Err: fmt.Errorf("--split must be \"commit\", got %q", split)}
 			}
 			if exportDir == "" {
 				return renderHarvest(cmd.OutOrStdout(), dbPath, candidates, asJSON)

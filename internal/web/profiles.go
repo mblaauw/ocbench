@@ -301,7 +301,10 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	page.ProfileChips = h.profileSwitchChips(r, page.Hash)
 	page.CompareChips = h.profileCompareChips(r, page.Hash)
 	usage := h.addProfileUsage(r, page.Hash, page.Cohort, page.Primary, page.Subagents)
-	page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, "", page.Cohort, usage)
+
+	// Resolve the comparison profile first so the cohort-scoped stat strip is
+	// built exactly once per request.
+	compareWith := ""
 	if against := r.URL.Query().Get("against"); against != "" && against != page.Hash {
 		otherRow, otherComps, err := h.store.GetProfileByHash(r.Context(), against)
 		if err != nil {
@@ -315,7 +318,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		page.Against = other.Hash
 		page.AgainstShort = shortHash(other.Hash)
-		page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, other.Hash, page.Cohort, usage)
+		compareWith = other.Hash
 		for _, note := range profile.DiffNotes(other, p) {
 			page.Changes = append(page.Changes, changeNoteRow{
 				Sign: note.Sign, Kind: note.Kind, Name: note.Name, Note: note.Note, Change: note.Change,
@@ -323,6 +326,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		annotateDiffs(&page)
 	}
+	page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, compareWith, page.Cohort, usage)
 	render(w, profileTmpl, page)
 }
 

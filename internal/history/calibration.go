@@ -107,6 +107,9 @@ func Calibration(ctx context.Context, st *store.Store, suite string) (Calibratio
 	var order []taskKey
 
 	for _, r := range runs {
+		if r.DryRun {
+			continue
+		}
 		if suite != "" && r.SuiteName != suite {
 			continue
 		}

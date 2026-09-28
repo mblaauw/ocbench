@@ -74,9 +74,11 @@ func newExperimentRunCmd(d Deps) *cobra.Command {
 				if injected != nil {
 					return injected
 				}
+				// The overlay environment reaches the child through the
+				// runner's ExtraEnv; the adapter's own Env is never used on
+				// this path, so it is left at its default.
 				return opencode.NewReal(opencode.Options{
 					Bin: resolved.Config.OpenCodeBin,
-					Env: append(os.Environ(), arm.Overlay.Env...),
 				})
 			}
 			return runExperiment(cmd, resolved, adapterFor, opts, args)

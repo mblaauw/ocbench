@@ -26,13 +26,17 @@ const (
 
 // TaskScore aggregates one task's runs for one profile.
 type TaskScore struct {
-	TaskID       string
-	Suite        string
-	Runs         int
-	Score        float64
-	Pass         float64
-	Solved       int
-	Cost         float64
+	TaskID string
+	Suite  string
+	Runs   int
+	Score  float64
+	Pass   float64
+	Solved int
+	Cost   float64
+	// CostComplete is true when every run of this task recorded a cost. A
+	// task with partial cost data is excluded from cost per solved task
+	// rather than counted as partly free.
+	CostComplete bool
 	MedianTokens int64
 	HasTokens    bool
 }
@@ -102,16 +106,15 @@ type Significance struct {
 
 // OverviewReport is everything the dashboard's front page renders.
 type OverviewReport struct {
-	Scope           string
-	Profiles        []ProfileScore
-	Suites          []string
-	Scatter         []ScatterPoint
-	HeroDiff        []profile.ChangeNote
-	Significance    *Significance
-	ExcludedRuns    int
-	TotalRuns       int
-	OpenCodeVersion string
-	LastRun         time.Time
+	Scope        string
+	Profiles     []ProfileScore
+	Suites       []string
+	Scatter      []ScatterPoint
+	HeroDiff     []profile.ChangeNote
+	Significance *Significance
+	ExcludedRuns int
+	TotalRuns    int
+	LastRun      time.Time
 }
 
 // Overview computes the profile leaderboard for a scope from persisted runs.
@@ -144,7 +147,6 @@ func Overview(ctx context.Context, st *store.Store, scope string) (OverviewRepor
 				overview.LastRun = ts
 			}
 		}
-		overview.OpenCodeVersion = r.OpenCodeVersion
 		// A suite is scored only from its most recent content: runs recorded
 		// against an older hash are counted and disclosed, never mixed in.
 		if currentHash[r.SuiteName] != "" && r.SuiteHash != currentHash[r.SuiteName] {
@@ -302,7 +304,12 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 		if values["success"] == 1 {
 			acc.solved++
 		}
-		acc.cost += values["cost"]
+		// Cost is only comparable when every execution recorded it: a missing
+		// cost is unmeasured, not free.
+		if cost, ok := values["cost"]; ok {
+			acc.cost += cost
+			acc.costRuns++
+		}
 		if tokens, ok := values["tokens_total"]; ok {
 			acc.tokens = append(acc.tokens, int64(tokens))
 		}
@@ -321,6 +328,7 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 			Score:  acc.scoreSum / float64(acc.runs),
 			Pass:   acc.passSum / float64(acc.runs),
 			Solved: acc.solved, Cost: acc.cost,
+			CostComplete: acc.costRuns == acc.runs,
 			MedianTokens: int64(stats.Median(floats(acc.tokens))),
 			HasTokens:    len(acc.tokens) > 0,
 		}
@@ -337,13 +345,16 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 	suiteSums := map[string]float64{}
 	suiteCounts := map[string]int{}
 	var allScores []float64
-	var totalCost float64
-	var totalSolved, totalRuns int
+	var costTotal float64
+	var costSolved, totalSolved, totalRuns int
 	for _, ts := range ps.Tasks {
 		suiteSums[ts.Suite] += ts.Score
 		suiteCounts[ts.Suite]++
 		allScores = append(allScores, ts.Score)
-		totalCost += ts.Cost
+		if ts.CostComplete {
+			costTotal += ts.Cost
+			costSolved += ts.Solved
+		}
 		totalSolved += ts.Solved
 		totalRuns += ts.Runs
 	}
@@ -364,8 +375,8 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 		lo, hi := stats.Wilson(totalSolved, totalRuns, 1.96)
 		ps.PassCI, ps.PassCIOK = [2]float64{lo, hi}, true
 	}
-	if totalSolved > 0 {
-		ps.CostPerSolved = totalCost / float64(totalSolved)
+	if costSolved > 0 {
+		ps.CostPerSolved = costTotal / float64(costSolved)
 		ps.CostPerSolvedOK = true
 	}
 	if len(ps.Tasks) > 0 {
@@ -522,5 +533,6 @@ type taskAcc struct {
 	scoreSum, passSum float64
 	solved            int
 	cost              float64
+	costRuns          int
 	tokens            []int64
 }

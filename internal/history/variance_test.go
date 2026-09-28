@@ -88,6 +88,35 @@ func TestVarianceMeasuresNoiseFromRepeats(t *testing.T) {
 	}
 }
 
+// Dry runs are diagnostics, never evidence: they must not enter the noise
+// measurement or its run counts.
+func TestVarianceSkipsDryRuns(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-1", components("h1"))
+	seedScoredRun(t, st, "r1", "2026-01-01T00:00:01Z", "p1", "hash-1", suiteName, "task-a", 1, 1, 100, 0.001)
+
+	dry := baseRun("dry1", "2026-01-01T00:00:02Z", "p1", "hash-1")
+	dry.SuiteName, dry.TaskID, dry.DryRun = suiteName, "task-a", true
+	seedRun(t, st, dry)
+	if err := st.InsertRunMetrics(context.Background(), "dry1", map[string]float64{
+		"score": 1, "success": 1, "tokens_total": 100, "cost": 0.001,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := history.Variance(context.Background(), st, "", nil)
+	if err != nil {
+		t.Fatalf("Variance: %v", err)
+	}
+	if rep.TotalRuns != 1 {
+		t.Errorf("TotalRuns = %d, want 1 (the dry run is not evidence)", rep.TotalRuns)
+	}
+	if got := findTask(t, rep, "task-a").Runs; got != 1 {
+		t.Errorf("task-a runs = %d, want 1", got)
+	}
+}
+
 // Two profiles with the same relative spread but different absolute levels must
 // pool to that relative spread. Normalising inside each group is what keeps a
 // merely faster profile from being reported as noise.

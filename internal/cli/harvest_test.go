@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,6 +103,22 @@ func TestHarvestJSONAndMissingDatabase(t *testing.T) {
 		t.Fatal("missing database = nil error")
 	} else if !strings.Contains(err.Error(), "no OpenCode database") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+// An invalid --split is a usage error naming the flag, decided before the
+// database is opened or the harvest engine runs.
+func TestHarvestRejectsInvalidSplitBeforeReadingTheDatabase(t *testing.T) {
+	d := cliTestDeps(t)
+	cmd := newHarvestCmd(d)
+	cmd.SetArgs([]string{"--db", filepath.Join(t.TempDir(), "absent.db"), "--split", "bogus"})
+	err := cmd.ExecuteContext(context.Background())
+	var usage *UsageError
+	if !errors.As(err, &usage) {
+		t.Fatalf("err = %v, want *UsageError", err)
+	}
+	if !strings.Contains(err.Error(), "--split") {
+		t.Fatalf("error = %v, want it to name --split before the database is read", err)
 	}
 }
 

@@ -52,6 +52,31 @@ func TestCalibrationClassifiesPassRate(t *testing.T) {
 	}
 }
 
+// A dry run never executed the model, so it must not classify a task.
+func TestCalibrationSkipsDryRuns(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-1", components("h1"))
+	seedScoredRun(t, st, "r1", "2026-01-01T00:00:01Z", "p1", "hash-1", suiteName, "task-a", 1, 1, 100, 0.001)
+
+	dry := baseRun("dry1", "2026-01-01T00:00:02Z", "p1", "hash-1")
+	dry.SuiteName, dry.TaskID, dry.DryRun = suiteName, "task-a", true
+	seedRun(t, st, dry)
+	if err := st.InsertRunMetrics(context.Background(), "dry1", map[string]float64{
+		"score": 1, "success": 1, "tokens_total": 100, "cost": 0.001,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := history.Calibration(context.Background(), st, "")
+	if err != nil {
+		t.Fatalf("Calibration: %v", err)
+	}
+	if len(rep.Tasks) != 1 || rep.Tasks[0].Runs != 1 {
+		t.Fatalf("task runs = %+v, want 1 (the dry run is not evidence)", rep.Tasks)
+	}
+}
+
 // A task where every configuration took the same number of tool calls cannot
 // separate them on process, however it scores.
 func TestCalibrationFlagsTasksWithoutProcessVariance(t *testing.T) {

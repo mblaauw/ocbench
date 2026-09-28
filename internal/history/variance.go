@@ -106,6 +106,9 @@ func Variance(ctx context.Context, st *store.Store, suite string, tasks []string
 
 	var rep VarianceReport
 	for _, r := range runs {
+		if r.DryRun {
+			continue
+		}
 		if suite != "" && r.SuiteName != suite {
 			continue
 		}

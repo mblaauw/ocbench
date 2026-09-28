@@ -802,6 +802,50 @@ func TestArchitectureSummaryShowsMeasuredAgentUsage(t *testing.T) {
 	}
 }
 
+// A cohort whose runs never recorded cost must render the cost as absent, not
+// as a free configuration.
+func TestArchitectureCohortCostAbsentWithoutCostMetrics(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	if err := st.InsertExperiment(ctx, store.ExperimentRow{ID: "exp-nocost", Name: "no cost", SpecJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	seedProfile(t, st, "profile-nocost", "hash-nocost", []store.ComponentRow{
+		{Kind: "primary", Name: "primary", Hash: "h0", CanonicalJSON: `{"default_agent":"build"}`},
+		{Kind: "agent", Name: "build", Hash: "h1", CanonicalJSON: `{"mode":"primary","model":"m"}`},
+	})
+	for _, arm := range []store.ExperimentArmRow{
+		{ID: "nocost-a", ExperimentID: "exp-nocost", Label: "a", ProfileID: stringPtr("profile-nocost"), ProfileHash: "hash-nocost", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "nocost-b", ExperimentID: "exp-nocost", Label: "b", ProfileHash: "hash-other", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := st.InsertExperimentArm(ctx, arm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	armID := "nocost-a"
+	if err := st.InsertRun(ctx, store.RunRow{
+		ID: "run-nocost", ExperimentID: "exp-nocost", ArmID: &armID,
+		ProfileID: "profile-nocost", ProfileHash: "hash-nocost",
+		SuiteName: "core", SuiteVersion: "1", SuiteHash: "suite-hash",
+		TaskID: "task-one", TaskVersion: "1", FixtureSHA: "fixture",
+		OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", Model: "m", Agent: "build",
+		Status: "passed", StartedAt: "2026-01-01T00:00:00Z", ArtifactsDir: "/runs/run-nocost",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertRunMetrics(ctx, "run-nocost", map[string]float64{"success": 1, "tokens_total": 100}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := get(t, web.NewHandler(st), "/arch/hash-nocost?cohort=exp-nocost").Body.String()
+	if !strings.Contains(body, "Cost / solved") {
+		t.Fatalf("cohort cost stat missing:\n%s", body)
+	}
+	if strings.Contains(body, "$0.000") {
+		t.Errorf("a cost-less cohort rendered as free")
+	}
+}
+
 func TestArchitectureIndexListsProfiles(t *testing.T) {
 	st := testStore(t)
 	seedArchProfile(t, st, "hash-idx")

@@ -111,6 +111,60 @@ func TestProfileScoreForRunsUsesOnlyTheSuppliedCohort(t *testing.T) {
 	}
 }
 
+// A task whose execution never recorded cost must not contribute to cost per
+// solved task as if the missing cost were zero.
+func TestOverviewIgnoresTasksWithoutCompleteCost(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+
+	// task-one: solved with a recorded cost.
+	seedScoredRun(t, st, "r1", "2026-03-01T10:00:00Z", "p1", "hash-a", suiteName, "task-one", 1, 1, 100, 0.10)
+	// task-two: solved, but the cost metric was never recorded.
+	noCost := baseRun("r2", "2026-03-01T10:01:00Z", "p1", "hash-a")
+	noCost.SuiteName, noCost.SuiteHash, noCost.TaskID = suiteName, "hash-"+suiteName, "task-two"
+	seedRun(t, st, noCost)
+	if err := st.InsertRunMetrics(context.Background(), "r2", map[string]float64{
+		"score": 1, "success": 1, "tokens_total": 200,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	p := ov.Profiles[0]
+	if !p.CostPerSolvedOK || p.CostPerSolved != 0.10 {
+		t.Fatalf("cost per solved = %v (ok=%v), want 0.10 from the task with recorded cost",
+			p.CostPerSolved, p.CostPerSolvedOK)
+	}
+}
+
+// With no recorded cost anywhere, cost per solved task is unavailable, not zero.
+func TestOverviewCostPerSolvedRequiresRecordedCost(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+	noCost := baseRun("r1", "2026-03-01T10:00:00Z", "p1", "hash-a")
+	noCost.SuiteName, noCost.SuiteHash = suiteName, "hash-"+suiteName
+	seedRun(t, st, noCost)
+	if err := st.InsertRunMetrics(context.Background(), "r1", map[string]float64{
+		"score": 1, "success": 1, "tokens_total": 100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if ov.Profiles[0].CostPerSolvedOK {
+		t.Fatalf("cost per solved = %v, want unavailable when no cost was recorded",
+			ov.Profiles[0].CostPerSolved)
+	}
+}
+
 func TestOverviewIsDeterministic(t *testing.T) {
 	st := testStore(t)
 	seedSuiteTask(t, st)
