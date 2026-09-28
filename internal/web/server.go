@@ -70,7 +70,7 @@ func NewHandler(st *store.Store, opts ...Option) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", h.handleCohorts)
+	mux.HandleFunc("GET /{$}", h.handleRoot)
 	mux.HandleFunc("GET /overview", h.handleOverview)
 	mux.HandleFunc("GET /runs", h.handleList)
 	mux.HandleFunc("GET /runs/{id}", h.handleRun)
@@ -88,6 +88,17 @@ func NewHandler(st *store.Store, opts ...Option) http.Handler {
 	mux.HandleFunc("/", http.NotFound)
 
 	return securityHeaders(dirtyPathGuard(mux))
+}
+
+// handleRoot keeps the cohort landing page canonical while preserving legacy
+// root overview scope links. A scope has meaning only for exploratory history,
+// so legacy root links redirect instead of silently changing meaning.
+func (h *handler) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("scope") != "" {
+		http.Redirect(w, r, "/overview?"+r.URL.Query().Encode(), http.StatusFound)
+		return
+	}
+	h.handleCohorts(w, r)
 }
 
 // dirtyPathGuard rejects any request whose path contains a "." or ".." segment
@@ -201,7 +212,6 @@ func render(w http.ResponseWriter, tmpl *template.Template, data any) {
 	_, _ = buf.WriteTo(w)
 }
 
-// runsPage backs the `/` listing.
 // comparePage backs a run comparison.
 type comparePage struct {
 	layout

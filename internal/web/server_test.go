@@ -73,7 +73,7 @@ func TestRootReturnsHTML(t *testing.T) {
 	st := testStore(t)
 	seedRun(t, st, "run-1", "py-bugfix")
 
-	// `/` is the profile leaderboard; the run listing lives at /runs.
+	// `/` is the controlled-cohort landing page; the run listing lives at /runs.
 	rec := get(t, web.NewHandler(st), "/")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)

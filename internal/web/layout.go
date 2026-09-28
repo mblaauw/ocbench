@@ -90,6 +90,9 @@ func (h *handler) envRows(ctx context.Context) []envRow {
 // scopeItems builds the suite switcher, linking back to the given path with a
 // scope parameter.
 func scopeItems(path, current string, suites []string) []scopeItem {
+	if current == "all" {
+		current = ""
+	}
 	item := func(label, value string) scopeItem {
 		q := url.Values{}
 		if value != "" {
