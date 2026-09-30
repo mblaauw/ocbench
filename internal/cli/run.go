@@ -193,7 +193,7 @@ func runSuite(cmd *cobra.Command, d Deps, opts runOptions, args []string) error 
 				KeepWorktree: opts.keepWorktree,
 				ExperimentID: expID,
 				RepeatIndex:  i,
-				MCPTools:     mcpToolNames(p),
+				MCPTools:     profile.MCPToolNames(p),
 			})
 			if err != nil {
 				return err
@@ -213,7 +213,7 @@ func runSuite(cmd *cobra.Command, d Deps, opts runOptions, args []string) error 
 	// emits the key as an empty list.
 	var aggregates []runAggregate
 	if repeat > 1 {
-		aggregates = aggregateRuns(records, taskIDsOf(tasks))
+		aggregates = aggregateRuns(records, suite.TaskIDs(tasks))
 	}
 	if opts.asJSON {
 		if err := renderRunJSON(cmd.OutOrStdout(), p.Hash, expID, records, aggregates); err != nil {
@@ -256,26 +256,8 @@ func selectTasks(s *suite.Suite, ids []string) ([]*suite.Task, error) {
 }
 
 // taskIDsOf returns the task ids in plan order.
-func taskIDsOf(tasks []*suite.Task) []string {
-	out := make([]string, len(tasks))
-	for i, t := range tasks {
-		out[i] = t.ID
-	}
-	return out
-}
-
 // mcpToolNames lists the configured MCP server names from the profile's mcp
 // components. The runner classifies `<server>_<tool>` calls with them.
-func mcpToolNames(p *profile.Profile) []string {
-	var out []string
-	for _, c := range p.Components {
-		if c.Kind == "mcp" {
-			out = append(out, c.Name)
-		}
-	}
-	return out
-}
-
 // newRunRecord flattens a runner result into the report shape.
 func newRunRecord(res runner.Result, repeatIndex int) runRecord {
 	return runRecord{

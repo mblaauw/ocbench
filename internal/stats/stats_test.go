@@ -86,12 +86,6 @@ func TestMedianDoesNotMutate(t *testing.T) {
 	}
 }
 
-func TestIQR(t *testing.T) {
-	q1, q3 := IQR([]float64{1, 2, 3, 4, 5, 6, 7, 8})
-	approx(t, "IQR q1", q1, 2.5)
-	approx(t, "IQR q3", q3, 6.5)
-}
-
 func TestPermutationPIdentical(t *testing.T) {
 	s := []float64{1, 2, 3, 4, 5}
 	if got := PermutationP(s, s, 1, 2000); got <= 0.9 {

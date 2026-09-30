@@ -386,3 +386,16 @@ func objectKeys(data []byte) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// MCPToolNames returns the names of the MCP components a profile configures,
+// in component order. The dashboard's Architecture page and the experiment
+// summary both describe which tools a configuration had.
+func MCPToolNames(p *Profile) []string {
+	var out []string
+	for _, c := range p.Components {
+		if c.Kind == "mcp" {
+			out = append(out, c.Name)
+		}
+	}
+	return out
+}

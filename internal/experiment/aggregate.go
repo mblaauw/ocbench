@@ -45,12 +45,12 @@ type StatTest struct {
 
 // ArmTaskStats is the derived statistics for one (arm, task) pair.
 type ArmTaskStats struct {
-	Executions, Successes            int
-	PassRate, WilsonLo, WilsonHi     float64
-	PassAtK, PassAllK                bool
-	MedianTokens, Q1Tokens, Q3Tokens float64
-	HasTokenMetrics                  bool
-	MedianCost, MedianDurationMS     float64
+	Executions, Successes        int
+	PassRate, WilsonLo, WilsonHi float64
+	PassAtK, PassAllK            bool
+	MedianTokens                 float64
+	HasTokenMetrics              bool
+	MedianCost, MedianDurationMS float64
 }
 
 // TaskSummary is the per-arm statistics for one task.
@@ -374,7 +374,6 @@ func metricValue(metrics []store.MetricRow, name string) (float64, bool) {
 // summarizeArmTask renders one accumulated (arm, task) pair.
 func summarizeArmTask(agg *armTaskAgg) ArmTaskStats {
 	lo, hi := stats.Wilson(agg.successes, agg.executions, wilsonZ)
-	q1, q3 := stats.IQR(agg.tokens)
 	outcomes := make([]bool, agg.executions)
 	for i := range outcomes {
 		outcomes[i] = i < agg.successes
@@ -388,8 +387,6 @@ func summarizeArmTask(agg *armTaskAgg) ArmTaskStats {
 		PassAtK:          stats.PassAtK(outcomes) == 1,
 		PassAllK:         stats.PassAllK(outcomes) == 1,
 		MedianTokens:     stats.Median(agg.tokens),
-		Q1Tokens:         q1,
-		Q3Tokens:         q3,
 		HasTokenMetrics:  len(agg.tokens) == agg.executions,
 		MedianCost:       stats.Median(agg.costs),
 		MedianDurationMS: stats.Median(agg.durations),

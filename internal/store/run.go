@@ -178,20 +178,6 @@ func (s *Store) InsertExperimentArm(ctx context.Context, a ExperimentArmRow) err
 	return nil
 }
 
-// GetExperimentArm returns an arm by id, or a wrapped sql.ErrNoRows when
-// absent.
-func (s *Store) GetExperimentArm(ctx context.Context, id string) (*ExperimentArmRow, error) {
-	row, err := scanArmRow(s.db.QueryRowContext(ctx,
-		`SELECT `+armColumns+` FROM experiment_arms WHERE id = ?`, id))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("experiment arm %s: %w", id, sql.ErrNoRows)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get experiment arm %s: %w", id, err)
-	}
-	return &row, nil
-}
-
 // GetExperiment returns an experiment by id, or a wrapped sql.ErrNoRows when
 // absent.
 func (s *Store) GetExperiment(ctx context.Context, id string) (*ExperimentRow, error) {

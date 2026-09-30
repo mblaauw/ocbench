@@ -93,22 +93,6 @@ func MedianOK(xs []float64) (float64, bool) {
 	return Median(xs), true
 }
 
-// IQR returns the first and third quartiles of xs using the median of the lower
-// and upper halves (the middle element is excluded for odd lengths). The input
-// slice is not mutated. An empty slice yields (0,0).
-func IQR(xs []float64) (q1, q3 float64) {
-	if len(xs) == 0 {
-		return 0, 0
-	}
-	sorted := append([]float64(nil), xs...)
-	sort.Float64s(sorted)
-	n := len(sorted)
-	if n == 1 {
-		return sorted[0], sorted[0]
-	}
-	return Median(sorted[:n/2]), Median(sorted[(n+1)/2:])
-}
-
 // PermutationP returns the two-sided permutation-test p-value for the
 // difference in means between a and b. It pools both samples, then for iters
 // iterations resamples two groups of the original sizes and counts how often

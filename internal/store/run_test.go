@@ -726,9 +726,18 @@ func TestExperimentArmRoundTrip(t *testing.T) {
 		t.Fatalf("InsertExperimentArm: %v", err)
 	}
 
-	got, err := st.GetExperimentArm(ctx, "arm-1")
+	arms, err := st.ListExperimentArms(ctx, "exp-1")
 	if err != nil {
-		t.Fatalf("GetExperimentArm: %v", err)
+		t.Fatalf("ListExperimentArms: %v", err)
+	}
+	var got *ExperimentArmRow
+	for i := range arms {
+		if arms[i].ID == "arm-1" {
+			got = &arms[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("arm-1 missing from %d arms", len(arms))
 	}
 	if !reflect.DeepEqual(*got, want) {
 		t.Fatalf("arm round trip:\n got %+v\nwant %+v", *got, want)
@@ -742,16 +751,29 @@ func TestExperimentArmRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertExperimentArm nullable: %v", err)
 	}
-	nullable, err := st.GetExperimentArm(ctx, "arm-2")
+	arms, err = st.ListExperimentArms(ctx, "exp-1")
 	if err != nil {
 		t.Fatal(err)
+	}
+	var nullable *ExperimentArmRow
+	for i := range arms {
+		if arms[i].ID == "arm-2" {
+			nullable = &arms[i]
+		}
+	}
+	if nullable == nil {
+		t.Fatalf("arm-2 missing from %d arms", len(arms))
 	}
 	if nullable.ProfileID != nil || nullable.OverlayPath != nil || nullable.OverlaySHA256 != nil {
 		t.Fatalf("nullable arm pointers = %v/%v/%v, want nil", nullable.ProfileID, nullable.OverlayPath, nullable.OverlaySHA256)
 	}
 
-	if _, err := st.GetExperimentArm(ctx, "missing"); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("GetExperimentArm(missing) err = %v, want sql.ErrNoRows", err)
+	other, err := st.ListExperimentArms(ctx, "no-such-experiment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other) != 0 {
+		t.Fatalf("ListExperimentArms(unknown) = %d arms, want 0", len(other))
 	}
 }
 

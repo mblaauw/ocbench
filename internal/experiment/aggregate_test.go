@@ -318,9 +318,6 @@ func TestSummarizeIdenticalArmsNoRegression(t *testing.T) {
 	if base.MedianCost != 0.5 || base.MedianTokens != 100 || base.MedianDurationMS != 1000 {
 		t.Fatalf("baseline medians = %v/%v/%v", base.MedianCost, base.MedianTokens, base.MedianDurationMS)
 	}
-	if base.Q1Tokens != 100 || base.Q3Tokens != 100 {
-		t.Fatalf("baseline token IQR = %v..%v, want 100..100", base.Q1Tokens, base.Q3Tokens)
-	}
 	if s.CostPerSolved["baseline"] != 0.5 {
 		t.Fatalf("baseline cost per solved = %v, want 0.5", s.CostPerSolved["baseline"])
 	}

@@ -2,7 +2,6 @@ package experiment
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"os"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"mbl/ocbench/internal/canon"
 	"mbl/ocbench/internal/config"
+	"mbl/ocbench/internal/id"
 	"mbl/ocbench/internal/opencode"
 	"mbl/ocbench/internal/profile"
 	"mbl/ocbench/internal/runner"
@@ -127,9 +127,9 @@ func Run(ctx context.Context, st *store.Store, req Request) (Outcome, error) {
 		repeat = 1
 	}
 
-	expID, err := newExperimentID()
+	expID, err := id.NewUUID()
 	if err != nil {
-		return Outcome{}, err
+		return Outcome{}, fmt.Errorf("generate experiment id: %w", err)
 	}
 	created := time.Now().UTC().Format(time.RFC3339)
 
@@ -137,7 +137,7 @@ func Run(ctx context.Context, st *store.Store, req Request) (Outcome, error) {
 		"suite":         req.Suite.Name,
 		"suite_version": req.Suite.Version,
 		"suite_hash":    req.Suite.Hash,
-		"tasks":         taskIDs(tasks),
+		"tasks":         suite.TaskIDs(tasks),
 		"arms":          armSpecs(req.Arms),
 		"baseline":      baseline,
 		"repeat":        repeat,
@@ -187,20 +187,20 @@ func Run(ctx context.Context, st *store.Store, req Request) (Outcome, error) {
 		}
 		profiles[arm.Label] = p
 
-		armID, err := newExperimentID()
+		armID, err := id.NewUUID()
 		if err != nil {
-			return Outcome{ExperimentID: expID}, err
+			return Outcome{ExperimentID: expID}, fmt.Errorf("generate arm id: %w", err)
 		}
 		armIDs[arm.Label] = armID
 		if err := st.InsertExperimentArm(ctx, store.ExperimentArmRow{
 			ID:            armID,
 			ExperimentID:  expID,
 			Label:         arm.Label,
-			ProfileID:     optionalString(p.ID),
+			ProfileID:     store.OptionalString(p.ID),
 			ProfileHash:   p.Hash,
 			OverlayKind:   string(arm.Overlay.Kind),
-			OverlayPath:   optionalString(arm.Overlay.Path),
-			OverlaySHA256: optionalString(arm.Overlay.SHA256),
+			OverlayPath:   store.OptionalString(arm.Overlay.Path),
+			OverlaySHA256: store.OptionalString(arm.Overlay.SHA256),
 			CreatedAt:     created,
 		}); err != nil {
 			return Outcome{ExperimentID: expID}, err
@@ -226,7 +226,7 @@ func Run(ctx context.Context, st *store.Store, req Request) (Outcome, error) {
 			ExperimentID: expID,
 			ArmID:        armIDs[step.Arm.Label],
 			RepeatIndex:  step.RepeatIndex,
-			MCPTools:     mcpToolNames(p),
+			MCPTools:     profile.MCPToolNames(p),
 			ExtraEnv:     step.Arm.Overlay.Env,
 		})
 		if err != nil {
@@ -248,14 +248,6 @@ func hasArm(arms []ArmSpec, label string) bool {
 }
 
 // taskIDs returns the task ids in plan order for the experiment spec.
-func taskIDs(tasks []*suite.Task) []string {
-	out := make([]string, len(tasks))
-	for i, t := range tasks {
-		out[i] = t.ID
-	}
-	return out
-}
-
 // armSpecs encodes the arms for the experiment spec JSON.
 func armSpecs(arms []ArmSpec) []map[string]any {
 	out := make([]map[string]any, 0, len(arms))
@@ -272,33 +264,3 @@ func armSpecs(arms []ArmSpec) []map[string]any {
 
 // mcpToolNames lists the configured MCP server names from the arm's profile so
 // the runner can classify `<server>_<tool>` calls.
-func mcpToolNames(p *profile.Profile) []string {
-	var out []string
-	for _, c := range p.Components {
-		if c.Kind == "mcp" {
-			out = append(out, c.Name)
-		}
-	}
-	return out
-}
-
-// optionalString returns nil for the empty string so an unset optional column
-// is stored as SQL NULL.
-func optionalString(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-// newExperimentID returns a random RFC 4122 version 4 identifier formatted as
-// 8-4-4-4-12 hex, mirroring the profile and runner generators.
-func newExperimentID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("generate experiment id: %w", err)
-	}
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
-}

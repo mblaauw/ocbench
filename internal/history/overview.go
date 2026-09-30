@@ -43,12 +43,11 @@ type TaskScore struct {
 
 // ProfileScore is one configuration's standing in the current scope.
 type ProfileScore struct {
-	Hash         string
-	ProfileID    string
-	Label        string // architecture summary, the only human name a profile has
-	Architecture string
-	Runs         int
-	HasRuns      bool
+	Hash      string
+	ProfileID string
+	Label     string // architecture summary, the only human name a profile has
+	Runs      int
+	HasRuns   bool
 
 	Score     float64
 	ScoreCI   [2]float64
@@ -336,7 +335,6 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 	if p, err := loadProfile(ctx, st, hash); err == nil {
 		v := profile.NewView(p)
 		ps.Label = v.Summary()
-		ps.Architecture = v.Summary()
 	}
 	if ps.Label == "" {
 		ps.Label = shortHash(hash)

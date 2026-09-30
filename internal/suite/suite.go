@@ -151,3 +151,13 @@ func (t *Task) EffectiveTimeout(s *Suite) time.Duration {
 	}
 	return time.Duration(seconds) * time.Second
 }
+
+// TaskIDs returns the ids of tasks in order. Callers that persist a task list
+// take it from here so the ordering rule is stated once.
+func TaskIDs(tasks []*Task) []string {
+	out := make([]string, len(tasks))
+	for i, t := range tasks {
+		out[i] = t.ID
+	}
+	return out
+}

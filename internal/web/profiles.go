@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -42,7 +43,6 @@ type agentRow struct {
 	Variant              string
 	Steps                int
 	Temperature          string
-	Native               bool
 	Description          string
 	Prompt               string
 	Tools                []string
@@ -271,7 +271,6 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		layout:         h.page(r, "profiles", "Profiles", "Architecture", ""),
 		Hash:           row.ProfileHash,
 		ShortHash:      shortHash(row.ProfileHash),
-		Summary:        view.Summary(),
 		ComponentCount: len(p.Components),
 		Components:     componentRowViews(comps),
 		RunCount:       counts[row.ProfileHash],
@@ -554,7 +553,6 @@ func agentRows(view profile.View, set profile.CaptureSet) (*agentRow, []agentRow
 			Model:       a.Model,
 			Variant:     a.Variant,
 			Steps:       a.Steps,
-			Native:      a.Native,
 			Description: a.Description,
 			Primary:     a.Mode == "primary",
 		}
@@ -763,21 +761,21 @@ func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, a
 		}
 		switch label {
 		case "Cost / solved":
-			s.Delta = sign + fmt.Sprintf("%.3f", abs(d))
-			if abs(d) < 0.0005 {
+			s.Delta = sign + fmt.Sprintf("%.3f", math.Abs(d))
+			if math.Abs(d) < 0.0005 {
 				// Below the displayed precision: a signed zero reads as noise.
 				s.Delta = "±0"
 				return s
 			}
 		case "Median tokens":
-			s.Delta = sign + tokensText(int64(abs(d)))
-			if int64(abs(d)) == 0 {
+			s.Delta = sign + tokensText(int64(math.Abs(d)))
+			if int64(math.Abs(d)) == 0 {
 				s.Delta = "±0"
 				return s
 			}
 		default:
-			s.Delta = sign + fmt.Sprintf("%.2f", abs(d))
-			if abs(d) < 0.005 {
+			s.Delta = sign + fmt.Sprintf("%.2f", math.Abs(d))
+			if math.Abs(d) < 0.005 {
 				s.Delta = "±0"
 				return s
 			}
@@ -813,12 +811,6 @@ func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, a
 }
 
 // abs returns the magnitude of a float.
-func abs(v float64) float64 {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
 
 // treeGroups groups the edges by their primary agent, keeping the sorted order
 // the edges already have.

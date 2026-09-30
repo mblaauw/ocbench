@@ -18,7 +18,6 @@ type runRow struct {
 	Suite        string
 	Status       string
 	StatusClass  string
-	ProfileLabel string
 	ProfileShort string
 	ScoreText    string
 	DurationText string
@@ -261,11 +260,6 @@ func newRunRow(detail history.RunDetail, selected bool) runRow {
 	}
 	row.StartedDate, row.StartedTime = shortTime(run.StartedAt)
 	row.ProfileShort = shortHash(run.ProfileHash)
-	if p := detail.Profile; p != nil {
-		row.ProfileLabel = profile.NewView(p).Summary()
-	} else {
-		row.ProfileLabel = row.ProfileShort
-	}
 	if run.DurationMS != nil {
 		row.DurationText = secondsText(*run.DurationMS)
 	}

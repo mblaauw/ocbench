@@ -687,7 +687,7 @@ func persist(ctx context.Context, st *store.Store, req Request, res Result, base
 	if err := st.InsertRun(ctx, store.RunRow{
 		ID:              res.RunID,
 		ExperimentID:    req.ExperimentID,
-		ArmID:           optionalString(req.ArmID),
+		ArmID:           store.OptionalString(req.ArmID),
 		RepeatIndex:     req.RepeatIndex,
 		ProfileID:       req.Profile.ID,
 		ProfileHash:     req.Profile.Hash,
@@ -728,15 +728,6 @@ func suiteSource(s *suite.Suite) string {
 		return s.Dir
 	}
 	return "embedded"
-}
-
-// optionalString returns nil for the empty string so an unset optional column
-// is stored as SQL NULL, following the store's nullable-pointer convention.
-func optionalString(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 // appendNote appends a semicolon-separated note to an error string.
