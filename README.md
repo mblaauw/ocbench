@@ -76,6 +76,25 @@ commit SHA on any machine. Cost/token standings are only made inside a controlle
 experiment with the same benchmark inputs; wall-clock time remains a
 runner-specific diagnostic.
 
+## Comparing two setups
+
+An `experiment run` arm is your live configuration plus an **overlay** — a small
+config file merged above your own settings for that arm only. Run the shipped
+example pair, which compares a lone primary agent against one that may delegate
+to a read-only reviewer subagent:
+
+```sh
+ocbench experiment run core code-review \
+  --profile lean=examples/overlays/lean/lean.json \
+  --profile delegated=examples/overlays/delegated/delegated.json \
+  --baseline lean --repeat 3
+```
+
+A cohort ranks cost efficiency only with **at least three validated runs per task
+per arm**, so `experiment run` refuses a smaller repeat unless you ask for it
+explicitly. See [examples/overlays](examples/overlays/README.md) for how to write
+your own.
+
 ## Repository layout
 
 ```

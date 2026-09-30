@@ -463,11 +463,27 @@ func runExperiment(cmd *cobra.Command, d Deps, adapterFor func(experiment.ArmSpe
 	}
 
 	repeat := opts.repeat
-	if !cmd.Flags().Changed("repeat") {
+	explicit := cmd.Flags().Changed("repeat")
+	if !explicit {
 		repeat = d.Config.Defaults.Repeat
 	}
 	if repeat < 1 {
 		return &UsageError{Err: fmt.Errorf("--repeat must be at least 1, got %d", repeat)}
+	}
+	// A cohort ranks cost efficiency only with at least RankableRepeats
+	// executions per task per arm. The shipped default is 1, so without this
+	// check the documented command would spend every run and then report
+	// "not rankable". An explicit low repeat is honoured — a smoke test is a
+	// legitimate thing to want — but it warns that it cannot rank.
+	if repeat < experiment.RankableRepeats {
+		if !explicit {
+			return &UsageError{Err: fmt.Errorf(
+				"a cohort ranks cost efficiency only with at least %d runs per task per arm, and the configured default is %d: pass --repeat %d to run one that can rank",
+				experiment.RankableRepeats, repeat, experiment.RankableRepeats)}
+		}
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: --repeat %d cannot rank cost efficiency; a cohort needs at least %d runs per task per arm. The runs will be recorded, but the standing will read \"not rankable\".\n",
+			repeat, experiment.RankableRepeats)
 	}
 
 	if err := config.EnsureDirs(d.Paths); err != nil {

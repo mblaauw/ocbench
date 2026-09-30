@@ -28,6 +28,11 @@ type CohortArm struct {
 	Eligible           bool
 }
 
+// RankableRepeats is the smallest number of executions per task, per arm, that
+// can support a ranking. A cohort below it is collected but never ranked, so
+// `experiment run` can refuse the run up front and name this number.
+const RankableRepeats = 3
+
 // CohortSummary is the evidence-gated, cost-and-context interpretation of one
 // persisted experiment. Experiments are the controlled cohorts: they already
 // pin the suite, selected tasks, arms and repeats before any run is written.
@@ -145,7 +150,7 @@ func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) 
 		}
 		item.CostPerSolved, item.CostPerSolvedOK = summary.CostPerSolved[arm.Label]
 		missingCost = !item.CostPerSolvedOK
-		item.Eligible = item.TaskCount == len(taskIDs) && item.MinRepeats >= 3 && allPassed && item.CostPerSolvedOK
+		item.Eligible = item.TaskCount == len(taskIDs) && item.MinRepeats >= RankableRepeats && allPassed && item.CostPerSolvedOK
 		if !item.Eligible {
 			allEligible = false
 		}

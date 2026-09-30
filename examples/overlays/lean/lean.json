@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "description": "Example ocbench overlay: one primary agent, no delegation. Point one arm at an empty path to get this same unmodified setup.",
+  "agent": {
+    "build": {
+      "description": "Works the task directly, without spawning subagents.",
+      "mode": "primary",
+      "tools": {
+        "task": false
+      }
+    }
+  }
+}

@@ -137,12 +137,12 @@ func TestExperimentRunHappyPathPersistsDistinctArms(t *testing.T) {
 	d, adapter := newExperimentTestDeps(t)
 	suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
 
-	out, err := runExperimentCmd(t, d, "run", "--profile", "base=", "--profile", "candidate=", "mini", "--suite-dir", suiteDir)
+	out, err := runExperimentCmd(t, d, "run", "--profile", "base=", "--profile", "candidate=", "mini", "--suite-dir", suiteDir, "--repeat", "3")
 	if err != nil {
 		t.Fatalf("experiment run: %v\n%s", err, out)
 	}
-	if got := adapter.startCount(); got != 2 {
-		t.Fatalf("Start calls = %d, want 2 (one per arm)", got)
+	if got := adapter.startCount(); got != 6 {
+		t.Fatalf("Start calls = %d, want 6 (two arms, three repeats)", got)
 	}
 
 	st := openRunStore(t, d)
@@ -166,8 +166,8 @@ func TestExperimentRunHappyPathPersistsDistinctArms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(runs) != 2 {
-		t.Fatalf("runs = %d, want 2", len(runs))
+	if len(runs) != 6 {
+		t.Fatalf("runs = %d, want 6 (two arms, three repeats)", len(runs))
 	}
 	armIDs := map[string]bool{}
 	for _, r := range runs {
@@ -179,8 +179,13 @@ func TestExperimentRunHappyPathPersistsDistinctArms(t *testing.T) {
 	if len(armIDs) != 2 {
 		t.Fatalf("distinct arm ids = %d, want 2", len(armIDs))
 	}
-	if !strings.Contains(out, "regression: insufficient data\n") {
-		t.Fatalf("output missing insufficient-data regression line:\n%s", out)
+	// Three repeats per arm is enough evidence to compare, so the line reports
+	// a measured comparison rather than refusing for lack of data.
+	if strings.Contains(out, "regression: insufficient data") {
+		t.Fatalf("three repeats per arm should be comparable:\n%s", out)
+	}
+	if !strings.Contains(out, "regression: ") {
+		t.Fatalf("output missing a regression line:\n%s", out)
 	}
 }
 
@@ -401,7 +406,7 @@ func TestExperimentShowEmptyRenders(t *testing.T) {
 func TestExperimentShowJSONL(t *testing.T) {
 	d, _ := newExperimentTestDeps(t)
 	suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
-	out, err := runExperimentCmd(t, d, "run", "--profile", "base=", "--profile", "candidate=", "mini", "--suite-dir", suiteDir)
+	out, err := runExperimentCmd(t, d, "run", "--profile", "base=", "--profile", "candidate=", "mini", "--suite-dir", suiteDir, "--repeat", "3")
 	if err != nil {
 		t.Fatalf("experiment run: %v\n%s", err, out)
 	}
@@ -414,8 +419,8 @@ func TestExperimentShowJSONL(t *testing.T) {
 	}
 	expID := exps[0].ID
 	runs, err := st.RunsForExperiment(ctx, expID)
-	if err != nil || len(runs) != 2 {
-		t.Fatalf("runs = %d, %v, want 2", len(runs), err)
+	if err != nil || len(runs) != 6 {
+		t.Fatalf("runs = %d, %v, want 6 (two arms, three repeats)", len(runs), err)
 	}
 
 	// An armed run with no metrics and no validations must emit {} and [].
@@ -447,8 +452,10 @@ func TestExperimentShowJSONL(t *testing.T) {
 		t.Fatalf("nil-arm run leaked into JSONL:\n%s", out)
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("JSONL lines = %d, want 3:\n%s", len(lines), out)
+	// Six persisted runs (two arms, three repeats) plus the injected
+	// run-novalidations clone.
+	if len(lines) != 7 {
+		t.Fatalf("JSONL lines = %d, want 7 (six runs plus the no-validations clone):\n%s", len(lines), out)
 	}
 	noValidations := ""
 	for _, line := range lines {
@@ -564,5 +571,41 @@ func TestArmAdapterAppliesOverlayToDiscovery(t *testing.T) {
 					got.Model, tc.want)
 			}
 		})
+	}
+}
+
+// A cohort below the ranking minimum can never rank cost efficiency, so the
+// default invocation must fail before it spends a single run and name the
+// number that would work. `defaults.repeat` is 1 in the shipped config, which is
+// why this is a trap worth closing at the door.
+func TestExperimentRunRefusesUnrankableRepeatByDefault(t *testing.T) {
+	d := cliTestDeps(t)
+	suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
+
+	// The default (config defaults.repeat == 1) is below the minimum.
+	out, err := runExperimentCmd(t, d, "run", "--profile", "a=", "--profile", "b=", "mini", "--suite-dir", suiteDir)
+	var usage *UsageError
+	if !errors.As(err, &usage) {
+		t.Fatalf("default repeat err = %v, want *UsageError; the run must be refused before it costs anything", err)
+	}
+	if !strings.Contains(err.Error(), "3") {
+		t.Errorf("usage error %q must name the rankable repeat count", err)
+	}
+	if out != "" {
+		t.Errorf("unrankable run produced output before refusing:\n%s", out)
+	}
+}
+
+// Asking for a low repeat explicitly is allowed (a smoke test), but the command
+// warns that the result cannot rank.
+func TestExperimentRunWarnsOnExplicitLowRepeat(t *testing.T) {
+	d, _ := newExperimentTestDeps(t)
+	suiteDir := writeRunSuite(t, runTaskSpec{id: "t1"})
+	out, err := runExperimentCmd(t, d, "run", "--profile", "a=", "--profile", "b=", "mini", "--suite-dir", suiteDir, "--repeat", "1")
+	if err != nil {
+		t.Fatalf("explicit --repeat 1 should run with a warning, got err: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "cannot rank") {
+		t.Errorf("explicit low repeat did not warn that the cohort cannot rank:\n%s", out)
 	}
 }

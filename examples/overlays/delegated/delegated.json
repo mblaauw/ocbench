@@ -1,0 +1,22 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "description": "Example ocbench overlay: the same primary agent, plus one review subagent. Compare against examples/overlays/lean to see whether the extra delegation pays for itself in cost and tokens.",
+  "agent": {
+    "build": {
+      "description": "Works the task directly and may delegate review to a subagent.",
+      "mode": "primary",
+      "tools": {
+        "task": true
+      }
+    },
+    "reviewer": {
+      "description": "Reads the finished diff and reports defects. Never edits files.",
+      "mode": "subagent",
+      "tools": {
+        "write": false,
+        "edit": false,
+        "patch": false
+      }
+    }
+  }
+}
