@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -227,12 +226,7 @@ func renderSnapshotJSON(w io.Writer, p *profile.Profile, created bool, changes [
 			ToHash:   c.ToHash,
 		})
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(w, string(b))
-	return err
+	return writeJSON(w, out)
 }
 
 // shortHash returns the 8-character display prefix of a profile hash.

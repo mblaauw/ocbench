@@ -58,15 +58,14 @@ func BuildEnv(base []string, policy EnvPolicy) []string {
 		if entry == "" {
 			continue
 		}
-		name, _, _ := strings.Cut(entry, "=")
+		name := envName(entry)
 		if !policy.Inherit && !allow[name] && !strings.HasPrefix(name, "LC_") {
 			continue
 		}
 		merged[name] = entry // last write wins
 	}
 	for _, entry := range envOverrides {
-		name, _, _ := strings.Cut(entry, "=")
-		merged[name] = entry // always win, in both modes
+		merged[envName(entry)] = entry // always win, in both modes
 	}
 
 	out := make([]string, 0, len(merged))
@@ -77,6 +76,12 @@ func BuildEnv(base []string, policy EnvPolicy) []string {
 	return out
 }
 
+// envName returns the variable name of a KEY=VALUE entry.
+func envName(entry string) string {
+	name, _, _ := strings.Cut(entry, "=")
+	return name
+}
+
 // EnvNames returns the sorted variable names of env, never their values. It
 // feeds the profile's environment.env_names, so values must not leak.
 func EnvNames(env []string) []string {
@@ -85,8 +90,7 @@ func EnvNames(env []string) []string {
 		if entry == "" {
 			continue
 		}
-		name, _, _ := strings.Cut(entry, "=")
-		names = append(names, name)
+		names = append(names, envName(entry))
 	}
 	sort.Strings(names)
 	return dedupeSorted(names)
@@ -106,8 +110,7 @@ func ApplyExtraEnv(env, extra []string) []string {
 		if entry == "" {
 			continue
 		}
-		name, _, _ := strings.Cut(entry, "=")
-		overlaid[name] = entry
+		overlaid[envName(entry)] = entry
 	}
 
 	out := make([]string, 0, len(env)+len(overlaid))
@@ -115,8 +118,7 @@ func ApplyExtraEnv(env, extra []string) []string {
 		if entry == "" {
 			continue
 		}
-		name, _, _ := strings.Cut(entry, "=")
-		if _, ok := overlaid[name]; ok {
+		if _, ok := overlaid[envName(entry)]; ok {
 			continue // the extra entry replaces it
 		}
 		out = append(out, entry)

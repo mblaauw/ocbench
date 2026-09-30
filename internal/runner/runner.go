@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,6 +15,7 @@ import (
 	"mbl/ocbench/internal/canon"
 	"mbl/ocbench/internal/config"
 	"mbl/ocbench/internal/evaluation"
+	"mbl/ocbench/internal/id"
 	"mbl/ocbench/internal/opencode"
 	"mbl/ocbench/internal/profile"
 	"mbl/ocbench/internal/session"
@@ -99,9 +99,9 @@ func Run(ctx context.Context, a opencode.Adapter, st *store.Store, req Request) 
 		return Result{}, errors.New("run: profile id is required (persist the profile first)")
 	}
 
-	runID, err := newUUID()
+	runID, err := id.NewUUID()
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("generate run id: %w", err)
 	}
 	runDir := filepath.Join(req.Paths.Runs, runID)
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
@@ -749,18 +749,6 @@ func appendNote(dst *string, note string) {
 		return
 	}
 	*dst += "; " + note
-}
-
-// newUUID returns a random RFC 4122 version 4 identifier formatted as
-// 8-4-4-4-12 hex, mirroring the profile package's generator.
-func newUUID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("generate run id: %w", err)
-	}
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 // copyHiddenTests writes a task's evaluator/tests subtree into the worktree at

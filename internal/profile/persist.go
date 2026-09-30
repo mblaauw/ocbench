@@ -2,7 +2,6 @@ package profile
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"mbl/ocbench/internal/config"
+	"mbl/ocbench/internal/id"
 	"mbl/ocbench/internal/store"
 	"mbl/ocbench/internal/version"
 )
@@ -31,6 +31,8 @@ func Persist(ctx context.Context, st *store.Store, paths config.Paths, p *Profil
 	created := true
 	if existing, _, err := st.GetProfileByHash(ctx, p.Hash); err == nil {
 		created = false
+		// Persist fills in the stored id on the caller's profile, so a
+		// snapshot of an already-known hash still returns a usable identity.
 		if p.ID == "" {
 			p.ID = existing.ID
 		}
@@ -39,17 +41,17 @@ func Persist(ctx context.Context, st *store.Store, paths config.Paths, p *Profil
 	}
 
 	if created {
-		id := p.ID
-		if id == "" {
-			var err error
-			id, err = newUUID()
+		profileID := p.ID
+		if profileID == "" {
+			generated, err := id.NewUUID()
 			if err != nil {
-				return false, err
+				return false, fmt.Errorf("generate profile id: %w", err)
 			}
-			p.ID = id
+			profileID = generated
+			p.ID = profileID
 		}
 		row := store.ProfileRow{
-			ID:              id,
+			ID:              profileID,
 			ProfileHash:     p.Hash,
 			OpenCodeVersion: p.OpenCodeVersion,
 			OCBenchVersion:  version.Info().Version,
@@ -156,16 +158,4 @@ func writeCaptures(paths config.Paths, p *Profile) error {
 		}
 	}
 	return nil
-}
-
-// newUUID returns a random RFC 4122 version 4 shaped identifier formatted as
-// 8-4-4-4-12 hex. It needs no external dependency.
-func newUUID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("generate profile id: %w", err)
-	}
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }

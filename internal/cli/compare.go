@@ -2,7 +2,6 @@ package cli
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -297,12 +296,7 @@ func renderCompareJSON(w io.Writer, cmp history.Comparison) error {
 			Kind: c.Kind, Name: c.Name, Change: c.Change, FromHash: c.FromHash, ToHash: c.ToHash,
 		})
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(w, string(b))
-	return err
+	return writeJSON(w, out)
 }
 
 // compareRunDetailJSON flattens one side's run metadata.

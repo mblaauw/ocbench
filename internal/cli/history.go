@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -141,12 +140,7 @@ func renderHistoryJSON(w io.Writer, runs []history.RunDetail) error {
 			ToolCallsTotal: int64(r.Metrics["tool_calls_total"]),
 		})
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(w, string(b))
-	return err
+	return writeJSON(w, out)
 }
 
 // runDurationMS dereferences the optional run duration, treating unset as zero.

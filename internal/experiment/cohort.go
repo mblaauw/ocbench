@@ -137,9 +137,11 @@ func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) 
 			}
 			item.PassRate = float64(successes) / float64(item.Runs)
 		}
-		if len(tokenMedians) == len(taskIDs) && len(tokenMedians) > 0 {
-			item.MedianTokens = stats.Median(tokenMedians)
-			item.MedianTokensOK = true
+		if len(tokenMedians) == len(taskIDs) {
+			if median, ok := stats.MedianOK(tokenMedians); ok {
+				item.MedianTokens = median
+				item.MedianTokensOK = true
+			}
 		}
 		item.CostPerSolved, item.CostPerSolvedOK = summary.CostPerSolved[arm.Label]
 		missingCost = !item.CostPerSolvedOK

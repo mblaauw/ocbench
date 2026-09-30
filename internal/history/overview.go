@@ -314,8 +314,8 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 				medians = append(medians, float64(ts.MedianTokens))
 			}
 		}
-		if len(medians) > 0 {
-			ps.MedianTokens = int64(stats.Median(medians))
+		if median, ok := stats.MedianOK(medians); ok {
+			ps.MedianTokens = int64(median)
 			ps.MedianTokensOK = true
 		}
 	}

@@ -32,6 +32,11 @@ type cohortPage struct {
 	Warnings                                        []string
 }
 
+// hasControlledArms reports whether an experiment has at least two configured
+// arms, which is what makes it a controlled cohort rather than a single-profile
+// session. Every caller shares one ExperimentArmCounts read per request.
+func hasControlledArms(counts map[string]int, id string) bool { return counts[id] >= 2 }
+
 // handleCohorts lists persisted experiments as the controlled benchmark
 // cohorts they already are. It never combines independent experiment sessions
 // into a global winner.
@@ -52,7 +57,7 @@ func (h *handler) handleCohorts(w http.ResponseWriter, r *http.Request) {
 	}
 	page := cohortsPage{layout: h.page(r, "cohorts", "Cohorts", "Controlled efficiency cohorts", "Each cohort is one interleaved benchmark session. Historic runs are never pooled into a winner.")}
 	for _, row := range experiments {
-		if armCounts[row.ID] < 2 {
+		if !hasControlledArms(armCounts, row.ID) {
 			page.Uncontrolled++
 			continue
 		}

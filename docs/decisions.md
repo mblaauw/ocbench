@@ -24,6 +24,10 @@ reasoning and what it costs if the call was wrong. The design itself is
   and a pure-Go SQLite, all vendored; there is no JavaScript build step and no
   CDN asset. *Cost if wrong:* some features are hand-rolled (statistics,
   charts) that a library would provide.
+- **One identifier generator.** `internal/id.NewUUID` is the single RFC 4122 v4
+  source; the runner, profile persistence and the CLI each carried a
+  byte-identical copy whose comments admitted the duplication. *Cost if wrong:*
+  none — the format is pinned by the shared implementation.
 
 ## Profile and fingerprinting
 
@@ -277,15 +281,27 @@ reasoning and what it costs if the call was wrong. The design itself is
   that experiment. Without it, Architecture explains configuration but makes no
   efficiency claim. *Cost if wrong:* an exploratory run is less convenient to
   inspect, but independent historical runs cannot masquerade as a comparison.
+- **Exploratory history keeps no ranking verdict.** The prototype's hero,
+  component-diff panel and permutation-test verdict were deleted with the
+  historic leaderboard rather than left computing data no template rendered.
+  *Cost if wrong:* restoring that layout means recovering the deleted view model
+  and its test from git history.
 
 ## Measurement validity
 
 - **A ranking is gated on the effect its sample could detect, not on a p-value
   alone.** A leaderboard that names a winner from seven tasks whose scores never
-  varied is worse than one that says nothing. The verdict distinguishes "too few
-  tasks", "no spread to size an experiment against", and a gap that genuinely
-  exceeds what the data could resolve. *Cost if wrong:* a real but small
-  difference is reported as unmeasurable until more runs exist.
+  varied is worse than one that says nothing. The historic leaderboard and its
+  verdict were retired when the dashboard became cohort-first; what survives is
+  the per-profile detectable effect in the read model and the repeats-needed
+  estimate in `ocbench variance`. *Cost if wrong:* an exploratory scope no
+  longer states whether its gap is measurable — the cohort gate is the only
+  efficiency claim left.
+- **A metric absent from an execution is unmeasured, not zero.** Cost per solved
+  task counts only tasks whose every execution recorded `cost`, in both the
+  experiment aggregate and the history read model; treating a missing cost as 0
+  made a configuration look cheap. *Cost if wrong:* a task with partial cost data
+  drops out of the cost figure entirely, even when the recorded costs were valid.
 - **Noise is measured only from repeats of one configuration on one task.**
   Running three configurations once each is not repetition, and treating it as
   such would invent a spread. A task with no repeats is reported as having no

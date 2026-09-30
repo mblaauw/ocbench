@@ -267,15 +267,9 @@ func newRunRow(detail history.RunDetail, selected bool) runRow {
 		row.ProfileLabel = row.ProfileShort
 	}
 	if run.DurationMS != nil {
-		row.DurationText = fmt.Sprintf("%.1fs", float64(*run.DurationMS)/1000)
+		row.DurationText = secondsText(*run.DurationMS)
 	}
-	score, ok := detail.Metrics["score"]
-	if !ok {
-		// Runs recorded before the weighted score metric existed only carry
-		// the binary outcome.
-		score = detail.Metrics["success"]
-	}
-	row.ScoreText = fmt.Sprintf("%.2f", score)
+	row.ScoreText = fmt.Sprintf("%.2f", metricScore(detail.Metrics))
 	row.TokensText = tokensText(int64(detail.Metrics["tokens_total"]))
 	row.Added = int(detail.Metrics["diff_lines_added"])
 	row.Removed = int(detail.Metrics["diff_lines_removed"])
@@ -298,12 +292,9 @@ func (h *handler) newRunAside(detail history.RunDetail) *runAside {
 
 	duration := "—"
 	if run.DurationMS != nil {
-		duration = fmt.Sprintf("%.1fs", float64(*run.DurationMS)/1000)
+		duration = secondsText(*run.DurationMS)
 	}
-	score := detail.Metrics["score"]
-	if _, ok := detail.Metrics["score"]; !ok {
-		score = detail.Metrics["success"]
-	}
+	score := metricScore(detail.Metrics)
 	aside.CacheHit = "—"
 	if rate, ok := history.CacheHitRate(detail.Metrics); ok {
 		aside.CacheHit = fmt.Sprintf("%.0f%%", rate*100)
@@ -387,12 +378,6 @@ func shortModelName(model string) string {
 	return model
 }
 
-// shortDate renders just the date part of an RFC3339 stamp.
-func shortDate(stamp string) string {
-	date, _ := shortTime(stamp)
-	return date
-}
-
 // statusClass maps a status onto the badge classes the stylesheet defines.
 func statusClass(status string) string {
 	switch status {
@@ -407,13 +392,18 @@ func statusClass(status string) string {
 	}
 }
 
-// shortTime splits an RFC3339 stamp into the date and time a table cell shows
-// on two lines, which keeps the column narrow.
-func shortTime(stamp string) (date, clock string) {
-	if len(stamp) >= 16 {
-		return stamp[5:10], stamp[11:16]
+// metricScore reads a run's weighted validator score, falling back to the
+// binary success metric for runs recorded before scoring existed.
+func metricScore(metrics map[string]float64) float64 {
+	if score, ok := metrics["score"]; ok {
+		return score
 	}
-	return stamp, ""
+	return metrics["success"]
+}
+
+// secondsText renders a duration in milliseconds as seconds with one decimal.
+func secondsText(ms int64) string {
+	return fmt.Sprintf("%.1fs", float64(ms)/1000)
 }
 
 // firstLines keeps the first n lines of an excerpt, which is all a table cell

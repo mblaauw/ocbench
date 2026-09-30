@@ -219,12 +219,7 @@ func renderExperimentListJSON(w io.Writer, items []experimentListItem) error {
 			Arms:      it.Arms,
 		})
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(w, string(b))
-	return err
+	return writeJSON(w, out)
 }
 
 func newExperimentShowCmd(d Deps) *cobra.Command {
@@ -699,10 +694,5 @@ func renderExperimentJSON(w io.Writer, s experiment.ExperimentSummary) error {
 	if s.CostTests == nil {
 		s.CostTests = map[string]experiment.StatTest{}
 	}
-	b, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(w, string(b))
-	return err
+	return writeJSON(w, s)
 }

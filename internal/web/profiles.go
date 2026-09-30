@@ -13,6 +13,7 @@ import (
 	"mbl/ocbench/internal/evaluation"
 	"mbl/ocbench/internal/history"
 	"mbl/ocbench/internal/profile"
+	"mbl/ocbench/internal/store"
 )
 
 // profileRow is one line of the profile index.
@@ -287,11 +288,21 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	for _, pl := range view.Plugins {
 		page.Plugins = append(page.Plugins, pl.Spec)
 	}
+	// One request reads the profile list and the arm counts once and shares
+	// them between the chip rows, the usage cards and the stat strip.
+	armCounts, err := h.store.ExperimentArmCounts(r.Context())
+	if err != nil {
+		armCounts = nil
+	}
+	profileRows, err := h.store.ListProfiles(r.Context())
+	if err != nil {
+		profileRows = nil
+	}
 	page.Cohort = r.URL.Query().Get("cohort")
-	page.CohortChips = h.cohortChips(r, page.Hash)
-	page.ProfileChips = h.profileSwitchChips(r, page.Hash)
-	page.CompareChips = h.profileCompareChips(r, page.Hash)
-	usage := h.addProfileUsage(r, page.Hash, page.Cohort, page.Primary, page.Subagents)
+	page.CohortChips = h.cohortChips(r, page.Hash, armCounts)
+	page.ProfileChips = profileSwitchChips(r, page.Hash, profileRows)
+	page.CompareChips = profileCompareChips(r, page.Hash, profileRows)
+	usage := h.addProfileUsage(r, page.Hash, page.Cohort, armCounts, page.Primary, page.Subagents)
 
 	// Resolve the comparison profile first so the cohort-scoped stat strip is
 	// built exactly once per request.
@@ -317,7 +328,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		annotateDiffs(&page)
 	}
-	page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, compareWith, page.Cohort, usage)
+	page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, compareWith, page.Cohort, armCounts, usage)
 	render(w, profileTmpl, page)
 }
 
@@ -326,8 +337,8 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 // metrics and leaves the cards explicitly unmeasured when those metrics are
 // absent. Agent metric keys are sanitised the way the runner writes them, so a
 // configured name like "code-reviewer" still matches its usage.
-func (h *handler) addProfileUsage(r *http.Request, hash, cohort string, primary *agentRow, subs []agentRow) archUsage {
-	if cohort == "" || !h.isControlledCohort(r, cohort) {
+func (h *handler) addProfileUsage(r *http.Request, hash, cohort string, armCounts map[string]int, primary *agentRow, subs []agentRow) archUsage {
+	if cohort == "" || !hasControlledArms(armCounts, cohort) {
 		return archUsage{}
 	}
 	runs, err := h.store.RunsForExperiment(r.Context(), cohort)
@@ -412,16 +423,13 @@ func (h *handler) addProfileUsage(r *http.Request, hash, cohort string, primary 
 }
 
 // profileCompareChips links the other profiles this one can be compared with.
-func (h *handler) profileCompareChips(r *http.Request, hash string) []filterChip {
+// The caller supplies the profile rows so one request reads them once.
+func profileCompareChips(r *http.Request, hash string, rows []store.ProfileRow) []filterChip {
 	against := r.URL.Query().Get("against")
 	cohort := r.URL.Query().Get("cohort")
 	out := []filterChip{{
 		Label: "Nothing", Value: "", Href: archURL(hash, cohort, ""), Current: against == "",
 	}}
-	rows, err := h.store.ListProfiles(r.Context())
-	if err != nil {
-		return out
-	}
 	for _, row := range rows {
 		if row.ProfileHash == hash {
 			continue
@@ -437,11 +445,7 @@ func (h *handler) profileCompareChips(r *http.Request, hash string) []filterChip
 
 // profileSwitchChips makes changing the subject of an architecture inspection a
 // direct, no-JavaScript navigation while preserving the chosen cohort.
-func (h *handler) profileSwitchChips(r *http.Request, hash string) []filterChip {
-	rows, err := h.store.ListProfiles(r.Context())
-	if err != nil {
-		return nil
-	}
+func profileSwitchChips(r *http.Request, hash string, rows []store.ProfileRow) []filterChip {
 	cohort := r.URL.Query().Get("cohort")
 	out := make([]filterChip, 0, len(rows))
 	for _, row := range rows {
@@ -455,7 +459,7 @@ func (h *handler) profileSwitchChips(r *http.Request, hash string) []filterChip 
 
 // cohortChips lists recorded experiments as optional evidence scopes. A blank
 // scope leaves Architecture as configuration evidence only.
-func (h *handler) cohortChips(r *http.Request, hash string) []filterChip {
+func (h *handler) cohortChips(r *http.Request, hash string, armCounts map[string]int) []filterChip {
 	cohort := r.URL.Query().Get("cohort")
 	against := r.URL.Query().Get("against")
 	out := []filterChip{{
@@ -465,12 +469,8 @@ func (h *handler) cohortChips(r *http.Request, hash string) []filterChip {
 	if err != nil {
 		return out
 	}
-	armCounts, err := h.store.ExperimentArmCounts(r.Context())
-	if err != nil {
-		return out
-	}
 	for _, experiment := range experiments {
-		if armCounts[experiment.ID] < 2 {
+		if !hasControlledArms(armCounts, experiment.ID) {
 			continue
 		}
 		label := experiment.Name
@@ -497,16 +497,6 @@ func archURL(hash, cohort, against string) string {
 		return "/arch/" + hash + "?" + encoded
 	}
 	return "/arch/" + hash
-}
-
-// stampText renders an RFC3339 stamp as "YYYY-MM-DD HH:MM", the precision the
-// prototype shows for a profile snapshot. shortDate drops the time, which would
-// make two snapshots on the same day look identical.
-func stampText(stamp string) string {
-	if len(stamp) >= 16 {
-		return stamp[:10] + " " + stamp[11:16]
-	}
-	return stamp
 }
 
 // captureDir is where the capture files for a profile hash live. It is empty
@@ -696,8 +686,8 @@ func edgeRows(view profile.View) []edgeRow {
 
 // archStats builds a profile's observed stat strip only from a selected
 // experiment. Broad profile history is intentionally not a comparable result.
-func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, usage archUsage) ([]archStat, string) {
-	if cohort == "" || !h.isControlledCohort(r, cohort) {
+func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, armCounts map[string]int, usage archUsage) ([]archStat, string) {
+	if cohort == "" || !hasControlledArms(armCounts, cohort) {
 		return nil, "Choose a controlled cohort to show observed efficiency."
 	}
 	runs, err := h.store.RunsForExperiment(r.Context(), cohort)
@@ -791,11 +781,6 @@ func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, u
 		out = append(out, archStat{Label: "Subagent token share", Value: fmt.Sprintf("%.0f%%", usage.SubagentTokenShare)})
 	}
 	return out, "Observed only in the selected controlled cohort."
-}
-
-func (h *handler) isControlledCohort(r *http.Request, id string) bool {
-	counts, err := h.store.ExperimentArmCounts(r.Context())
-	return err == nil && counts[id] >= 2
 }
 
 // abs returns the magnitude of a float.

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -104,12 +103,7 @@ func renderRunJSON(w io.Writer, profileHash, experimentID string, records []runR
 		Runs:         records,
 		Aggregates:   aggregates,
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(w, string(b))
-	return err
+	return writeJSON(w, out)
 }
 
 // aggregateRuns summarises records per task in the supplied task order.

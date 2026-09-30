@@ -2,7 +2,6 @@ package cli
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -251,12 +250,7 @@ func renderTraceJSON(w io.Writer, tr trace.Trace) error {
 	for _, s := range tr.Subagents {
 		out.Subagents = append(out.Subagents, traceSubagentJSONOf(s))
 	}
-	b, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(w, string(b))
-	return err
+	return writeJSON(w, out)
 }
 
 func traceSubagentJSONOf(s trace.SubagentSpan) traceSubagentJSON {

@@ -13,7 +13,7 @@ What is done, what is next, and what is still unscheduled. The binding design is
 | History and comparison — store read model, `history`, `compare` | **done** | `882b7e1`..`806f30b` |
 | Dashboard — embedded web, safe routes, `serve` | **done** | `10b5a9d`..`42a8330` |
 | Dashboard — profile-first Overview, Runs and Architecture pages | **done** | `d25fc42`..`bbc758a` |
-| Efficiency cohorts — runner strata, gated standings, portable reports | **in progress** | `2026-09-27` plan |
+| Efficiency cohorts — runner strata, gated standings, portable reports | **done** | `de55a8d` |
 | Measurement validity — noise floor, effect size, attribution, calibration | **in progress** | `9e25b2b`..`2c790e9` |
 | Experiments — arms, overlays, statistics, regression gate, JSONL export | **done** | `2db8b81`..`a29748a` |
 | Subagents — session parsing, child capture, per-agent metrics, `trace` | **done** | `840bbc9`..`f08645f` |
@@ -80,22 +80,28 @@ usually fails". Making the tiers real is task authoring — the machinery
 (hidden tests, reference proofs, `diff`/`grep`/`process` validators, partial
 credit) is in place, but the fixtures are still small and mostly single-file.
 
-## Landed: the profile-first dashboard
+## Landed: the dashboard
 
-The dashboard answers one question — *did this configuration change help?* — from
-the stored runs, without a live probe of the machine it renders on. Direction C
-of the prototype: JetBrains Mono throughout, zero corner radius, dark only.
+The dashboard answers one question — *which configuration delivers the same
+validated work for fewer tokens and less cost?* — from the stored runs, without
+a live probe of the machine it renders on. Direction C of the prototype:
+JetBrains Mono throughout, zero corner radius, dark only.
 
-Two of the four planned pages are done, and they are a vertical slice rather than
-a scaffold: Overview scores every profile that has runs, and Runs lists every run
-with the selected run's validators and per-agent roll-up beside it.
+The landing page became cohort-first in `de55a8d`: only a controlled experiment
+ranks cost efficiency. Exploratory history moved to `/overview` and makes no
+efficiency claim.
 
 | Page | Route | State |
 |---|---|---|
-| Overview | `/` | hero, profile leaderboard, suite matrix, score/cost scatter |
+| Cohorts | `/`, `/cohorts`, `/cohorts/{id}` | controlled experiments with evidence-gated cost/token standings |
+| History | `/overview` | exploratory profile observations; suite matrix and score/cost scatter |
 | Runs | `/runs`, `/runs/{id}` | status and profile filters, runs table, selected-run aside with validators and architecture |
 | Architecture | `/arch`, `/arch/{hash}` | agents, prompts, instruction text, skills, MCP, permissions, subagent tree, profile comparison |
-| Suites and tasks | `/suites`, `/suites/{name}` | planned — needs task metadata persisted with the run |
+| Suites and tasks | `/suites` | persisted suite catalogue with task metadata |
+
+The prototype's two-column hero and its significance verdict were removed with
+the historic ranking (`19421b4`); they are recoverable from git history if a
+cohort-scoped comparison wants that layout back.
 
 Scoring rules, all derived at read time: a task's score is the mean of its runs'
 `score` metric (falling back to `success` for runs recorded before that metric
@@ -133,15 +139,16 @@ Done so far:
   estimate rather than being averaged. Thin spreads (fewer than five
   observations) are flagged, because a spread from two or three runs is itself
   uncertain by 35% or more. `stats` gained `MDE`, `RepeatsForSD` and `ZFor`.
-- **The leaderboard states its own evidence** — each profile carries its task
-  count and the smallest difference that sample could resolve, and the ranking
-  verdict is gated on the effect size rather than on a p-value alone.
+- **MDE stays available to read models** — each scored profile still carries its
+  task count and the smallest difference that sample could resolve. The
+  significance verdict that rendered it was retired with the historic ranking
+  (`19421b4`), because independent runs are not repetitions.
 - **Config attribution** — `command`, `formatter`, `lsp`, `mode` and `provider`
   are split per entry; `autoupdate`, `compaction`, `share` and `tools` are
   promoted whole. A change to one setting is now named
   (`share: disabled→enabled`, `compaction: prune`) instead of reported as
   `configuration`. **This re-hashes every profile**, so the recorded corpus is
-  now a legacy cohort and must be re-run before the leaderboard is meaningful.
+  now a legacy cohort and must be re-run before historic comparison is meaningful.
 
 - **`ocbench calibrate`** — classifies each task by pass rate (informative,
   saturated, always-fail, or unclassified when measured once) and by whether

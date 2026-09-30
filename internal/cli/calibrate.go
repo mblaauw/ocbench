@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -103,12 +102,7 @@ func renderCalibration(w io.Writer, rep history.CalibrationReport, asJSON bool) 
 				ProcessKnown:       tc.ProcessKnown,
 			})
 		}
-		encoded, err := json.MarshalIndent(out, "", "  ")
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(w, string(encoded))
-		return err
+		return writeJSON(w, out)
 	}
 
 	if len(rep.Tasks) == 0 {

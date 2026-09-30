@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -153,15 +152,10 @@ func renderExport(w io.Writer, dir string, c harvest.Candidate, v harvest.Verifi
 // renderHarvest writes the human or JSON candidate listing.
 func renderHarvest(w io.Writer, dbPath string, candidates []harvest.Candidate, asJSON bool) error {
 	if asJSON {
-		encoded, err := json.MarshalIndent(struct {
+		return writeJSON(w, struct {
 			Database   string              `json:"database"`
 			Candidates []harvest.Candidate `json:"candidates"`
-		}{Database: dbPath, Candidates: candidates}, "", "  ")
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(w, string(encoded))
-		return err
+		}{Database: dbPath, Candidates: candidates})
 	}
 
 	if len(candidates) == 0 {

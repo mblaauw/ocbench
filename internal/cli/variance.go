@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -127,12 +126,7 @@ func renderVariance(w io.Writer, rep history.VarianceReport, repeats int, asJSON
 			}
 			out.Tasks = append(out.Tasks, jt)
 		}
-		encoded, err := json.MarshalIndent(out, "", "  ")
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(w, string(encoded))
-		return err
+		return writeJSON(w, out)
 	}
 
 	if rep.TotalRuns == 0 {

@@ -33,7 +33,7 @@ func (h *handler) page(r *http.Request, current, crumb, title, sub string) layou
 			if armCounts, err := h.store.ExperimentArmCounts(r.Context()); err == nil {
 				count := 0
 				for _, cohort := range cohorts {
-					if armCounts[cohort.ID] >= 2 {
+					if hasControlledArms(armCounts, cohort.ID) {
 						count++
 					}
 				}

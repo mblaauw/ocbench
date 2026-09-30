@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -48,12 +47,7 @@ func newDoctorCmd(d Deps) *cobra.Command {
 // renderDoctor prints the report as an aligned table or as indented JSON.
 func renderDoctor(w io.Writer, report doctor.Report, asJSON bool) error {
 	if asJSON {
-		b, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintln(w, string(b))
-		return err
+		return writeJSON(w, report)
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
