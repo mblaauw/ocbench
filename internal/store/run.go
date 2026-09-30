@@ -153,6 +153,21 @@ func scanArmRow(sc rowScanner) (ExperimentArmRow, error) {
 	return row, err
 }
 
+// RunSucceeded reports whether a run counts as having solved its task. The
+// persisted success metric is authoritative when it was recorded; otherwise the
+// run's own status decides, and the runner only records "passed" when every
+// validator passed. Half credit or better counts as solved.
+//
+// Both read models — the history leaderboard and the experiment aggregate —
+// must call this, or the same corpus produces two different solved counts and
+// two different cost-per-solved figures for the same runs.
+func RunSucceeded(run RunRow, success float64, successRecorded bool) bool {
+	if successRecorded {
+		return success >= 0.5
+	}
+	return run.Status == "passed"
+}
+
 // InsertExperimentArm writes an experiment_arms row in one transaction. It
 // requires the experiment to exist and propagates the UNIQUE
 // (experiment_id, label) violation as an error rather than swallowing it.

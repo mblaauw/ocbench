@@ -432,3 +432,50 @@ func mustParse(t *testing.T, stamp string) time.Time {
 	}
 	return ts
 }
+
+// The experiment aggregate and this read model must agree on what "solved" means,
+// or the same corpus yields two different cost-per-solved figures. A run with
+// half credit counts as solved, and a run that recorded no success metric at all
+// falls back to its own status.
+func TestOverviewSolvedMatchesTheExperimentRule(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+
+	// task-one: partial credit above the half threshold.
+	seedScoredRun(t, st, "r-half", "2026-03-01T10:00:00Z", "p1", "hash-a", suiteName, "task-one", 0.5, 0.5, 100, 0.02)
+	// task-two: no success metric recorded; the run itself passed.
+	r := baseRun("r-nometric", "2026-03-01T10:01:00Z", "p1", "hash-a")
+	r.SuiteName, r.TaskID = suiteName, "task-two"
+	r.SuiteHash = "hash-" + suiteName // same current content as the other run
+	seedRun(t, st, r)
+	if err := st.InsertRunMetrics(context.Background(), "r-nometric", map[string]float64{
+		"score": 1, "cost": 0.03, "tokens_total": 100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps := ov.Profiles[0]
+	byTask := map[string]history.TaskScore{}
+	for _, ts := range ps.Tasks {
+		byTask[ts.TaskID] = ts
+	}
+	if got := byTask["task-one"].Solved; got != 1 {
+		t.Errorf("task-one solved = %d, want 1 (success 0.5 clears the half threshold)", got)
+	}
+	if got := byTask["task-two"].Solved; got != 1 {
+		t.Errorf("task-two solved = %d, want 1 (no success metric, run status passed)", got)
+	}
+	// Both tasks earned cost against a solved task, so the pooled figure is
+	// the total spend over the two solved tasks.
+	if !ps.CostPerSolvedOK || ps.CostPerSolved < 0.0249 || ps.CostPerSolved > 0.0251 {
+		t.Errorf("cost per solved = %v (ok=%v), want 0.025", ps.CostPerSolved, ps.CostPerSolvedOK)
+	}
+	if ps.PassRate != 1 {
+		t.Errorf("pass rate = %v, want 1: both runs solved their task", ps.PassRate)
+	}
+}

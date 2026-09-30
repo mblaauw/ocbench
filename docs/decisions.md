@@ -281,6 +281,16 @@ reasoning and what it costs if the call was wrong. The design itself is
   that experiment. Without it, Architecture explains configuration but makes no
   efficiency claim. *Cost if wrong:* an exploratory run is less convenient to
   inspect, but independent historical runs cannot masquerade as a comparison.
+- **One definition of a solved run, and one definition of "worked differently".**
+  `store.RunSucceeded` is the only place that decides a run solved its task (the
+  success metric at half credit or better, else the run's own status), and the
+  calibration read model reduces process signatures by agreement rather than by
+  string equality. Both existed in two copies that disagreed: history counted
+  only `success == 1` with no status fallback, so the same runs produced two
+  different cost-per-solved figures, and a run missing one process metric was
+  counted as a distinct way of working. *Cost if wrong:* a run that passed every
+  validator but recorded a success metric below 0.5 is reported unsolved, which
+  is the stricter reading of partial credit.
 - **`web/static/site.css` is the design of record, and Direction C is canonical.**
   JetBrains Mono throughout, zero corner radius, a dark default plus one light
   token set, and the shared `.tag`/`.good`/`.warn` vocabulary. The served

@@ -355,10 +355,8 @@ func runSucceeded(run store.RunRow, metrics []store.MetricRow, validations []sto
 			return false
 		}
 	}
-	if v, ok := metricValue(metrics, "success"); ok {
-		return v >= 0.5
-	}
-	return run.Status == "passed"
+	v, ok := metricValue(metrics, "success")
+	return store.RunSucceeded(run, v, ok)
 }
 
 // metricValue returns the numeric value of a named metric.

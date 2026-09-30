@@ -97,10 +97,9 @@ func Calibration(ctx context.Context, st *store.Store, suite string) (Calibratio
 		passes   float64
 		scoreSum float64
 		profiles map[string]bool
-		// signatures are the distinct process tuples seen on this task, and
-		// perProfile records whether each configuration ever varied from its
-		// own signature.
-		signatures map[string]bool
+		// signatures are the process tuples seen on this task, reduced to
+		// distinct behaviours by distinctSignatures.
+		signatures []signature
 		process    bool
 	}
 	tasks := map[taskKey]*acc{}
@@ -122,7 +121,7 @@ func Calibration(ctx context.Context, st *store.Store, suite string) (Calibratio
 		key := taskKey{r.SuiteName, r.TaskID}
 		a := tasks[key]
 		if a == nil {
-			a = &acc{profiles: map[string]bool{}, signatures: map[string]bool{}}
+			a = &acc{profiles: map[string]bool{}}
 			tasks[key] = a
 			order = append(order, key)
 		}
@@ -133,7 +132,7 @@ func Calibration(ctx context.Context, st *store.Store, suite string) (Calibratio
 
 		if sig, ok := processSignature(values); ok {
 			a.process = true
-			a.signatures[sig] = true
+			a.signatures = append(a.signatures, sig)
 		}
 	}
 
@@ -152,12 +151,12 @@ func Calibration(ctx context.Context, st *store.Store, suite string) (Calibratio
 			Runs: a.runs, Profiles: len(a.profiles),
 			PassRate:           a.passes / float64(a.runs),
 			ScoreMean:          a.scoreSum / float64(a.runs),
-			DistinctSignatures: len(a.signatures),
+			DistinctSignatures: distinctSignatures(a.signatures),
 			ProcessKnown:       a.process,
 		}
 		tc.Verdict = classify(tc.PassRate, tc.Runs)
-		tc.ProcessVariance = len(a.signatures) > 1
-		if a.process && len(a.profiles) >= 2 && len(a.signatures) == 1 {
+		tc.ProcessVariance = tc.DistinctSignatures > 1
+		if a.process && len(a.profiles) >= 2 && tc.DistinctSignatures == 1 {
 			rep.NoProcessVariance++
 		}
 
@@ -193,22 +192,78 @@ func classify(passRate float64, runs int) Verdict {
 	}
 }
 
-// processSignature renders how a run worked, so two runs can be compared. ok is
-// false when the run recorded none of the process metrics, which is different
-// from recording zeros.
-func processSignature(values map[string]float64) (string, bool) {
-	parts := make([]string, 0, len(processMetrics))
-	known := false
+// signature is one run's recorded process metrics. A run that recorded only
+// some of them still describes how it worked, so signatures are compared by
+// agreement rather than requiring every metric.
+type signature map[string]int
+
+// processSignature reads the process metrics a run recorded. ok is false when
+// the run recorded none of them, which is no evidence of behaviour at all.
+func processSignature(values map[string]float64) (signature, bool) {
+	sig := signature{}
 	for _, name := range processMetrics {
 		if v, ok := values[name]; ok {
-			known = true
-			parts = append(parts, fmt.Sprintf("%s=%d", name, int(v)))
-			continue
+			sig[name] = int(v)
 		}
-		parts = append(parts, name+"=?")
 	}
-	if !known {
-		return "", false
+	if len(sig) == 0 {
+		return nil, false
 	}
-	return strings.Join(parts, ","), true
+	return sig, true
+}
+
+// isRestriction reports whether s records nothing but metrics that other also
+// records with the same values. Such a run worked the same way as far as the
+// evidence goes; it simply recorded less.
+func isRestriction(s, other signature) bool {
+	for name, v := range s {
+		if ov, ok := other[name]; !ok || ov != v {
+			return false
+		}
+	}
+	return true
+}
+
+// distinctSignatures counts the different ways of working in sigs. A signature
+// that is a strict restriction of another is dropped, so a run missing a
+// metric is never counted as a second behaviour.
+func distinctSignatures(sigs []signature) int {
+	uniq := map[string]signature{}
+	order := make([]string, 0, len(sigs))
+	for _, s := range sigs {
+		key := signatureKey(s)
+		if _, seen := uniq[key]; !seen {
+			order = append(order, key)
+		}
+		uniq[key] = s
+	}
+	kept := 0
+	for _, key := range order {
+		s := uniq[key]
+		redundant := false
+		for _, other := range order {
+			if other == key {
+				continue
+			}
+			if isRestriction(s, uniq[other]) && !isRestriction(uniq[other], s) {
+				redundant = true
+				break
+			}
+		}
+		if !redundant {
+			kept++
+		}
+	}
+	return kept
+}
+
+// signatureKey renders a signature as a stable string so equal ones collapse.
+func signatureKey(s signature) string {
+	parts := make([]string, 0, len(s))
+	for _, name := range processMetrics {
+		if v, ok := s[name]; ok {
+			parts = append(parts, fmt.Sprintf("%s=%d", name, v))
+		}
+	}
+	return strings.Join(parts, ",")
 }

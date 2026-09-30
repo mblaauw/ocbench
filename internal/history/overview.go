@@ -230,9 +230,10 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 		}
 		acc.runs++
 		acc.scoreSum += scoreOf(values)
-		acc.passSum += values["success"]
-		if values["success"] == 1 {
+		success, successRecorded := values["success"]
+		if store.RunSucceeded(r, success, successRecorded) {
 			acc.solved++
+			acc.passSum++
 		}
 		// Cost is only comparable when every execution recorded it: a missing
 		// cost is unmeasured, not free.

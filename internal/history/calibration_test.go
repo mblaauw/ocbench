@@ -162,3 +162,47 @@ func TestCalibrationFiltersBySuite(t *testing.T) {
 		t.Fatalf("filtered report = %+v, want only suite other", rep.Tasks)
 	}
 }
+
+// A run that recorded fewer process metrics is not a different way of working.
+// Counting a missing metric as its own signature makes two configurations that
+// behaved identically look like they varied, which is a measurement artifact.
+func TestCalibrationIgnoresIncompleteProcessSignatures(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-1", components("h1"))
+	seedProfile(t, st, "p2", "hash-2", components("h2"))
+
+	// hash-1 recorded every process metric, including a delegation count of
+	// zero. hash-2 recorded no subagent metric at all, which means the same
+	// thing: it never delegated.
+	seed := func(id, started, profileID, hash string, metrics map[string]float64) {
+		r := baseRun(id, started, profileID, hash)
+		r.SuiteName, r.TaskID = suiteName, "task-partial"
+		seedRun(t, st, r)
+		metrics["score"] = 1
+		metrics["success"] = 1
+		if err := st.InsertRunMetrics(context.Background(), id, metrics); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("a1", "2026-01-01T00:01:00Z", "p1", "hash-1", map[string]float64{"tool_calls_total": 5, "subagent_calls": 0, "retries": 0, "compactions": 0})
+	seed("a2", "2026-01-01T00:01:01Z", "p1", "hash-1", map[string]float64{"tool_calls_total": 5, "subagent_calls": 0, "retries": 0, "compactions": 0})
+	seed("b1", "2026-01-01T00:02:00Z", "p2", "hash-2", map[string]float64{"tool_calls_total": 5})
+	seed("b2", "2026-01-01T00:02:01Z", "p2", "hash-2", map[string]float64{"tool_calls_total": 5})
+	rep, err := history.Calibration(context.Background(), st, "")
+	if err != nil {
+		t.Fatalf("Calibration: %v", err)
+	}
+	var got history.TaskCalibration
+	for _, tc := range rep.Tasks {
+		if tc.Task == "task-partial" {
+			got = tc
+		}
+	}
+	if got.ProcessVariance {
+		t.Errorf("process variance reported from a missing metric, not from behaviour: %+v", got)
+	}
+	if got.DistinctSignatures != 1 {
+		t.Errorf("distinct signatures = %d, want 1: the complete signature describes both configurations", got.DistinctSignatures)
+	}
+}
