@@ -41,7 +41,6 @@ func IsBusy(err error) bool {
 	return isBusyCode(se.Code())
 }
 
-// isBusyCode reports whether a SQLite result code denotes lock contention.
 // OptionalString returns nil for the empty string so an unset optional column
 // is stored as SQL NULL, which is this package's convention for nullable text.
 // It lives here because that convention belongs to the schema: a caller that
@@ -53,6 +52,7 @@ func OptionalString(s string) *string {
 	return &s
 }
 
+// isBusyCode reports whether a SQLite result code denotes lock contention.
 // SQLite encodes extended result codes by OR-ing a subtype into the high bits
 // of the primary code, so masking with 0xff isolates the primary code and lets
 // variants such as SQLITE_BUSY_SNAPSHOT, SQLITE_BUSY_RECOVERY, and

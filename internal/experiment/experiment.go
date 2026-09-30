@@ -247,7 +247,6 @@ func hasArm(arms []ArmSpec, label string) bool {
 	return false
 }
 
-// taskIDs returns the task ids in plan order for the experiment spec.
 // armSpecs encodes the arms for the experiment spec JSON.
 func armSpecs(arms []ArmSpec) []map[string]any {
 	out := make([]map[string]any, 0, len(arms))
@@ -261,6 +260,3 @@ func armSpecs(arms []ArmSpec) []map[string]any {
 	}
 	return out
 }
-
-// mcpToolNames lists the configured MCP server names from the arm's profile so
-// the runner can classify `<server>_<tool>` calls.

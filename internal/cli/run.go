@@ -255,9 +255,6 @@ func selectTasks(s *suite.Suite, ids []string) ([]*suite.Task, error) {
 	return out, nil
 }
 
-// taskIDsOf returns the task ids in plan order.
-// mcpToolNames lists the configured MCP server names from the profile's mcp
-// components. The runner classifies `<server>_<tool>` calls with them.
 // newRunRecord flattens a runner result into the report shape.
 func newRunRecord(res runner.Result, repeatIndex int) runRecord {
 	return runRecord{

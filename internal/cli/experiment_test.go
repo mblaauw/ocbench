@@ -490,6 +490,12 @@ func TestExperimentShowJSONL(t *testing.T) {
 // overlay variable it was given into its resolved config, so an adapter that
 // drops the overlay environment reports the same configuration for every arm.
 func TestArmAdapterAppliesOverlayToDiscovery(t *testing.T) {
+	// The adapter appends its overlay to os.Environ(), and a shell reads the
+	// last duplicate, so the overlay always wins. Pinning these to empty keeps
+	// the "no overlay" case independent of the developer's shell.
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("OPENCODE_CONFIG_DIR", "")
+
 	dir := t.TempDir()
 	overlayFile := filepath.Join(dir, "lean.json")
 	if err := os.WriteFile(overlayFile, []byte(`{"model":"lean"}`), 0o600); err != nil {

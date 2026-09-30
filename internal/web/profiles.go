@@ -114,7 +114,6 @@ type profilePageView struct {
 	layout
 	Hash           string
 	ShortHash      string
-	Summary        string
 	ComponentCount int
 	RunCount       int
 	Snapshot       string
