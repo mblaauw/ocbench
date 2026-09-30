@@ -279,7 +279,11 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 		suiteSums[ts.Suite] += ts.Score
 		suiteCounts[ts.Suite]++
 		allScores = append(allScores, ts.Score)
-		if ts.CostComplete {
+		// A task counts toward cost per solved only when every execution
+		// recorded cost and at least one execution solved it; a fully failed
+		// task contributes cost with no solved work to divide it by, which is
+		// the same task the experiment aggregate skips.
+		if ts.CostComplete && ts.Solved > 0 {
 			costTotal += ts.Cost
 			costSolved += ts.Solved
 		}

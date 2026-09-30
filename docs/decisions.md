@@ -298,10 +298,12 @@ reasoning and what it costs if the call was wrong. The design itself is
   longer states whether its gap is measurable — the cohort gate is the only
   efficiency claim left.
 - **A metric absent from an execution is unmeasured, not zero.** Cost per solved
-  task counts only tasks whose every execution recorded `cost`, in both the
-  experiment aggregate and the history read model; treating a missing cost as 0
-  made a configuration look cheap. *Cost if wrong:* a task with partial cost data
-  drops out of the cost figure entirely, even when the recorded costs were valid.
+  task counts a task only when every execution recorded `cost` and at least one
+  execution solved it, in both the experiment aggregate and the history read
+  model; treating a missing cost as 0 made a configuration look cheap, and
+  dividing spend that bought nothing dragged the figure up. *Cost if wrong:* a
+  task with partial cost data, or one no execution solved, drops out of the cost
+  figure entirely even when its recorded costs were valid.
 - **Noise is measured only from repeats of one configuration on one task.**
   Running three configurations once each is not repetition, and treating it as
   such would invent a spread. A task with no repeats is reported as having no

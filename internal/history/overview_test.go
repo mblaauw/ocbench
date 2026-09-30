@@ -62,9 +62,10 @@ func TestOverviewRanksProfilesAndComputesIntervals(t *testing.T) {
 	if a.PerSuite[suiteName] != 0.75 {
 		t.Errorf("A per-suite = %v", a.PerSuite)
 	}
-	// A solved one of two runs, spending 0.30.
-	if !a.CostPerSolvedOK || a.CostPerSolved < 0.29 || a.CostPerSolved > 0.31 {
-		t.Errorf("A cost per solved = %v (ok=%v), want ~0.30", a.CostPerSolved, a.CostPerSolvedOK)
+	// A solved task-one for 0.10. task-two never passed, so its 0.20 bought no
+	// solved work and is excluded, matching the experiment aggregate.
+	if !a.CostPerSolvedOK || a.CostPerSolved < 0.099 || a.CostPerSolved > 0.101 {
+		t.Errorf("A cost per solved = %v (ok=%v), want ~0.10", a.CostPerSolved, a.CostPerSolvedOK)
 	}
 	if a.PassRate != 0.5 || !a.PassCIOK {
 		t.Errorf("A pass rate = %v (ok=%v), want 0.5", a.PassRate, a.PassCIOK)
@@ -133,6 +134,30 @@ func TestOverviewIgnoresTasksWithoutCompleteCost(t *testing.T) {
 	p := ov.Profiles[0]
 	if !p.CostPerSolvedOK || p.CostPerSolved != 0.10 {
 		t.Fatalf("cost per solved = %v (ok=%v), want 0.10 from the task with recorded cost",
+			p.CostPerSolved, p.CostPerSolvedOK)
+	}
+}
+
+// A task that never passed must not drag cost per solved up with spend that
+// bought nothing; the experiment aggregate skips the same task.
+func TestOverviewCostPerSolvedSkipsFullyFailedTasks(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+
+	// task-one: solved for 0.10.
+	seedScoredRun(t, st, "r1", "2026-03-01T10:00:00Z", "p1", "hash-a", suiteName, "task-one", 1, 1, 100, 0.10)
+	// task-two: complete cost, but every execution failed. Its spend bought
+	// nothing and must not inflate the per-solved figure.
+	seedScoredRun(t, st, "r2", "2026-03-01T10:01:00Z", "p1", "hash-a", suiteName, "task-two", 0, 0, 100, 10.00)
+
+	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	p := ov.Profiles[0]
+	if !p.CostPerSolvedOK || p.CostPerSolved != 0.10 {
+		t.Fatalf("cost per solved = %v (ok=%v), want 0.10 from the solved task only",
 			p.CostPerSolved, p.CostPerSolvedOK)
 	}
 }
