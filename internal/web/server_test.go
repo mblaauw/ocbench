@@ -922,3 +922,87 @@ func TestRunPageCacheHitIsAbsentWithoutPromptTokens(t *testing.T) {
 		t.Errorf("a missing hit rate rendered as 0%%")
 	}
 }
+
+// A single-arm session is not a controlled cohort, so its detail page must say
+// so instead of rendering a standing that looks measured. It stays reachable:
+// links from runs and the CLI's `experiment show` land here.
+func TestSingleArmExperimentDetailExplainsItIsNotACohort(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	if err := st.InsertProfile(ctx, store.ProfileRow{
+		ID: "profile-solo", ProfileHash: "hash-solo", OpenCodeVersion: "1.18.32",
+		OCBenchVersion: "dev", CanonicalJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertExperiment(ctx, store.ExperimentRow{ID: "exp-solo", Name: "core@1.1.0", SpecJSON: `{}`, CreatedAt: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertExperimentArm(ctx, store.ExperimentArmRow{
+		ID: "arm-solo", ExperimentID: "exp-solo", Label: "baseline",
+		ProfileID: stringPtr("profile-solo"), ProfileHash: "hash-solo", OverlayKind: "none",
+		CreatedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for repeat := 0; repeat < 3; repeat++ {
+		runID := fmt.Sprintf("run-solo-%d", repeat)
+		armID := "arm-solo"
+		if err := st.InsertRun(ctx, store.RunRow{
+			ID: runID, ExperimentID: "exp-solo", ArmID: &armID, RepeatIndex: repeat,
+			ProfileID: "profile-solo", ProfileHash: "hash-solo",
+			SuiteName: "core", SuiteVersion: "1", SuiteHash: "suite-h", TaskID: "task", TaskVersion: "1", FixtureSHA: "fixture-h",
+			OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", RunnerEnv: "darwin/arm64 · 12 CPU",
+			Status: "passed", StartedAt: fmt.Sprintf("2026-01-01T00:00:0%dZ", repeat), ArtifactsDir: "/runs/" + runID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.InsertRunMetrics(ctx, runID, map[string]float64{"success": 1, "cost": 1, "tokens_total": 100}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := web.NewHandler(st)
+	list := get(t, h, "/cohorts")
+	if !strings.Contains(list.Body.String(), "1 unarmed historic session(s) excluded") {
+		t.Fatalf("cohort list must exclude the single-arm session:\n%s", list.Body.String())
+	}
+	if strings.Contains(list.Body.String(), "/cohorts/exp-solo") {
+		t.Fatalf("single-arm session must not be listed as a cohort:\n%s", list.Body.String())
+	}
+
+	detail := get(t, h, "/cohorts/exp-solo")
+	if detail.Code != http.StatusOK {
+		t.Fatalf("single-arm detail status = %d, want 200 (links must not dead-end)", detail.Code)
+	}
+	if !strings.Contains(detail.Body.String(), "not a controlled cohort") {
+		t.Fatalf("single-arm detail must disclose that it is not a cohort:\n%s", detail.Body.String())
+	}
+}
+
+// A profile whose stored configuration cannot be decoded must say so in the
+// list. An empty architecture cell would read as "this profile has no
+// architecture", which is a different claim.
+func TestProfilesListMarksUndecodableProfiles(t *testing.T) {
+	st := testStore(t)
+	if err := st.InsertProfile(context.Background(), store.ProfileRow{
+		ID: "profile-broken", ProfileHash: "hash-broken", OpenCodeVersion: "1.18.32",
+		OCBenchVersion: "dev", CanonicalJSON: `{"schema":1`, CreatedAt: "2026-01-01T00:00:00Z",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertProfile(context.Background(), store.ProfileRow{
+		ID: "profile-fine", ProfileHash: "hash-fine", OpenCodeVersion: "1.18.32",
+		OCBenchVersion: "dev", CanonicalJSON: `{"schema":1}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}, []store.ComponentRow{{Kind: "agent", Name: "build", Hash: "h1", CanonicalJSON: `{}`}}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := get(t, web.NewHandler(st), "/arch").Body.String()
+	if !strings.Contains(body, "unreadable") {
+		t.Fatalf("profile list must disclose the undecodable profile:\n%s", body)
+	}
+	if strings.Count(body, "unreadable") != 1 {
+		t.Fatalf("only the broken profile should be marked unreadable:\n%s", body)
+	}
+}

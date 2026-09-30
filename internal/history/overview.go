@@ -126,6 +126,12 @@ func Overview(ctx context.Context, st *store.Store, scope string) (OverviewRepor
 		if r.DryRun {
 			continue
 		}
+		// The scope is applied first so the report's totals, last run and
+		// disclosure describe only the data the page lists. A run from
+		// another suite is out of scope, not excluded.
+		if scope != ScopeAll && r.SuiteName != scope {
+			continue
+		}
 		overview.TotalRuns++
 		if r.StartedAt > "" {
 			if ts, err := time.Parse(time.RFC3339, r.StartedAt); err == nil && ts.After(overview.LastRun) {
@@ -136,9 +142,6 @@ func Overview(ctx context.Context, st *store.Store, scope string) (OverviewRepor
 		// against an older hash are counted and disclosed, never mixed in.
 		if currentHash[r.SuiteName] != "" && r.SuiteHash != currentHash[r.SuiteName] {
 			overview.ExcludedRuns++
-			continue
-		}
-		if scope != ScopeAll && r.SuiteName != scope {
 			continue
 		}
 		byProfile[r.ProfileHash] = append(byProfile[r.ProfileHash], r)

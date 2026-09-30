@@ -3,6 +3,7 @@ package history_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"mbl/ocbench/internal/history"
 	"mbl/ocbench/internal/store"
@@ -382,4 +383,52 @@ func TestOverviewPoolsTheCacheHitRate(t *testing.T) {
 	if p.CacheHitRate < 0.47 || p.CacheHitRate > 0.48 {
 		t.Errorf("CacheHitRate = %v, want ~0.474 pooled across prompt tokens", p.CacheHitRate)
 	}
+}
+
+// A scoped overview must count only the scope it shows. Reporting another
+// suite's runs in "total runs" or in the older-suite disclosure would describe
+// data the page does not list.
+func TestOverviewScopeScopesCounters(t *testing.T) {
+	st := testStore(t)
+	seedSuiteTask(t, st)
+	seedProfile(t, st, "p1", "hash-a", components("h1"))
+
+	// core holds a run against a superseded suite hash plus a current one;
+	// hard holds a single current run.
+	stale := baseRun("r-core-old", "2026-03-01T08:00:00Z", "p1", "hash-a")
+	stale.SuiteName, stale.TaskID, stale.SuiteHash = "core", "t1", "core-stale"
+	seedRun(t, st, stale)
+	seedScoredRun(t, st, "r-core", "2026-03-01T09:00:00Z", "p1", "hash-a", "core", "t1", 1.0, 1, 100, 0.01)
+	seedScoredRun(t, st, "r-hard", "2026-03-01T10:00:00Z", "p1", "hash-a", "hard", "t2", 0.5, 1, 200, 0.02)
+
+	hard, err := history.Overview(context.Background(), st, "hard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hard.TotalRuns != 1 {
+		t.Errorf("scoped total runs = %d, want 1 (only the hard run)", hard.TotalRuns)
+	}
+	if hard.ExcludedRuns != 0 {
+		t.Errorf("scoped excluded = %d, want 0 (core's superseded run is out of scope)", hard.ExcludedRuns)
+	}
+	if want := "2026-03-01T10:00:00Z"; !hard.LastRun.Equal(mustParse(t, want)) {
+		t.Errorf("scoped last run = %v, want the hard run at %v", hard.LastRun, want)
+	}
+
+	all, err := history.Overview(context.Background(), st, history.ScopeAll)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all.TotalRuns != 3 || all.ExcludedRuns != 1 {
+		t.Errorf("all-suite total = %d excluded = %d, want 3/1", all.TotalRuns, all.ExcludedRuns)
+	}
+}
+
+func mustParse(t *testing.T, stamp string) time.Time {
+	t.Helper()
+	ts, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ts
 }

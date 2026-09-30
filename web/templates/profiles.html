@@ -11,7 +11,7 @@
       {{range .Rows}}
       <tr>
         <td><a class="status" href="{{.Href}}">{{.ShortHash}}</a></td>
-        <td>{{.Summary}}</td>
+        <td>{{if .Summary}}{{.Summary}}{{else}}<span class="muted">unreadable</span>{{end}}</td>
         <td class="metric">{{.OpenCode}}</td>
         <td class="metric">{{.ComponentCount}}</td>
         <td class="metric">{{.RunCount}}</td>

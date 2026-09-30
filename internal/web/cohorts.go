@@ -94,6 +94,16 @@ func (h *handler) handleCohort(w http.ResponseWriter, r *http.Request) {
 	if summary.Ranked {
 		status = "eligible"
 	}
+	warnings := summary.DriftWarnings
+	if len(summary.Arms) < 2 {
+		// A single-arm session is a `run` recorded as an experiment, not a
+		// comparison. It stays reachable because links and `experiment show`
+		// land here, but it must not read like a measured standing.
+		warnings = append([]string{
+			"This session is not a controlled cohort: it has one arm, so there is nothing to compare it against. " +
+				"Run `ocbench experiment run <suite> --profile a=<overlay> --profile b=<overlay> --repeat 3` to measure one.",
+		}, warnings...)
+	}
 	page := cohortPage{
 		layout:       h.page(r, "cohorts", "Cohorts", "Efficiency standing", "Cost and token efficiency after deterministic validation."),
 		ID:           summary.Experiment.ID,
@@ -102,7 +112,7 @@ func (h *handler) handleCohort(w http.ResponseWriter, r *http.Request) {
 		Gate:         summary.Gate,
 		Environments: strings.Join(summary.RunnerEnvironments, ", "),
 		Status:       status,
-		Warnings:     summary.DriftWarnings,
+		Warnings:     warnings,
 	}
 	if page.Environments == "" {
 		page.Environments = "unknown"

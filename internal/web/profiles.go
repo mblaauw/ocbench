@@ -196,7 +196,13 @@ func (h *handler) handleProfiles(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	counts := h.runCountsByProfile(r)
+	counts, err := h.runCountsByProfile(r)
+	if err != nil {
+		// Showing every profile as "0 runs" would be a measurement, not a
+		// placeholder, so a failed read fails the page.
+		writeStoreError(w, err)
+		return
+	}
 
 	page := profilesPage{
 		layout: h.page(r, "profiles", "Profiles", "Profiles",
@@ -223,16 +229,16 @@ func (h *handler) handleProfiles(w http.ResponseWriter, r *http.Request) {
 }
 
 // runCountsByProfile counts the runs recorded against each profile hash.
-func (h *handler) runCountsByProfile(r *http.Request) map[string]int {
+func (h *handler) runCountsByProfile(r *http.Request) (map[string]int, error) {
 	out := map[string]int{}
 	runs, err := h.store.ListRuns(r.Context(), 0, "")
 	if err != nil {
-		return out
+		return nil, err
 	}
 	for _, run := range runs {
 		out[run.ProfileHash]++
 	}
-	return out
+	return out, nil
 }
 
 // handleProfile renders one profile's architecture: the agents it configures,
@@ -256,6 +262,11 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	view := profile.NewView(p)
+	counts, err := h.runCountsByProfile(r)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	page := profilePageView{
 		layout:         h.page(r, "profiles", "Profiles", "Architecture", ""),
 		Hash:           row.ProfileHash,
@@ -263,7 +274,7 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		Summary:        view.Summary(),
 		ComponentCount: len(p.Components),
 		Components:     componentRowViews(comps),
-		RunCount:       h.runCountsByProfile(r)[row.ProfileHash],
+		RunCount:       counts[row.ProfileHash],
 		Snapshot:       stampText(row.CreatedAt),
 	}
 	page.PageTitle = view.Summary()
@@ -302,7 +313,10 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 	page.CohortChips = h.cohortChips(r, page.Hash, armCounts)
 	page.ProfileChips = profileSwitchChips(r, page.Hash, profileRows)
 	page.CompareChips = profileCompareChips(r, page.Hash, profileRows)
-	usage := h.addProfileUsage(r, page.Hash, page.Cohort, armCounts, page.Primary, page.Subagents)
+	// The selected cohort's runs are read once and shared by the usage cards
+	// and the stat strip, which both describe the same measurement.
+	evidence := h.readCohort(r, armCounts, page.Cohort)
+	usage := h.addProfileUsage(r, page.Hash, evidence, page.Primary, page.Subagents)
 
 	// Resolve the comparison profile first so the cohort-scoped stat strip is
 	// built exactly once per request.
@@ -328,8 +342,26 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		annotateDiffs(&page)
 	}
-	page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, compareWith, page.Cohort, armCounts, usage)
+	page.Stats, page.CohortNote = h.archStats(r, row.ProfileHash, compareWith, page.Cohort, armCounts, usage, evidence)
 	render(w, profileTmpl, page)
+}
+
+// cohortEvidence is one read of a selected controlled cohort's runs. The usage
+// cards and the stat strip describe the same measurement, so the request reads
+// the cohort once and passes the result to both.
+type cohortEvidence struct {
+	runs []store.RunRow
+	err  error
+}
+
+// readCohort reads the cohort's runs, or nothing at all when no controlled
+// cohort is selected.
+func (h *handler) readCohort(r *http.Request, armCounts map[string]int, cohort string) cohortEvidence {
+	if !hasControlledArms(armCounts, cohort) {
+		return cohortEvidence{}
+	}
+	runs, err := h.store.RunsForExperiment(r.Context(), cohort)
+	return cohortEvidence{runs: runs, err: err}
 }
 
 // addProfileUsage attaches measured per-agent messages/run and token share to
@@ -337,14 +369,11 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 // metrics and leaves the cards explicitly unmeasured when those metrics are
 // absent. Agent metric keys are sanitised the way the runner writes them, so a
 // configured name like "code-reviewer" still matches its usage.
-func (h *handler) addProfileUsage(r *http.Request, hash, cohort string, armCounts map[string]int, primary *agentRow, subs []agentRow) archUsage {
-	if cohort == "" || !hasControlledArms(armCounts, cohort) {
+func (h *handler) addProfileUsage(r *http.Request, hash string, evidence cohortEvidence, primary *agentRow, subs []agentRow) archUsage {
+	if evidence.err != nil || len(evidence.runs) == 0 {
 		return archUsage{}
 	}
-	runs, err := h.store.RunsForExperiment(r.Context(), cohort)
-	if err != nil || len(runs) == 0 {
-		return archUsage{}
-	}
+	runs := evidence.runs
 	type usage struct {
 		messages int
 		tokens   float64
@@ -686,14 +715,14 @@ func edgeRows(view profile.View) []edgeRow {
 
 // archStats builds a profile's observed stat strip only from a selected
 // experiment. Broad profile history is intentionally not a comparable result.
-func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, armCounts map[string]int, usage archUsage) ([]archStat, string) {
+func (h *handler) archStats(r *http.Request, hash, compareWith, cohort string, armCounts map[string]int, usage archUsage, evidence cohortEvidence) ([]archStat, string) {
 	if cohort == "" || !hasControlledArms(armCounts, cohort) {
 		return nil, "Choose a controlled cohort to show observed efficiency."
 	}
-	runs, err := h.store.RunsForExperiment(r.Context(), cohort)
-	if err != nil {
+	if evidence.err != nil {
 		return nil, "Cohort runs could not be read."
 	}
+	runs := evidence.runs
 	selfValue, err := history.ProfileScoreForRuns(r.Context(), h.store, hash, runs)
 	if err != nil || !selfValue.HasRuns {
 		return nil, "This profile has no measured runs in the selected cohort."
