@@ -281,6 +281,14 @@ reasoning and what it costs if the call was wrong. The design itself is
   that experiment. Without it, Architecture explains configuration but makes no
   efficiency claim. *Cost if wrong:* an exploratory run is less convenient to
   inspect, but independent historical runs cannot masquerade as a comparison.
+- **An arm's overlay reaches both the profile and the child.** Every arm gets its
+  own adapter carrying `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`, so discovery
+  fingerprints the arm's real configuration, and the runner passes the same
+  variables to the benchmarked child through `ExtraEnv` (the sandbox allowlist
+  drops `OPENCODE_*`, so it is applied after it). Building the adapter without
+  them makes every arm record the same profile hash, which silently pools the
+  arms together. *Cost if wrong:* a duplicate of the overlay environment exists
+  in two places, and `profile` runs once per arm instead of once per run.
 - **Exploratory history keeps no ranking verdict.** The prototype's hero,
   component-diff panel and permutation-test verdict were deleted with the
   historic leaderboard rather than left computing data no template rendered.

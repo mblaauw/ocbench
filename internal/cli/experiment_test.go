@@ -484,3 +484,79 @@ func TestExperimentShowJSONL(t *testing.T) {
 		t.Fatalf("run-novalidations missing from JSONL:\n%s", out)
 	}
 }
+
+// TestArmAdapterAppliesOverlayToDiscovery pins the invariant that each arm's
+// recorded profile reflects its own overlay. The fake opencode echoes the
+// overlay variable it was given into its resolved config, so an adapter that
+// drops the overlay environment reports the same configuration for every arm.
+func TestArmAdapterAppliesOverlayToDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	overlayFile := filepath.Join(dir, "lean.json")
+	if err := os.WriteFile(overlayFile, []byte(`{"model":"lean"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	overlayDir := filepath.Join(dir, "agents")
+	if err := os.MkdirAll(overlayDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "fake-opencode")
+	// The resolved config carries whichever overlay variable the adapter set,
+	// so the test can read the discovery environment back out of it.
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"debug\" ]; then\n" +
+		"  printf '{\"model\":\"%s|%s\"}' \"$OPENCODE_CONFIG\" \"$OPENCODE_CONFIG_DIR\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"printf '1.18.32'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d := Deps{Config: config.DefaultsConfig()}
+	d.Config.OpenCodeBin = bin
+
+	cases := []struct {
+		name string
+		arm  experiment.ArmSpec
+		want string
+	}{
+		{
+			name: "file overlay",
+			arm: experiment.ArmSpec{
+				Label:   "lean",
+				Overlay: experiment.Overlay{Kind: experiment.OverlayFile, Path: overlayFile, Env: []string{"OPENCODE_CONFIG=" + overlayFile}},
+			},
+			want: overlayFile + "|",
+		},
+		{
+			name: "directory overlay",
+			arm: experiment.ArmSpec{
+				Label:   "delegated",
+				Overlay: experiment.Overlay{Kind: experiment.OverlayDir, Path: overlayDir, Env: []string{"OPENCODE_CONFIG_DIR=" + overlayDir}},
+			},
+			want: "|" + overlayDir,
+		},
+		{
+			name: "no overlay leaves both unset",
+			arm:  experiment.ArmSpec{Label: "baseline", Overlay: experiment.Overlay{Kind: experiment.OverlayNone}},
+			want: "|",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := armAdapter(d, tc.arm).ResolvedConfig(context.Background(), dir)
+			if err != nil {
+				t.Fatalf("ResolvedConfig: %v", err)
+			}
+			var got struct {
+				Model string `json:"model"`
+			}
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatalf("resolved config %s does not parse: %v", raw, err)
+			}
+			if got.Model != tc.want {
+				t.Fatalf("discovery saw overlay %q, want %q: the arm adapter must carry the overlay environment",
+					got.Model, tc.want)
+			}
+		})
+	}
+}

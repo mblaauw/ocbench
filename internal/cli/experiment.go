@@ -74,12 +74,7 @@ func newExperimentRunCmd(d Deps) *cobra.Command {
 				if injected != nil {
 					return injected
 				}
-				// The overlay environment reaches the child through the
-				// runner's ExtraEnv; the adapter's own Env is never used on
-				// this path, so it is left at its default.
-				return opencode.NewReal(opencode.Options{
-					Bin: resolved.Config.OpenCodeBin,
-				})
+				return armAdapter(resolved, arm)
 			}
 			return runExperiment(cmd, resolved, adapterFor, opts, args)
 		},
@@ -429,6 +424,22 @@ func experimentValidationList(rows []store.ValidationRow) []experimentJSONLValid
 		out = append(out, experimentJSONLValidation{Seq: v.Seq, Kind: v.Kind, Name: v.Name, Status: v.Status})
 	}
 	return out
+}
+
+// armAdapter builds the OpenCode adapter for one arm. The arm's overlay
+// environment belongs on the adapter, not only on the benchmarked child: the
+// experiment library uses this adapter for the arm's profile discovery, so an
+// adapter built without the overlay fingerprints every arm as the same
+// configuration.
+func armAdapter(d Deps, arm experiment.ArmSpec) opencode.Adapter {
+	return opencode.NewReal(opencode.Options{
+		Bin: d.Config.OpenCodeBin,
+		// The overlay is needed twice over: profile discovery runs through
+		// this adapter, and the benchmarked child gets the same variables
+		// from the runner's ExtraEnv. Setting them here is what makes each
+		// arm's recorded profile its own.
+		Env: append(os.Environ(), arm.Overlay.Env...),
+	})
 }
 
 // runExperiment is the `experiment run` pipeline: parse and validate the arms,
