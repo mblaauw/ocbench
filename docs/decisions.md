@@ -281,6 +281,15 @@ reasoning and what it costs if the call was wrong. The design itself is
   that experiment. Without it, Architecture explains configuration but makes no
   efficiency claim. *Cost if wrong:* an exploratory run is less convenient to
   inspect, but independent historical runs cannot masquerade as a comparison.
+- **`web/static/site.css` is the design of record, and Direction C is canonical.**
+  JetBrains Mono throughout, zero corner radius, a dark default plus one light
+  token set, and the shared `.tag`/`.good`/`.warn` vocabulary. The served
+  prototype is a sketch of an earlier direction: it names a different typeface
+  (IBM Plex), a blue accent and 6px radii. A template that needs a chip uses
+  `.tag`, never a new class, so a stylesheet and its templates cannot drift
+  apart silently the way an unstyled `.badge` did. *Cost if wrong:* the
+  prototype is no longer a rendering target, so visual changes are argued from
+  the stylesheet instead of a clickable mock-up.
 - **An arm's overlay reaches both the profile and the child.** Every arm gets its
   own adapter carrying `OPENCODE_CONFIG`/`OPENCODE_CONFIG_DIR`, so discovery
   fingerprints the arm's real configuration, and the runner passes the same

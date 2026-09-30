@@ -101,7 +101,7 @@ h3 { font-size: 13px; }
   width: 22px; height: 22px; background: var(--accent);
   display: grid; place-items: center;
 }
-.brand .mark div { width: 8px; height: 8px; background: var(--panel); }
+.brand .mark > span { width: 8px; height: 8px; background: var(--panel); }
 .brand .name { font-weight: 600; font-size: 15px; line-height: 1.1; }
 .brand .tag { font-size: 11px; color: var(--ink3); }
 
@@ -249,11 +249,6 @@ h3 { font-size: 13px; }
 
 /* --------------------------------------------------------- tables, tags */
 
-.table { width: 100%; border-collapse: collapse; }
-.table th, .table td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; }
-.table th { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink3); font-weight: 500; }
-.table tr:last-child td { border-bottom: 0; }
-
 .tag {
   display: inline-block; font-size: 10px; letter-spacing: 0.04em;
   text-transform: uppercase; padding: 2px 6px; border: 1px solid var(--line);
@@ -388,9 +383,6 @@ details.detail[open] summary { margin-bottom: 10px; }
 .tag.off { color: var(--ink3); border-color: var(--line); }
 .sign { color: var(--ink2); font-weight: 600; }
 .runs td.name { color: var(--ink); }
-
-/* A sample too thin to rank: dimmed so a score is not read as evidence. */
-.runs .thin, table .thin { color: var(--ink3); }
 
 /* A metric the provider does not report is stated, not rendered as a zero. */
 .aside-note { padding: 8px 18px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--ink3); }

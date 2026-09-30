@@ -1,13 +1,13 @@
 {{define "content"}}
 <section class="card">
-  <header><div><h2>{{.Name}}</h2><span class="muted">{{.ID}} · {{.CreatedAt}}</span></div><span class="badge {{if eq .Status "eligible"}}pass{{else}}warn{{end}}">{{.Status}}</span></header>
-  <div class="verdict {{if eq .Status "eligible"}}good{{else}}warn{{end}}"><span class="head">{{.Gate}}</span><span class="body">Runner environments: {{.Environments}}. Wall-clock time is diagnostic and is not ranked across environments.</span></div>
+  <header><div><h2>{{.Name}}</h2><span class="muted">{{.ID}} · {{.CreatedAt}}</span></div><span class="tag {{if eq .Status "eligible"}}good{{else}}warn{{end}}">{{.Status}}</span></header>
+  <div class="verdict {{if eq .Status "eligible"}}good{{else}}warn{{end}}"><span class="head">{{.Gate}}</span><span>Runner environments: {{.Environments}}. Wall-clock time is diagnostic and is not ranked across environments.</span></div>
 </section>
 <section class="card">
   <header><div><h2>Efficiency standing</h2><span class="muted">Cost is ranked only after every task validates successfully at three or more repeats.</span></div></header>
   <table class="board">
     <thead><tr><th>Configuration</th><th>Profile</th><th>Tasks</th><th>Min N</th><th>Pass</th><th>Cost / solved</th><th>Median tokens</th><th>Runner environments</th><th>Status</th></tr></thead>
-    <tbody>{{range .Arms}}<tr><td>{{.Label}}</td><td><a class="hash" href="/arch/{{.ProfileHash}}">{{.ProfileHash}}</a></td><td>{{.Tasks}}</td><td>{{.MinRepeats}}</td><td>{{.Pass}}</td><td>{{.Cost}}</td><td>{{.Tokens}}</td><td>{{.Environments}}</td><td><span class="badge {{if eq .Status "eligible"}}pass{{else}}warn{{end}}">{{.Status}}</span></td></tr>{{end}}</tbody>
+    <tbody>{{range .Arms}}<tr><td>{{.Label}}</td><td><a class="hash" href="/arch/{{.ProfileHash}}">{{.ProfileHash}}</a></td><td>{{.Tasks}}</td><td>{{.MinRepeats}}</td><td>{{.Pass}}</td><td>{{.Cost}}</td><td>{{.Tokens}}</td><td>{{.Environments}}</td><td><span class="tag {{if eq .Status "eligible"}}good{{else}}warn{{end}}">{{.Status}}</span></td></tr>{{end}}</tbody>
   </table>
 </section>
 {{if .Warnings}}<section class="card"><h2>Compatibility warnings</h2><ul>{{range .Warnings}}<li>{{.}}</li>{{end}}</ul></section>{{end}}

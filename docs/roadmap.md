@@ -84,8 +84,11 @@ credit) is in place, but the fixtures are still small and mostly single-file.
 
 The dashboard answers one question — *which configuration delivers the same
 validated work for fewer tokens and less cost?* — from the stored runs, without
-a live probe of the machine it renders on. Direction C of the prototype:
-JetBrains Mono throughout, zero corner radius, dark only.
+a live probe of the machine it renders on. Design direction C: JetBrains Mono
+throughout, zero corner radius, a dark default with one light token set behind
+the header toggle. `web/static/site.css` is the design of record; the served
+prototype is an earlier sketch (IBM Plex, blue accent, 6px radii) and is kept
+for reference only.
 
 The landing page became cohort-first in `de55a8d`: only a controlled experiment
 ranks cost efficiency. Exploratory history moved to `/overview` and makes no
