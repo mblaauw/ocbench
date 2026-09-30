@@ -53,11 +53,7 @@
           if (rightMissing) return -1;
           return ascending ? left - right : right - left;
         });
-        rows.forEach((row, index) => {
-          const rank = row.querySelector(".rank");
-          if (rank) rank.textContent = String(index + 1);
-          body.append(row);
-        });
+        rows.forEach((row) => body.append(row));
       });
     });
   });

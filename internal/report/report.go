@@ -35,8 +35,8 @@ func Markdown(summary experiment.CohortSummary) []byte {
 			tokens = fmt.Sprintf("%.0f", arm.MedianTokens)
 		}
 		fmt.Fprintf(&out, "| %s | %s | %d | %d | %.0f%% | %s | %s | %s | %s |\n",
-			markdownCell(arm.Label), markdownCode(arm.ProfileHash), arm.TaskCount, arm.MinRepeats,
-			arm.PassRate*100, cost, tokens, markdownCell(orUnknown(arm.RunnerEnvironments)), yesNo(arm.Eligible))
+			markdownText(arm.Label), markdownCode(arm.ProfileHash), arm.TaskCount, arm.MinRepeats,
+			arm.PassRate*100, cost, tokens, markdownText(orUnknown(arm.RunnerEnvironments)), yesNo(arm.Eligible))
 	}
 	if len(summary.DriftWarnings) > 0 {
 		fmt.Fprintln(&out)
@@ -99,8 +99,6 @@ func markdownCode(value string) string {
 	}
 	return fence + value + fence
 }
-
-func markdownCell(value string) string { return markdownText(value) }
 
 const reportHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

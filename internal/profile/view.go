@@ -3,6 +3,7 @@ package profile
 import (
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -292,7 +293,7 @@ func (v View) Summary() string {
 		parts = append(parts, model)
 	}
 	if n := len(v.Subagents()); n > 0 {
-		parts = append(parts, "+"+itoa(n)+" sub")
+		parts = append(parts, "+"+strconv.Itoa(n)+" sub")
 	}
 	return strings.Join(parts, " · ")
 }
@@ -304,20 +305,6 @@ func shortModel(model string) string {
 		return model[i+1:]
 	}
 	return model
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [8]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
 }
 
 func decodePrimary(data []byte) Primary {
@@ -343,7 +330,7 @@ func decodeAgent(name string, data []byte) (Agent, bool) {
 		Native      bool            `json:"native"`
 		PromptSHA   string          `json:"prompt_sha256"`
 		Tools       map[string]bool `json:"tools"`
-		Descripion  string          `json:"description"`
+		Description string          `json:"description"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return Agent{}, false
@@ -352,7 +339,7 @@ func decodeAgent(name string, data []byte) (Agent, bool) {
 		Name: name, Mode: raw.Mode, Model: raw.Model, Variant: raw.Variant,
 		TopP: raw.TopP, Temperature: raw.Temperature, Options: raw.Options,
 		Steps: raw.Steps, Native: raw.Native, PromptSHA: raw.PromptSHA,
-		Tools: raw.Tools, Description: raw.Descripion,
+		Tools: raw.Tools, Description: raw.Description,
 	}, true
 }
 

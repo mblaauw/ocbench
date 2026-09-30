@@ -227,40 +227,10 @@ type comparePage struct {
 // deliberately omits artifacts_dir, session_id, raw error internals and any
 // file content.
 type runSummary struct {
-	ID           string
-	TaskID       string
-	TaskVersion  string
-	Status       string
-	DryRun       bool
-	StartedAt    string
-	FinishedAt   string
-	DurationMS   int64
-	SuiteName    string
-	SuiteVersion string
-	Model        string
-	Agent        string
-	ProfileHash  string
-	TokensTotal  float64
-	ToolCalls    float64
-	FilesChanged float64
-	DiffAdded    float64
-	DiffRemoved  float64
-}
-
-// metricView is one numeric metric.
-type metricView struct {
-	Name  string
-	Value float64
-}
-
-// validationView is one validation with its excerpt, never its full output.
-type validationView struct {
-	Kind          string
-	Name          string
-	Status        string
-	ExitCode      int
-	DurationMS    int64
-	OutputExcerpt string
+	ID          string
+	TaskID      string
+	Status      string
+	ProfileHash string
 }
 
 // componentView is the redacted summary of one profile component: kind, name
@@ -297,68 +267,14 @@ type changeView struct {
 	To     string
 }
 
-// newRunSummary projects a history detail onto the safe list/detail fields.
+// newRunSummary projects a history detail onto the safe comparison fields.
 func newRunSummary(detail history.RunDetail) runSummary {
 	return runSummary{
-		ID:           detail.Run.ID,
-		TaskID:       detail.Run.TaskID,
-		TaskVersion:  detail.Run.TaskVersion,
-		Status:       detail.Run.Status,
-		DryRun:       detail.Run.DryRun,
-		StartedAt:    detail.Run.StartedAt,
-		FinishedAt:   detail.Run.FinishedAt,
-		DurationMS:   runDurationMS(detail.Run),
-		SuiteName:    detail.Run.SuiteName,
-		SuiteVersion: detail.Run.SuiteVersion,
-		Model:        detail.Run.Model,
-		Agent:        detail.Run.Agent,
-		ProfileHash:  detail.Run.ProfileHash,
-		TokensTotal:  detail.Metrics["tokens_total"],
-		ToolCalls:    detail.Metrics["tool_calls_total"],
-		FilesChanged: detail.Metrics["files_changed"],
-		DiffAdded:    detail.Metrics["diff_lines_added"],
-		DiffRemoved:  detail.Metrics["diff_lines_removed"],
+		ID:          detail.Run.ID,
+		TaskID:      detail.Run.TaskID,
+		Status:      detail.Run.Status,
+		ProfileHash: detail.Run.ProfileHash,
 	}
-}
-
-// runDurationMS dereferences the optional run duration, treating unset as zero.
-func runDurationMS(r store.RunRow) int64 {
-	if r.DurationMS == nil {
-		return 0
-	}
-	return *r.DurationMS
-}
-
-// metricViews flattens a run's numeric metrics into a name-sorted slice so the
-// rendered table is deterministic.
-func metricViews(metrics map[string]float64) []metricView {
-	names := make([]string, 0, len(metrics))
-	for name := range metrics {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	out := make([]metricView, 0, len(names))
-	for _, name := range names {
-		out = append(out, metricView{Name: name, Value: metrics[name]})
-	}
-	return out
-}
-
-// validationViews projects validations onto the excerpt-only view.
-func validationViews(vals []store.ValidationRow) []validationView {
-	out := make([]validationView, 0, len(vals))
-	for _, v := range vals {
-		out = append(out, validationView{
-			Kind:          v.Kind,
-			Name:          v.Name,
-			Status:        v.Status,
-			ExitCode:      v.ExitCode,
-			DurationMS:    v.DurationMS,
-			OutputExcerpt: v.OutputExcerpt,
-		})
-	}
-	return out
 }
 
 // componentRowViews projects store component rows onto their redacted summary.

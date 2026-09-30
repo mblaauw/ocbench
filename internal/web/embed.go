@@ -12,7 +12,7 @@ import (
 // can never collide with another page's.
 const baseTemplate = "templates/base.html"
 
-// overviewTmpl renders the profile leaderboard at `/`.
+// overviewTmpl renders exploratory profile history at `/overview`.
 var overviewTmpl = mustParsePage("templates/overview.html")
 
 // listTmpl renders the `/runs` listing.
@@ -28,9 +28,9 @@ var (
 	cohortTmpl  = mustParsePage("templates/cohort.html")
 )
 
-// runTmpl, compareTmpl and profileTmpl render the detail views that the
-// dashboard routes task wires up. Parsing them here means a malformed template
-// fails at startup rather than per request.
+// compareTmpl, profileTmpl and profilesTmpl render the detail views the
+// dashboard routes wire up. Parsing them here means a malformed template fails
+// at startup rather than per request.
 var (
 	compareTmpl  = mustParsePage("templates/compare.html")
 	profileTmpl  = mustParsePage("templates/profile.html")

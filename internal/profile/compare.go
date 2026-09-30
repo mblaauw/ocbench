@@ -109,7 +109,7 @@ func describeChange(refView, subView View, kind, name string) string {
 			pairChange("model", shortModel(ref.Model), shortModel(sub.Model)),
 			pairChange("variant", ref.Variant, sub.Variant),
 			pairChange("mode", ref.Mode, sub.Mode),
-			pairChange("steps", itoa(ref.Steps), itoa(sub.Steps)),
+			pairChange("steps", strconv.Itoa(ref.Steps), strconv.Itoa(sub.Steps)),
 			toolsChange(ref.Tools, sub.Tools),
 		)
 	case "permissions":

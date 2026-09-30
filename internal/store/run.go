@@ -492,34 +492,6 @@ func (s *Store) ListRuns(ctx context.Context, limit int, taskID string) ([]RunRo
 	return out, nil
 }
 
-// ListRunsByProfile returns the runs recorded against one profile hash, newest
-// first. It is the read the architecture summary needs, so it does not hydrate
-// unrelated profiles or validations.
-func (s *Store) ListRunsByProfile(ctx context.Context, profileHash string) ([]RunRow, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+runColumns+`
-		FROM runs
-		WHERE profile_hash = ?
-		ORDER BY started_at DESC, id DESC`, profileHash)
-	if err != nil {
-		return nil, fmt.Errorf("list runs by profile: %w", err)
-	}
-	defer rows.Close()
-
-	var out []RunRow
-	for rows.Next() {
-		row, err := scanRunRow(rows)
-		if err != nil {
-			return nil, fmt.Errorf("scan run: %w", err)
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list runs by profile: %w", err)
-	}
-	return out, nil
-}
-
 // ListExperiments returns experiments ordered newest first (created_at, then
 // id). A limit <= 0 returns every experiment; a positive limit is applied as
 // SQL LIMIT.

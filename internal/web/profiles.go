@@ -113,7 +113,6 @@ type profilePageView struct {
 	layout
 	Hash           string
 	ShortHash      string
-	OpenCode       string
 	Summary        string
 	ComponentCount int
 	RunCount       int
@@ -125,7 +124,6 @@ type profilePageView struct {
 	Primary   *agentRow
 	Agents    []agentRow
 	Subagents []agentRow
-	Edges     []edgeRow
 	// Tree is the edges grouped by primary agent, which is how the prototype
 	// draws the delegation: a trunk per primary, a stub per subagent.
 	Tree         []treeGroup
@@ -135,15 +133,12 @@ type profilePageView struct {
 	Plugins      []string
 	Components   []componentView
 
-	// CapturesAvailable is false when no capture files exist for this profile,
-	// which is normal for a profile that only ever existed in the database.
-	CapturesAvailable bool
-	CaptureNote       string
+	// CaptureNote explains when capture files are missing or unreadable.
+	CaptureNote string
 
 	// Against is set when comparing this profile with another.
 	Against      string
 	AgainstShort string
-	AgainstHref  string
 	Changes      []changeNoteRow
 	CompareChips []filterChip
 	ProfileChips []filterChip
@@ -264,7 +259,6 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		layout:         h.page(r, "profiles", "Profiles", "Architecture", ""),
 		Hash:           row.ProfileHash,
 		ShortHash:      shortHash(row.ProfileHash),
-		OpenCode:       row.OpenCodeVersion,
 		Summary:        view.Summary(),
 		ComponentCount: len(p.Components),
 		Components:     componentRowViews(comps),
@@ -282,12 +276,9 @@ func (h *handler) handleProfile(w http.ResponseWriter, r *http.Request) {
 		page.CaptureNote = "capture files could not be read: " + err.Error()
 	} else if !set.Available {
 		page.CaptureNote = "No capture files for this profile, so prompt and instruction text is not shown."
-	} else {
-		page.CapturesAvailable = true
 	}
 	page.Primary, page.Agents, page.Subagents = agentRows(view, set)
-	page.Edges = edgeRows(view)
-	page.Tree = treeGroups(page.Edges)
+	page.Tree = treeGroups(edgeRows(view))
 	page.Instructions = instructionRows(view, set)
 	page.Skills = skillRows(view, set)
 	for _, m := range view.MCP {

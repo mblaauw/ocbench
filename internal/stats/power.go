@@ -107,27 +107,16 @@ func MDE(samples []float64, nPerArm int, power, alpha float64) (float64, bool) {
 	return z * sd * math.Sqrt(2/float64(nPerArm)), true
 }
 
-// RepeatsFor returns the repeats per arm needed to detect an absolute effect
-// given the spread observed in samples, rounding up to the next whole run.
+// RepeatsForSD returns the repeats per arm needed to detect an absolute effect
+// for an already-estimated standard deviation, rounding up to the next whole
+// run. Callers pass a pooled within-group spread rather than the concatenated
+// samples, because duplicating each group's deviations would inflate the
+// denominator without adding independent information.
 //
-// ok is false when the effect is not positive, when the spread cannot be
-// estimated, or when the observed spread is exactly zero. Zero observed spread
-// is not evidence that a metric is noiseless — it is the signature of a handful
-// of identical small samples — and sizing an experiment on it would promise a
-// detection that a second run can easily contradict.
-func RepeatsFor(samples []float64, effect, power, alpha float64) (int, bool) {
-	sd, ok := StdDev(samples)
-	if !ok {
-		return 0, false
-	}
-	return RepeatsForSD(sd, effect, power, alpha)
-}
-
-// RepeatsForSD is RepeatsFor for a caller that has already estimated the
-// standard deviation, which is what a pooled within-group spread is. Passing
-// the concatenated samples instead would understate the spread whenever more
-// than one group contributes, because duplicating each group's deviations
-// inflates the denominator without adding independent information.
+// ok is false when the effect is not positive or the spread is not. Zero
+// observed spread is not evidence that a metric is noiseless — it is the
+// signature of a handful of identical small samples — and sizing an experiment
+// on it would promise a detection that a second run can easily contradict.
 func RepeatsForSD(sd, effect, power, alpha float64) (int, bool) {
 	if effect <= 0 || sd <= 0 {
 		return 0, false

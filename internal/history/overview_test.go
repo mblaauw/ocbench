@@ -2,7 +2,6 @@ package history_test
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"mbl/ocbench/internal/history"
@@ -79,9 +78,6 @@ func TestOverviewRanksProfilesAndComputesIntervals(t *testing.T) {
 	}
 	if len(ov.Scatter) != 1 || ov.Scatter[0].Hash != "hash-a" {
 		t.Errorf("scatter = %+v, want only A", ov.Scatter)
-	}
-	if ov.Significance == nil {
-		t.Fatal("expected a leader-vs-runner-up comparison")
 	}
 }
 
@@ -185,9 +181,6 @@ func TestOverviewIsDeterministic(t *testing.T) {
 	if first.Profiles[0].ScoreCI != second.Profiles[0].ScoreCI {
 		t.Errorf("interval not deterministic: %v vs %v", first.Profiles[0].ScoreCI, second.Profiles[0].ScoreCI)
 	}
-	if first.Significance.P != second.Significance.P {
-		t.Errorf("significance not deterministic: %v vs %v", first.Significance.P, second.Significance.P)
-	}
 }
 
 func TestOverviewScopeFiltersSuites(t *testing.T) {
@@ -260,9 +253,6 @@ func TestOverviewListsProfilesWithoutRuns(t *testing.T) {
 	if ov.Profiles[1].Score != 0 {
 		t.Errorf("a profile with no runs must not be scored: %v", ov.Profiles[1].Score)
 	}
-	if ov.Significance != nil {
-		t.Error("no comparison is possible with a single scored profile")
-	}
 }
 
 func TestOverviewEmptyStore(t *testing.T) {
@@ -272,9 +262,6 @@ func TestOverviewEmptyStore(t *testing.T) {
 	}
 	if len(ov.Profiles) != 0 || len(ov.Suites) != 0 || len(ov.Scatter) != 0 {
 		t.Errorf("empty store produced %+v", ov)
-	}
-	if ov.Significance != nil {
-		t.Error("empty store should have no significance result")
 	}
 }
 
@@ -332,67 +319,6 @@ func TestOverviewReportsTaskCountAndDetectableEffect(t *testing.T) {
 	// smaller.
 	if p.ScoreMDE < 0.47 || p.ScoreMDE > 0.48 {
 		t.Errorf("ScoreMDE = %v, want ~0.474 for this spread over four tasks", p.ScoreMDE)
-	}
-}
-
-// With one task scored per profile no permutation can reach significance, and
-// the report must say the evidence is insufficient rather than name a leader.
-func TestOverviewRefusesToRankFromASingleTaskEach(t *testing.T) {
-	st := testStore(t)
-	seedSuiteTask(t, st)
-	seedProfile(t, st, "p1", "hash-a", components("h1"))
-	seedProfile(t, st, "p2", "hash-b", components("h2"))
-	seedScoredRun(t, st, "r1", "2026-03-01T10:00:00Z", "p1", "hash-a", suiteName, "task-one", 1.0, 1, 1000, 0.10)
-	seedScoredRun(t, st, "r2", "2026-03-01T10:01:00Z", "p2", "hash-b", suiteName, "task-two", 0.0, 0, 1000, 0.10)
-
-	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
-	if err != nil {
-		t.Fatalf("Overview: %v", err)
-	}
-	if ov.Significance == nil {
-		t.Fatal("no significance block")
-	}
-	if ov.Significance.Distinguishable {
-		t.Errorf("claimed a distinguishable lead from one task each: %+v", ov.Significance)
-	}
-	if !strings.Contains(ov.Significance.Note, "too little evidence") {
-		t.Errorf("note = %q, want it to state the evidence is insufficient", ov.Significance.Note)
-	}
-}
-
-// A lead smaller than the detectable effect is not evidence, even when the
-// permutation p-value happens to fall below the threshold.
-func TestOverviewGatesOnTheDetectableEffectNotJustThePValue(t *testing.T) {
-	st := testStore(t)
-	seedSuiteTask(t, st)
-	seedProfile(t, st, "p1", "hash-a", components("h1"))
-	seedProfile(t, st, "p2", "hash-b", components("h2"))
-
-	// Two profiles whose task scores are tightly clustered, so the detectable
-	// effect is small, but whose means differ by a hair.
-	for i, id := range []string{"a1", "a2", "a3", "a4"} {
-		seedScoredRun(t, st, id, "2026-03-01T10:0"+string(rune('0'+i))+":00Z",
-			"p1", "hash-a", suiteName, "task-"+string(rune('a'+i)), 1.0, 1, 1000, 0.10)
-	}
-	for i, id := range []string{"b1", "b2", "b3", "b4"} {
-		seedScoredRun(t, st, id, "2026-03-01T11:0"+string(rune('0'+i))+":00Z",
-			"p2", "hash-b", suiteName, "task-"+string(rune('a'+i)), 0.99, 1, 1000, 0.10)
-	}
-
-	ov, err := history.Overview(context.Background(), st, history.ScopeAll)
-	if err != nil {
-		t.Fatalf("Overview: %v", err)
-	}
-	if ov.Significance == nil {
-		t.Fatal("no significance block")
-	}
-	// The gap is 0.01; the spread is tiny, so the gate is what decides. Either
-	// way the reported gap and MDE must be consistent with the verdict.
-	if ov.Significance.Distinguishable && ov.Significance.Gap <= ov.Significance.MDE {
-		t.Errorf("called a %v gap distinguishable with MDE %v", ov.Significance.Gap, ov.Significance.MDE)
-	}
-	if !ov.Significance.Distinguishable && !strings.Contains(ov.Significance.Note, "no detectable difference") {
-		t.Errorf("note = %q", ov.Significance.Note)
 	}
 }
 

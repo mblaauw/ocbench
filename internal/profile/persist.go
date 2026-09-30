@@ -76,8 +76,8 @@ func Persist(ctx context.Context, st *store.Store, paths config.Paths, p *Profil
 	return created, nil
 }
 
-// Latest returns the most recent persisted profile.
-func Latest(ctx context.Context, st *store.Store) (*Profile, error) {
+// latest returns the most recent persisted profile.
+func latest(ctx context.Context, st *store.Store) (*Profile, error) {
 	if st == nil {
 		return nil, errors.New("latest: nil store")
 	}

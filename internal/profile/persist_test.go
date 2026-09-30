@@ -137,7 +137,7 @@ func TestPersistLatestRoundTrip(t *testing.T) {
 	if _, err := Persist(ctx, st, paths, p); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Latest(ctx, st)
+	got, err := latest(ctx, st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestPersistDoesNotOverwriteCapturesForLoadedProfile(t *testing.T) {
 	if err := os.WriteFile(skillsPath, []byte("sentinel"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := Latest(ctx, st)
+	loaded, err := latest(ctx, st)
 	if err != nil {
 		t.Fatal(err)
 	}

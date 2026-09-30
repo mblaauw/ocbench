@@ -72,41 +72,50 @@ func TestMDEAtObservedSpread(t *testing.T) {
 	}
 }
 
-func TestRepeatsForInvertsMDE(t *testing.T) {
+func TestRepeatsForSDInvertsMDE(t *testing.T) {
 	samples := []float64{90, 100, 110} // mean 100, SD 10
-	// A 10% effect on a mean of 100 is 10 absolute.
-	n, ok := RepeatsFor(samples, 10, DefaultPower, DefaultAlpha)
+	sd, ok := StdDev(samples)
 	if !ok {
-		t.Fatal("RepeatsFor reported no estimate")
+		t.Fatal("StdDev reported no estimate")
+	}
+	// A 10% effect on a mean of 100 is 10 absolute.
+	n, ok := RepeatsForSD(sd, 10, DefaultPower, DefaultAlpha)
+	if !ok {
+		t.Fatal("RepeatsForSD reported no estimate")
 	}
 	// 2*(2.8016*10/10)^2 = 15.7, rounded up.
 	if n != 16 {
-		t.Errorf("RepeatsFor(10%% effect) = %d, want 16", n)
+		t.Errorf("RepeatsForSD(10%% effect) = %d, want 16", n)
 	}
 
 	// Detecting a smaller effect needs more repeats, monotonically.
-	smaller, _ := RepeatsFor(samples, 5, DefaultPower, DefaultAlpha)
+	smaller, _ := RepeatsForSD(sd, 5, DefaultPower, DefaultAlpha)
 	if smaller <= n {
 		t.Errorf("a 5%% effect needs %d repeats, want more than %d", smaller, n)
 	}
 
 	// A zero or negative effect is not detectable at any sample size.
-	if _, ok := RepeatsFor(samples, 0, DefaultPower, DefaultAlpha); ok {
-		t.Error("RepeatsFor accepted a zero effect")
+	if _, ok := RepeatsForSD(sd, 0, DefaultPower, DefaultAlpha); ok {
+		t.Error("RepeatsForSD accepted a zero effect")
 	}
-	if _, ok := RepeatsFor([]float64{1}, 10, DefaultPower, DefaultAlpha); ok {
-		t.Error("RepeatsFor claimed an estimate from one observation")
+	// A single observation has no spread estimate to size an experiment on.
+	if _, ok := StdDev([]float64{1}); ok {
+		t.Error("StdDev claimed an estimate from one observation")
 	}
 }
 
-// The two helpers must agree: the repeats RepeatsFor asks for must be enough
+// The two helpers must agree: the repeats RepeatsForSD asks for must be enough
 // for MDE to report the effect back.
 func TestMDEAndRepeatsAgree(t *testing.T) {
 	samples := []float64{88, 97, 103, 112}
 	const effect = 12
-	n, ok := RepeatsFor(samples, effect, DefaultPower, DefaultAlpha)
+	sd, ok := StdDev(samples)
 	if !ok {
-		t.Fatal("RepeatsFor reported no estimate")
+		t.Fatal("StdDev reported no estimate")
+	}
+	n, ok := RepeatsForSD(sd, effect, DefaultPower, DefaultAlpha)
+	if !ok {
+		t.Fatal("RepeatsForSD reported no estimate")
 	}
 	mde, ok := MDE(samples, n, DefaultPower, DefaultAlpha)
 	if !ok {
@@ -115,7 +124,7 @@ func TestMDEAndRepeatsAgree(t *testing.T) {
 	if mde > effect+1e-9 {
 		t.Errorf("MDE at the requested %d repeats = %v, want at most %v", n, mde, effect)
 	}
-	// One fewer repeat must fall short, or RepeatsFor is overstating the need.
+	// One fewer repeat must fall short, or RepeatsForSD is overstating the need.
 	if mdeBefore, _ := MDE(samples, n-1, DefaultPower, DefaultAlpha); mdeBefore <= effect {
 		t.Errorf("MDE at %d repeats = %v, want more than %v", n-1, mdeBefore, effect)
 	}

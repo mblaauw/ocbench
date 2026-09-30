@@ -32,8 +32,8 @@ const (
 // value always means "the comparison arm is worse"; P is the two-sided
 // permutation p-value. BaselineValue and ArmValue are the statistics that were
 // permuted, so the regression gate is applied to the same values the test
-// measured. Applicable is false when there are no comparable samples, in which
-// case the other fields are meaningless.
+// measured. Applicable is false when there are no comparable samples; the
+// remaining fields are then not evidence and must not be read.
 type StatTest struct {
 	Observed      float64
 	P             float64
@@ -95,11 +95,6 @@ type armTaskAgg struct {
 	costs      []float64
 	durations  []float64
 }
-
-// taskWeight returns the pooled-pass-rate weight of a task. Every task weighs 1
-// in this slice; the indirection exists so a later slice can return per-task
-// weights without changing the decision call sites.
-func taskWeight(string) float64 { return 1 }
 
 // Summarize reads an experiment's arms, runs, metrics and validations and
 // derives the per-task and per-arm statistics, the drift guard, the
@@ -411,9 +406,8 @@ func passRateSample(tasks []TaskSummary, label string) []float64 {
 		if !ok {
 			continue
 		}
-		w := taskWeight(ts.TaskID)
 		for i := 0; i < st.Successes; i++ {
-			out = append(out, w)
+			out = append(out, 1)
 		}
 		for i := 0; i < st.Executions-st.Successes; i++ {
 			out = append(out, 0)

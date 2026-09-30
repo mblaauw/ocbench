@@ -91,27 +91,12 @@ type ScatterPoint struct {
 	CostPerSolved float64
 }
 
-// Significance reports whether the leader's lead is distinguishable from noise.
-type Significance struct {
-	P               float64
-	Distinguishable bool
-	Note            string
-	// Gap is the leader's score advantage, MDE the smallest advantage this many
-	// tasks could have detected. A lead smaller than MDE is not evidence, even
-	// when a p-value happens to fall below the threshold.
-	Gap      float64
-	MDE      float64
-	TasksMax int
-}
-
 // OverviewReport is everything the dashboard's front page renders.
 type OverviewReport struct {
 	Scope        string
 	Profiles     []ProfileScore
 	Suites       []string
 	Scatter      []ScatterPoint
-	HeroDiff     []profile.ChangeNote
-	Significance *Significance
 	ExcludedRuns int
 	TotalRuns    int
 	LastRun      time.Time
@@ -202,7 +187,6 @@ func Overview(ctx context.Context, st *store.Store, scope string) (OverviewRepor
 		}
 	}
 
-	overview.finish(ctx, st)
 	return overview, nil
 }
 
@@ -217,62 +201,6 @@ func ProfileScoreForRuns(ctx context.Context, st *store.Store, profileHash strin
 		}
 	}
 	return scoreProfile(ctx, st, profileHash, selected)
-}
-
-// finish adds the leader-vs-runner-up comparison, which needs both profiles.
-func (o *OverviewReport) finish(ctx context.Context, st *store.Store) {
-	if len(o.Profiles) < 2 {
-		return
-	}
-	leader, runnerUp := o.Profiles[0], o.Profiles[1]
-	if !leader.HasRuns || !runnerUp.HasRuns {
-		return // nothing to compare yet
-	}
-
-	leaderProfile, err := loadProfile(ctx, st, leader.Hash)
-	if err != nil {
-		return
-	}
-	runnerUpProfile, err := loadProfile(ctx, st, runnerUp.Hash)
-	if err != nil {
-		return
-	}
-	o.HeroDiff = profile.DiffNotes(runnerUpProfile, leaderProfile)
-
-	p := stats.PermutationP(taskScores(leader), taskScores(runnerUp), ciSeed, ciIters)
-	gap := leader.Score - runnerUp.Score
-	// The comparison is only as sharp as its least-measured arm, so the larger
-	// of the two detectable effects is the one that applies.
-	mde := leader.ScoreMDE
-	if runnerUp.ScoreMDE > mde {
-		mde = runnerUp.ScoreMDE
-	}
-	tasksMax := leader.TaskCount
-	if runnerUp.TaskCount > tasksMax {
-		tasksMax = runnerUp.TaskCount
-	}
-	sig := &Significance{P: p, Gap: gap, MDE: mde, TasksMax: tasksMax}
-	// A p-value below the threshold is not enough on its own: a lead smaller
-	// than the smallest effect the data could detect is not evidence, and at
-	// two tasks per arm no permutation can reach significance anyway.
-	switch {
-	case tasksMax < 2:
-		sig.Note = fmt.Sprintf("too little evidence to compare %s and %s: at most %d task(s) scored, "+
-			"so no difference is distinguishable from noise", leader.Label, runnerUp.Label, tasksMax)
-	case mde == 0:
-		// The task scores did not vary, so there is no spread to size an
-		// experiment against. That is not the same as a measurable lead.
-		sig.Note = fmt.Sprintf("no detectable difference between %s and %s: the task scores did not "+
-			"vary, so no effect size can be estimated from them", leader.Label, runnerUp.Label)
-	case gap > mde:
-		sig.Distinguishable = true
-		sig.Note = fmt.Sprintf("%s leads %s by %.2f, beyond the %.2f these %d tasks could detect (p=%.3f)",
-			leader.Label, runnerUp.Label, gap, mde, tasksMax, p)
-	default:
-		sig.Note = fmt.Sprintf("no detectable difference between %s and %s: the %.2f gap is within the "+
-			"%.2f these %d tasks could resolve (p=%.2f)", leader.Label, runnerUp.Label, gap, mde, tasksMax, p)
-	}
-	o.Significance = sig
 }
 
 // scoreProfile aggregates one profile's runs into a score, an interval, a pass
@@ -494,14 +422,6 @@ func metricValues(metrics []store.MetricRow) map[string]float64 {
 		if m.ValueNum != nil {
 			out[m.Name] = *m.ValueNum
 		}
-	}
-	return out
-}
-
-func taskScores(p ProfileScore) []float64 {
-	out := make([]float64, 0, len(p.Tasks))
-	for _, t := range p.Tasks {
-		out = append(out, t.Score)
 	}
 	return out
 }

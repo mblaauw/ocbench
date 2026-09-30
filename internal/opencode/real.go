@@ -40,12 +40,6 @@ func NewReal(opts Options) *Real {
 	return &Real{opts: opts}
 }
 
-// Run executes the binary with args and returns captured stdout and stderr. It
-// is exported for testing and doctor diagnostics.
-func (r *Real) Run(ctx context.Context, args ...string) (stdout, stderr []byte, err error) {
-	return r.run(ctx, "", args...)
-}
-
 // Start begins one streaming `opencode run` invocation. The child's stdout and
 // stderr are redirected to temp files (never pipes; Bun truncates piped output
 // at 64 KiB) and a tailer goroutine emits stdout JSONL lines on the returned
@@ -234,7 +228,7 @@ func (e *ExitError) Error() string {
 
 // Version runs `opencode --version`.
 func (r *Real) Version(ctx context.Context) (string, error) {
-	out, _, err := r.Run(ctx, "--version")
+	out, _, err := r.run(ctx, "", "--version")
 	if err != nil {
 		return "", err
 	}

@@ -41,9 +41,10 @@ type CohortSummary struct {
 }
 
 // SummarizeCohort derives the portable standing for an experiment. Every arm
-// must have at least three successful executions per selected task before the
-// cohort can rank configurations by cost. This prevents a cheap failure or a
-// single lucky run from appearing efficient.
+// must have at least three executions per selected task, and every one of those
+// executions must pass deterministic validation, before the cohort can rank
+// configurations by cost. This prevents a cheap failure or a single lucky run
+// from appearing efficient.
 func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) (CohortSummary, error) {
 	summary, err := Summarize(ctx, st, experimentID, "")
 	if err != nil {
