@@ -281,6 +281,14 @@ reasoning and what it costs if the call was wrong. The design itself is
   that experiment. Without it, Architecture explains configuration but makes no
   efficiency claim. *Cost if wrong:* an exploratory run is less convenient to
   inspect, but independent historical runs cannot masquerade as a comparison.
+- **A cohort report must say what changed, not only which hash won.** Every
+  non-baseline arm carries the configuration differences from the baseline
+  (`profile.DiffNotes`), in both the portable report and the cohort page, so a
+  reader who was not in the experiment learns *what* to copy — e.g. "the
+  delegated arm cost 3× and added a reviewer subagent". A hash alone is
+  unactionable. When a profile cannot be read the arm says so rather than
+  implying the arms are identical. *Cost if wrong:* the summary now loads two
+  profiles per experiment, and a report on a large cohort carries more text.
 - **One definition of a solved run, and one definition of "worked differently".**
   `store.RunSucceeded` is the only place that decides a run solved its task (the
   success metric at half credit or better, else the run's own status), and the
