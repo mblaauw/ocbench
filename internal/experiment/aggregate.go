@@ -49,6 +49,8 @@ type ArmTaskStats struct {
 	PassRate, WilsonLo, WilsonHi float64
 	PassAtK, PassAllK            bool
 	MedianTokens                 float64
+	MeanScore                    float64
+	HasScoreMetrics              bool
 	HasTokenMetrics              bool
 	MedianCost, MedianDurationMS float64
 }
@@ -94,6 +96,8 @@ type armTaskAgg struct {
 	tokens     []float64
 	costs      []float64
 	durations  []float64
+	scoreSum   float64
+	scoreRuns  int
 }
 
 // Summarize reads an experiment's arms, runs, metrics and validations and
@@ -172,6 +176,13 @@ func Summarize(ctx context.Context, st *store.Store, experimentID, baseline stri
 		duration, _ := metricValue(metrics, "duration_ms")
 		if hasTokens {
 			agg.tokens = append(agg.tokens, tokens)
+		}
+		// The graded score is accumulated when present; HasScoreMetrics then
+		// says whether every execution recorded one, so a partial score is
+		// reported as unavailable rather than averaged.
+		if score, hasScore := metricValue(metrics, "score"); hasScore {
+			agg.scoreSum += score
+			agg.scoreRuns++
 		}
 		if hasCost {
 			agg.costs = append(agg.costs, cost)
@@ -385,6 +396,8 @@ func summarizeArmTask(agg *armTaskAgg) ArmTaskStats {
 		PassAtK:          stats.PassAtK(outcomes) == 1,
 		PassAllK:         stats.PassAllK(outcomes) == 1,
 		MedianTokens:     stats.Median(agg.tokens),
+		MeanScore:        agg.scoreSum / float64(max(agg.scoreRuns, 1)),
+		HasScoreMetrics:  agg.scoreRuns == agg.executions,
 		HasTokenMetrics:  len(agg.tokens) == agg.executions,
 		MedianCost:       stats.Median(agg.costs),
 		MedianDurationMS: stats.Median(agg.durations),

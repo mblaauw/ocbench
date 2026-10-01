@@ -23,8 +23,8 @@ func Markdown(summary experiment.CohortSummary) []byte {
 	fmt.Fprintf(&out, "- **Evidence:** %s\n", markdownText(summary.Gate))
 	fmt.Fprintf(&out, "- **Runner environments:** %s\n", markdownText(orUnknown(summary.RunnerEnvironments)))
 	fmt.Fprintln(&out)
-	fmt.Fprintln(&out, "| Configuration | Profile | Tasks | Minimum repeats | Pass | Cost / solved | Median tokens | Environments | Eligible |")
-	fmt.Fprintln(&out, "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |")
+	fmt.Fprintln(&out, "| Configuration | Profile | Tasks | Minimum repeats | Pass | Score | Cost / solved | Median tokens | Environments | Eligible |")
+	fmt.Fprintln(&out, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |")
 	for _, arm := range summary.Arms {
 		cost := "—"
 		if arm.CostPerSolvedOK {
@@ -34,9 +34,13 @@ func Markdown(summary experiment.CohortSummary) []byte {
 		if arm.MedianTokensOK {
 			tokens = fmt.Sprintf("%.0f", arm.MedianTokens)
 		}
-		fmt.Fprintf(&out, "| %s | %s | %d | %d | %.0f%% | %s | %s | %s | %s |\n",
+		score := "—"
+		if arm.ScoreOK {
+			score = fmt.Sprintf("%.2f", arm.Score)
+		}
+		fmt.Fprintf(&out, "| %s | %s | %d | %d | %.0f%% | %s | %s | %s | %s | %s |\n",
 			markdownText(arm.Label), markdownCode(arm.ProfileHash), arm.TaskCount, arm.MinRepeats,
-			arm.PassRate*100, cost, tokens, markdownText(orUnknown(arm.RunnerEnvironments)), yesNo(arm.Eligible))
+			arm.PassRate*100, score, cost, tokens, markdownText(orUnknown(arm.RunnerEnvironments)), yesNo(arm.Eligible))
 	}
 	writeArchitectureChanges(&out, summary)
 	if len(summary.DriftWarnings) > 0 {
@@ -167,8 +171,8 @@ body{max-width:960px;margin:3rem auto;padding:0 1rem;background:#10110f;color:#e
 <p class="muted">Experiment <code>{{.Summary.Experiment.ID}}</code> · {{.Summary.Experiment.CreatedAt}}</p>
 <p>{{.Summary.Experiment.Name}}</p>
 <div class="gate"><strong>Evidence:</strong> {{.Summary.Gate}}<br><strong>Runner environments:</strong> {{.Environments}}</div>
-<table><thead><tr><th>Configuration</th><th>Profile</th><th>Tasks</th><th>Min repeats</th><th>Pass</th><th>Cost / solved</th><th>Median tokens</th><th>Environments</th><th>Eligible</th></tr></thead><tbody>
-{{range .Summary.Arms}}<tr><td>{{.Label}}</td><td><code>{{.ProfileHash}}</code></td><td>{{.TaskCount}}</td><td>{{.MinRepeats}}</td><td>{{printf "%.0f%%" (mul100 .PassRate)}}</td><td>{{if .CostPerSolvedOK}}{{printf "$%.6f" .CostPerSolved}}{{else}}—{{end}}</td><td>{{if .MedianTokensOK}}{{printf "%.0f" .MedianTokens}}{{else}}—{{end}}</td><td>{{join .RunnerEnvironments}}</td><td class="{{if .Eligible}}yes{{else}}no{{end}}">{{if .Eligible}}yes{{else}}no{{end}}</td></tr>{{end}}
+<table><thead><tr><th>Configuration</th><th>Profile</th><th>Tasks</th><th>Min repeats</th><th>Pass</th><th>Score</th><th>Cost / solved</th><th>Median tokens</th><th>Environments</th><th>Eligible</th></tr></thead><tbody>
+{{range .Summary.Arms}}<tr><td>{{.Label}}</td><td><code>{{.ProfileHash}}</code></td><td>{{.TaskCount}}</td><td>{{.MinRepeats}}</td><td>{{printf "%.0f%%" (mul100 .PassRate)}}</td><td>{{if .ScoreOK}}{{printf "%.2f" .Score}}{{else}}—{{end}}</td><td>{{if .CostPerSolvedOK}}{{printf "$%.6f" .CostPerSolved}}{{else}}—{{end}}</td><td>{{if .MedianTokensOK}}{{printf "%.0f" .MedianTokens}}{{else}}—{{end}}</td><td>{{join .RunnerEnvironments}}</td><td class="{{if .Eligible}}yes{{else}}no{{end}}">{{if .Eligible}}yes{{else}}no{{end}}</td></tr>{{end}}
 </tbody></table>{{if .HasChanges}}
 <h2>How each arm differs from <code>{{.Summary.Baseline}}</code></h2>
 {{$baseline := .Summary.Baseline}}{{range .Summary.Arms}}{{if ne .Label $baseline}}<h3>{{.Label}}</h3>

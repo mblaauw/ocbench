@@ -15,12 +15,18 @@ import (
 // controlled experiment. It never includes wall-clock duration: duration is a
 // runner diagnostic, not a cross-runner efficiency rank.
 type CohortArm struct {
-	Label              string
-	ProfileHash        string
-	Runs               int
-	TaskCount          int
-	MinRepeats         int
-	PassRate           float64
+	Label       string
+	ProfileHash string
+	Runs        int
+	TaskCount   int
+	MinRepeats  int
+	PassRate    float64
+	// Score is the mean graded validator score across the arm's executions,
+	// and ScoreOK says whether every execution recorded one. It sits beside
+	// PassRate because a saturated corpus reports "100% versus 100%" and the
+	// graded score is the only figure with resolution left.
+	Score              float64
+	ScoreOK            bool
 	CostPerSolved      float64
 	CostPerSolvedOK    bool
 	MedianTokens       float64
@@ -134,6 +140,8 @@ func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) 
 		allPassed := true
 		missingCost := false
 		var tokenMedians []float64
+		var scoreSum float64
+		scoredExecutions, scoredTasks := 0, 0
 		for _, taskID := range taskIDs {
 			task, taskExists := taskByID[taskID]
 			if !taskExists {
@@ -156,6 +164,15 @@ func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) 
 			if stats.HasTokenMetrics {
 				tokenMedians = append(tokenMedians, stats.MedianTokens)
 			}
+			// The graded score is pooled over executions rather than averaged
+			// per task, so a task measured more often does not carry more
+			// weight than one measured three times. It is reported only when
+			// every execution of every selected task recorded a score.
+			if stats.HasScoreMetrics {
+				scoredExecutions += stats.Executions
+				scoreSum += stats.MeanScore * float64(stats.Executions)
+				scoredTasks++
+			}
 		}
 		if item.Runs > 0 {
 			var successes int
@@ -167,6 +184,10 @@ func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) 
 				}
 			}
 			item.PassRate = float64(successes) / float64(item.Runs)
+		}
+		if scoredTasks == len(taskIDs) && scoredExecutions > 0 {
+			item.Score = scoreSum / float64(scoredExecutions)
+			item.ScoreOK = true
 		}
 		if len(tokenMedians) == len(taskIDs) {
 			if median, ok := stats.MedianOK(tokenMedians); ok {

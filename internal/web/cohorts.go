@@ -23,7 +23,7 @@ type cohortsPage struct {
 type cohortArmView struct {
 	Label, ProfileHash, Cost, Tokens, Environments, Status string
 	Tasks, MinRepeats                                      int
-	Pass                                                   string
+	Pass, Score                                            string
 	// Changes and ChangeNote render how this arm's configuration differs from
 	// the baseline. ChangeNote is non-empty when Changes is, so the template can
 	// tell "identical to the baseline" from "could not be compared".
@@ -143,9 +143,13 @@ func (h *handler) handleCohort(w http.ResponseWriter, r *http.Request) {
 		if arm.MedianTokensOK {
 			tokens = tokensText(int64(arm.MedianTokens))
 		}
+		score := "—"
+		if arm.ScoreOK {
+			score = fmt.Sprintf("%.2f", arm.Score)
+		}
 		view := cohortArmView{
 			Label: arm.Label, ProfileHash: arm.ProfileHash, Tasks: arm.TaskCount, MinRepeats: arm.MinRepeats,
-			Pass: fmt.Sprintf("%.0f%%", arm.PassRate*100), Cost: cost, Tokens: tokens,
+			Pass: fmt.Sprintf("%.0f%%", arm.PassRate*100), Score: score, Cost: cost, Tokens: tokens,
 			Environments: environments, Status: armStatus,
 		}
 		if arm.Label != summary.Baseline {

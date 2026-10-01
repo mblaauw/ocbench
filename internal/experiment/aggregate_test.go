@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -684,5 +685,76 @@ func TestSummarizeCohortReportsArchitectureChangesAgainstTheBaseline(t *testing.
 	}
 	if !sawReviewer {
 		t.Errorf("changes do not name the added reviewer subagent: %+v", candidate.Changes)
+	}
+}
+
+// Binary pass rate saturates: on a corpus where most tasks always pass, "100% vs
+// 100%" is the whole comparison. The graded score gives the standing resolution
+// the pass rate cannot, so it is reported beside it and gated on being recorded
+// for every execution, exactly like cost.
+func TestSummarizeCohortReportsGradedScoreBesidePassRate(t *testing.T) {
+	st := aggStore(t)
+	ctx := context.Background()
+	if err := st.InsertProfile(ctx, store.ProfileRow{
+		ID: "p1", ProfileHash: "ph1", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev",
+		CanonicalJSON: `{"schema":1}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertExperiment(ctx, store.ExperimentRow{
+		ID: "exp-score", Name: "graded", SpecJSON: `{"baseline":"base","tasks":["t1"]}`,
+		CreatedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, arm := range []store.ExperimentArmRow{
+		{ID: "arm-0", ExperimentID: "exp-score", Label: "base", ProfileHash: "ph1", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "arm-1", ExperimentID: "exp-score", Label: "stronger", ProfileHash: "ph1", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := st.InsertExperimentArm(ctx, arm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both arms pass every run, so pass rate cannot separate them. The graded
+	// scores can.
+	for repeat := 0; repeat < 3; repeat++ {
+		for arm, score := range map[string]float64{"arm-0": 0.60, "arm-1": 0.95} {
+			runID := arm + "-t1-" + strconv.Itoa(repeat)
+			armID := arm
+			if err := st.InsertRun(ctx, store.RunRow{
+				ID: runID, ExperimentID: "exp-score", ArmID: &armID, RepeatIndex: repeat,
+				ProfileID: "p1", ProfileHash: "ph1",
+				SuiteName: "core", SuiteVersion: "1", SuiteHash: "sh", TaskID: "t1", TaskVersion: "1", FixtureSHA: "fx",
+				OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", Status: "passed",
+				StartedAt: "2026-01-01T10:00:0" + strconv.Itoa(repeat) + "Z", ArtifactsDir: "/r/" + runID,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.InsertRunMetrics(ctx, runID, map[string]float64{
+				"success": 1, "score": score, "cost": 1, "tokens_total": 100,
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	summary, err := SummarizeCohort(ctx, st, "exp-score")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.Arms) != 2 {
+		t.Fatalf("arms = %d, want 2", len(summary.Arms))
+	}
+	for _, arm := range summary.Arms {
+		if !arm.ScoreOK {
+			t.Errorf("%s arm reported no graded score although every run recorded one", arm.Label)
+		}
+		if arm.PassRate != 1 {
+			t.Errorf("%s pass rate = %v, want 1 (every run passed)", arm.Label, arm.PassRate)
+		}
+	}
+	if summary.Arms[0].Score == summary.Arms[1].Score {
+		t.Errorf("graded scores did not separate two arms that both pass everything: %v vs %v",
+			summary.Arms[0].Score, summary.Arms[1].Score)
 	}
 }
