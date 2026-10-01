@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -109,5 +111,44 @@ func TestReportRejectsBadArguments(t *testing.T) {
 		if !errors.As(err, &usage) {
 			t.Fatalf("%v err = %v, want *UsageError", args, err)
 		}
+	}
+}
+
+// The exchange path: one user exports a cohort summary as json, another imports
+// it and renders the same standing and architecture differences — without any
+// shared database.
+func TestReportExportsAndImportsAPortableSummary(t *testing.T) {
+	d := cliTestDeps(t)
+	seedReportExperiment(t, d)
+
+	exported, err := runReportCmd(t, d, "exp-report", "--format", "json")
+	if err != nil {
+		t.Fatalf("export: %v\n%s", err, exported)
+	}
+	for _, want := range []string{`"schema_version"`, "profile-base", "profile-lean"} {
+		if !strings.Contains(exported, want) {
+			t.Errorf("exported summary missing %q:\n%s", want, exported)
+		}
+	}
+
+	// A second user's store, which has never seen this experiment.
+	other := cliTestDeps(t)
+	path := filepath.Join(t.TempDir(), "shared-cohort.json")
+	if err := os.WriteFile(path, []byte(exported), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	markdown, err := runReportCmd(t, other, "--import", path)
+	if err != nil {
+		t.Fatalf("import: %v\n%s", err, markdown)
+	}
+	if !strings.Contains(markdown, "profile-base") || !strings.Contains(markdown, "profile-lean") {
+		t.Errorf("imported rendering is missing the arms:\n%s", markdown)
+	}
+	if !strings.Contains(markdown, "Runner environments") {
+		t.Errorf("imported rendering is missing the evidence header:\n%s", markdown)
+	}
+
+	if _, err := runReportCmd(t, other, "--import", filepath.Join(t.TempDir(), "nope.json")); err == nil {
+		t.Error("importing a missing file must fail")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -16,13 +17,34 @@ import (
 // OpenCode or write to the store.
 func newReportCmd(d Deps) *cobra.Command {
 	format := "md"
+	importPath := ""
 	cmd := &cobra.Command{
 		Use:   "report <experiment-id>",
 		Short: "Render a portable efficiency report for one experiment",
-		Args:  usageArgs(cobra.ExactArgs(1)),
+		Args:  usageArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if format != "md" && format != "html" {
-				return &UsageError{Err: fmt.Errorf("--format must be md or html, got %q", format)}
+			// --import reads a neighbour's exported cohort summary and renders
+			// it through the same path as a local one, so a shared result is
+			// displayed identically without importing any runs.
+			if importPath != "" {
+				if len(args) > 0 {
+					return &UsageError{Err: fmt.Errorf("--import renders the summary in the given file; drop the experiment id")}
+				}
+				data, err := os.ReadFile(importPath)
+				if err != nil {
+					return &UsageError{Err: fmt.Errorf("--import %s: %w", importPath, err)}
+				}
+				summary, err := report.FromJSON(data)
+				if err != nil {
+					return &UsageError{Err: err}
+				}
+				return renderCohortReport(cmd, summary, format)
+			}
+			if len(args) == 0 {
+				return &UsageError{Err: fmt.Errorf("report needs an experiment id, or --import <file>")}
+			}
+			if format != "md" && format != "html" && format != "json" {
+				return &UsageError{Err: fmt.Errorf("--format must be md, html or json, got %q", format)}
 			}
 			resolved, err := d.resolve()
 			if err != nil {
@@ -43,19 +65,33 @@ func newReportCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			switch format {
-			case "md":
-				_, err = cmd.OutOrStdout().Write(report.Markdown(summary))
-			case "html":
-				var body []byte
-				body, err = report.HTML(summary)
-				if err == nil {
-					_, err = cmd.OutOrStdout().Write(body)
-				}
-			}
-			return err
+			return renderCohortReport(cmd, summary, format)
 		},
 	}
-	cmd.Flags().StringVar(&format, "format", "md", "report format: md or html")
+	cmd.Flags().StringVar(&format, "format", "md", "report format: md, html or json")
+	cmd.Flags().StringVar(&importPath, "import", "", "render a cohort summary exported by another user (json)")
 	return cmd
+}
+
+// renderCohortReport writes one cohort summary in the requested format. `json`
+// is the exchange format: it is what another user imports, and it carries the
+// standing together with the arm-to-arm configuration differences.
+func renderCohortReport(cmd *cobra.Command, summary experiment.CohortSummary, format string) error {
+	out := cmd.OutOrStdout()
+	switch format {
+	case "md":
+		_, err := out.Write(report.Markdown(summary))
+		return err
+	case "html":
+		body, err := report.HTML(summary)
+		if err != nil {
+			return err
+		}
+		_, err = out.Write(body)
+		return err
+	case "json":
+		return report.WriteJSON(out, summary)
+	default:
+		return &UsageError{Err: fmt.Errorf("--format must be md, html or json, got %q", format)}
+	}
 }

@@ -281,6 +281,22 @@ reasoning and what it costs if the call was wrong. The design itself is
   that experiment. Without it, Architecture explains configuration but makes no
   efficiency claim. *Cost if wrong:* an exploratory run is less convenient to
   inspect, but independent historical runs cannot masquerade as a comparison.
+- **A cohort is shared as a summary, never as runs.** `ocbench report --format
+  json` exports a versioned, redacted summary — standing, per-arm figures and
+  the arm-to-arm configuration differences — and `report --import` renders it.
+  Importing raw runs would mix two users' machines into one store and imply the
+  evidence is comparable when it is not; a summary carries its own runner
+  environment, so the reader sees that caveat with the number. An unknown schema
+  version is refused rather than parsed on a best-effort basis. *Cost if wrong:*
+  there is no merged cross-user view, so comparing your own result to a
+  neighbour's is by eye rather than by one ranked table.
+- **The graded score is reported beside the pass rate.** A saturated corpus
+  reports "100% versus 100%", so binary success alone has no resolution left.
+  The mean graded validator score is pooled over executions (not averaged per
+  task, which would let a more-repeated task weigh more) and is shown only when
+  every execution of every selected task recorded one, exactly like cost. *Cost
+  if wrong:* a cohort on tasks without `score` shows a dash where a pass rate
+  still shows a number.
 - **A cohort report must say what changed, not only which hash won.** Every
   non-baseline arm carries the configuration differences from the baseline
   (`profile.DiffNotes`), in both the portable report and the cohort page, so a

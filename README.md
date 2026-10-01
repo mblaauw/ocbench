@@ -35,7 +35,8 @@ cross-compiles with `make cross`.
 | `ocbench run <suite> [task...] [--repeat N] [--dry-run] [--suite-dir P] [--json]` | Runs tasks in disposable worktrees and persists runs, metrics and validations |
 | `ocbench experiment run <suite> [task...] --profile A=<path> --profile B=<path> [--repeat N] [--baseline A] [--exit-on-regression]` | Interleaved A/B over config overlays, with statistics and a regression gate |
 | `ocbench experiment list\|show <id> [--format jsonl]` | Experiment summaries, and a versioned per-run export |
-| `ocbench report <experiment-id> [--format md\|html]` | Portable, redacted cost-efficiency report for one controlled experiment, including how each arm differs from the baseline |
+| `ocbench report <experiment-id> [--format md\|html\|json]` | Portable, redacted cost-efficiency report for one controlled experiment, including how each arm differs from the baseline |
+| `ocbench report --import <summary.json>` | Renders a cohort summary another user exported, with no shared database |
 | `ocbench history [--task T] [--limit N] [--json]` | Persisted runs, newest first |
 | `ocbench compare <a> <b> [--json]` | One run against another: metric deltas, validation changes, profile component changes |
 | `ocbench trace <run-id> [--json]` | A run as a timeline: steps, tool calls, and subagent spans nested under the `task` call that produced them |
