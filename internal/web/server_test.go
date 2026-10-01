@@ -1006,3 +1006,64 @@ func TestProfilesListMarksUndecodableProfiles(t *testing.T) {
 		t.Fatalf("only the broken profile should be marked unreadable:\n%s", body)
 	}
 }
+
+// The cohort page must state what each arm changed against the baseline, not
+// just which profile hash won, so a reader knows what to copy.
+func TestCohortPageShowsWhatEachArmChanged(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	if err := st.InsertProfile(ctx, store.ProfileRow{
+		ID: "p1", ProfileHash: "hash-base", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev",
+		CanonicalJSON: `{"schema":1,"agent":{"build":{"description":"works alone"}}}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}, []store.ComponentRow{{Kind: "primary", Name: "build", Hash: "hb", CanonicalJSON: `{"model":"m"}`}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertProfile(ctx, store.ProfileRow{
+		ID: "p2", ProfileHash: "hash-cand", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev",
+		CanonicalJSON: `{"schema":1,"agent":{"build":{"description":"works alone"},"reviewer":{"description":"reads diffs"}}}`,
+		CreatedAt:     "2026-01-01T00:00:00Z",
+	}, []store.ComponentRow{
+		{Kind: "primary", Name: "build", Hash: "hb", CanonicalJSON: `{"model":"m"}`},
+		{Kind: "agent", Name: "reviewer", Hash: "hr", CanonicalJSON: `{"model":"m"}`},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertExperiment(ctx, store.ExperimentRow{
+		ID: "exp-diff", Name: "core efficiency", SpecJSON: `{"baseline":"base","tasks":["task"]}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, arm := range []store.ExperimentArmRow{
+		{ID: "arm-b", ExperimentID: "exp-diff", Label: "base", ProfileHash: "hash-base", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "arm-c", ExperimentID: "exp-diff", Label: "candidate", ProfileHash: "hash-cand", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := st.InsertExperimentArm(ctx, arm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for repeat := 0; repeat < 3; repeat++ {
+		for _, arm := range []struct{ id, pid, hash string }{{"arm-b", "p1", "hash-base"}, {"arm-c", "p2", "hash-cand"}} {
+			runID := arm.id + "-r" + string(rune('0'+repeat))
+			armID := arm.id
+			if err := st.InsertRun(ctx, store.RunRow{
+				ID: runID, ExperimentID: "exp-diff", ArmID: &armID, RepeatIndex: repeat,
+				ProfileID: arm.pid, ProfileHash: arm.hash,
+				SuiteName: "core", SuiteVersion: "1", SuiteHash: "suite-h", TaskID: "task", TaskVersion: "1", FixtureSHA: "fixture-h",
+				OpenCodeVersion: "1.18.32", OCBenchVersion: "dev", RunnerEnv: "darwin/arm64 · 12 CPU",
+				Status: "passed", StartedAt: fmt.Sprintf("2026-01-01T00:00:0%dZ", repeat), ArtifactsDir: "/runs/" + runID,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.InsertRunMetrics(ctx, runID, map[string]float64{"success": 1, "cost": 1, "tokens_total": 100}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	body := get(t, web.NewHandler(st), "/cohorts/exp-diff").Body.String()
+	for _, want := range []string{"What changed", "reviewer", "candidate"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("cohort page missing %q, so a reader cannot see what the arm changed:\n%s", want, body)
+		}
+	}
+}

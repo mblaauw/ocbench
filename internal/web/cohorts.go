@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"mbl/ocbench/internal/experiment"
+	"mbl/ocbench/internal/profile"
 )
 
 type cohortListRow struct {
@@ -23,6 +24,11 @@ type cohortArmView struct {
 	Label, ProfileHash, Cost, Tokens, Environments, Status string
 	Tasks, MinRepeats                                      int
 	Pass                                                   string
+	// Changes and ChangeNote render how this arm's configuration differs from
+	// the baseline. ChangeNote is non-empty when Changes is, so the template can
+	// tell "identical to the baseline" from "could not be compared".
+	Changes    []profile.ChangeNote
+	ChangeNote string
 }
 
 type cohortPage struct {
@@ -30,6 +36,8 @@ type cohortPage struct {
 	ID, Name, CreatedAt, Gate, Environments, Status string
 	Arms                                            []cohortArmView
 	Warnings                                        []string
+	Baseline                                        string
+	HasChanges                                      bool
 }
 
 // hasControlledArms reports whether an experiment has at least two configured
@@ -113,6 +121,7 @@ func (h *handler) handleCohort(w http.ResponseWriter, r *http.Request) {
 		Environments: strings.Join(summary.RunnerEnvironments, ", "),
 		Status:       status,
 		Warnings:     warnings,
+		Baseline:     summary.Baseline,
 	}
 	if page.Environments == "" {
 		page.Environments = "unknown"
@@ -134,11 +143,23 @@ func (h *handler) handleCohort(w http.ResponseWriter, r *http.Request) {
 		if arm.MedianTokensOK {
 			tokens = tokensText(int64(arm.MedianTokens))
 		}
-		page.Arms = append(page.Arms, cohortArmView{
+		view := cohortArmView{
 			Label: arm.Label, ProfileHash: arm.ProfileHash, Tasks: arm.TaskCount, MinRepeats: arm.MinRepeats,
 			Pass: fmt.Sprintf("%.0f%%", arm.PassRate*100), Cost: cost, Tokens: tokens,
 			Environments: environments, Status: armStatus,
-		})
+		}
+		if arm.Label != summary.Baseline {
+			view.Changes = arm.Changes
+			switch {
+			case arm.Unavailable:
+				view.ChangeNote = "Configuration could not be read, so no comparison is available."
+			case len(arm.Changes) == 0:
+				view.ChangeNote = "No configuration differences from the baseline."
+			default:
+				page.HasChanges = true
+			}
+		}
+		page.Arms = append(page.Arms, view)
 	}
 	render(w, cohortTmpl, page)
 }

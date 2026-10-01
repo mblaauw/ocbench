@@ -16,6 +16,17 @@ import (
 	"mbl/ocbench/internal/version"
 )
 
+// Load reads one stored profile and its components and rebuilds it, so a caller
+// comparing configurations does not repeat the row-to-profile dance. A missing
+// hash surfaces the store's error, including a wrapped sql.ErrNoRows.
+func Load(ctx context.Context, st *store.Store, hash string) (*Profile, error) {
+	row, comps, err := st.GetProfileByHash(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	return FromRows(row, comps)
+}
+
 // Persist writes the profile and its components to the store and the redacted
 // raw captures under paths.Profiles/<hash>/. It is idempotent: when a profile
 // with the same hash already exists it writes nothing new to the database and

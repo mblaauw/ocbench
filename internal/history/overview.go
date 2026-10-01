@@ -333,7 +333,7 @@ func scoreProfile(ctx context.Context, st *store.Store, hash string, runs []stor
 		ps.ScoreMDE = mde
 	}
 
-	if p, err := loadProfile(ctx, st, hash); err == nil {
+	if p, err := profile.Load(ctx, st, hash); err == nil {
 		v := profile.NewView(p)
 		ps.Label = v.Summary()
 	}
@@ -401,14 +401,6 @@ func orderedSuites(set map[string]bool) []string {
 	}
 	sort.Strings(rest)
 	return append(out, rest...)
-}
-
-func loadProfile(ctx context.Context, st *store.Store, hash string) (*profile.Profile, error) {
-	row, comps, err := st.GetProfileByHash(ctx, hash)
-	if err != nil {
-		return nil, err
-	}
-	return profile.FromRows(row, comps)
 }
 
 // scoreOf reads a run's weighted validator score, falling back to its binary

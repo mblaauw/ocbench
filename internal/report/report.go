@@ -38,6 +38,7 @@ func Markdown(summary experiment.CohortSummary) []byte {
 			markdownText(arm.Label), markdownCode(arm.ProfileHash), arm.TaskCount, arm.MinRepeats,
 			arm.PassRate*100, cost, tokens, markdownText(orUnknown(arm.RunnerEnvironments)), yesNo(arm.Eligible))
 	}
+	writeArchitectureChanges(&out, summary)
 	if len(summary.DriftWarnings) > 0 {
 		fmt.Fprintln(&out)
 		fmt.Fprintln(&out, "## Compatibility warnings")
@@ -46,6 +47,50 @@ func Markdown(summary experiment.CohortSummary) []byte {
 		}
 	}
 	return out.Bytes()
+}
+
+// writeArchitectureChanges states, per arm, how its configuration differs from
+// the baseline. A reader who was not in the experiment cannot learn anything
+// from a profile hash alone; this is the section that tells them what to copy.
+func writeArchitectureChanges(out *bytes.Buffer, summary experiment.CohortSummary) {
+	baseline := summary.Baseline
+	if baseline == "" || len(summary.Arms) < 2 {
+		return
+	}
+	// The baseline row is the reference; only other arms have a diff.
+	varying := false
+	for _, arm := range summary.Arms {
+		if arm.Label != baseline && (len(arm.Changes) > 0 || arm.Unavailable) {
+			varying = true
+			break
+		}
+	}
+	if !varying {
+		return
+	}
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "## How each arm differs from `%s`\n", markdownText(baseline))
+	for _, arm := range summary.Arms {
+		if arm.Label == baseline {
+			continue
+		}
+		fmt.Fprintf(out, "\n### %s\n", markdownText(arm.Label))
+		switch {
+		case arm.Unavailable:
+			fmt.Fprintln(out, "- Configuration could not be read, so no comparison is available.")
+		case len(arm.Changes) == 0:
+			fmt.Fprintln(out, "- No configuration differences from the baseline.")
+		default:
+			for _, note := range arm.Changes {
+				detail := note.Note
+				if detail == "" {
+					detail = note.Change
+				}
+				fmt.Fprintf(out, "- %s %s/%s — %s\n",
+					note.Sign, markdownText(note.Kind), markdownText(note.Name), markdownText(detail))
+			}
+		}
+	}
 }
 
 // HTML renders a self-contained version of the same report. html/template
@@ -69,6 +114,20 @@ func HTML(summary experiment.CohortSummary) ([]byte, error) {
 type htmlView struct{ Summary experiment.CohortSummary }
 
 func (v htmlView) Environments() string { return orUnknown(v.Summary.RunnerEnvironments) }
+
+// HasChanges reports whether any arm differs from the baseline, so the template
+// omits the section entirely when every arm ran the same configuration.
+func (v htmlView) HasChanges() bool {
+	if v.Summary.Baseline == "" || len(v.Summary.Arms) < 2 {
+		return false
+	}
+	for _, arm := range v.Summary.Arms {
+		if arm.Label != v.Summary.Baseline && (len(arm.Changes) > 0 || arm.Unavailable) {
+			return true
+		}
+	}
+	return false
+}
 
 func orUnknown(values []string) string {
 	if len(values) == 0 {
@@ -110,4 +169,9 @@ body{max-width:960px;margin:3rem auto;padding:0 1rem;background:#10110f;color:#e
 <div class="gate"><strong>Evidence:</strong> {{.Summary.Gate}}<br><strong>Runner environments:</strong> {{.Environments}}</div>
 <table><thead><tr><th>Configuration</th><th>Profile</th><th>Tasks</th><th>Min repeats</th><th>Pass</th><th>Cost / solved</th><th>Median tokens</th><th>Environments</th><th>Eligible</th></tr></thead><tbody>
 {{range .Summary.Arms}}<tr><td>{{.Label}}</td><td><code>{{.ProfileHash}}</code></td><td>{{.TaskCount}}</td><td>{{.MinRepeats}}</td><td>{{printf "%.0f%%" (mul100 .PassRate)}}</td><td>{{if .CostPerSolvedOK}}{{printf "$%.6f" .CostPerSolved}}{{else}}—{{end}}</td><td>{{if .MedianTokensOK}}{{printf "%.0f" .MedianTokens}}{{else}}—{{end}}</td><td>{{join .RunnerEnvironments}}</td><td class="{{if .Eligible}}yes{{else}}no{{end}}">{{if .Eligible}}yes{{else}}no{{end}}</td></tr>{{end}}
-</tbody></table>{{if .Summary.DriftWarnings}}<h2>Compatibility warnings</h2><ul>{{range .Summary.DriftWarnings}}<li>{{.}}</li>{{end}}</ul>{{end}}</body></html>`
+</tbody></table>{{if .HasChanges}}
+<h2>How each arm differs from <code>{{.Summary.Baseline}}</code></h2>
+{{$baseline := .Summary.Baseline}}{{range .Summary.Arms}}{{if ne .Label $baseline}}<h3>{{.Label}}</h3>
+{{if .Unavailable}}<p class="muted">Configuration could not be read, so no comparison is available.</p>
+{{else if .Changes}}<ul>{{range .Changes}}<li>{{.Sign}} {{.Kind}}/{{.Name}} — {{if .Note}}{{.Note}}{{else}}{{.Change}}{{end}}</li>{{end}}</ul>
+{{else}}<p class="muted">No configuration differences from the baseline.</p>{{end}}{{end}}{{end}}{{end}}{{if .Summary.DriftWarnings}}<h2>Compatibility warnings</h2><ul>{{range .Summary.DriftWarnings}}<li>{{.}}</li>{{end}}</ul>{{end}}</body></html>`

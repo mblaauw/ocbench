@@ -382,6 +382,15 @@ details.detail[open] summary { margin-bottom: 10px; }
 
 .tag.off { color: var(--ink3); border-color: var(--line); }
 .sign { color: var(--ink2); font-weight: 600; }
+
+/* What each arm changed relative to the baseline: one block per arm, the sign
+   leading each change so adds and removals scan the same way as the profile
+   comparison view. */
+.change-arm { padding: 12px 18px; border-top: 1px solid var(--line); }
+.change-arm h3 { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.change-arm ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink2); }
+.change-arm li { margin-bottom: 3px; }
+.change-arm .dim { color: var(--ink3); }
 .runs td.name { color: var(--ink); }
 
 /* A metric the provider does not report is stated, not rendered as a zero. */

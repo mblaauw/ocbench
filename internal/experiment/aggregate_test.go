@@ -596,3 +596,93 @@ func TestSummarizeBorderlineAlpha(t *testing.T) {
 		t.Fatalf("alpha above p = %+v, want the candidate regressed", d)
 	}
 }
+
+// The cohort summary is what the dashboard and the portable report read. Each
+// non-baseline arm must say how its configuration differs from the baseline, so
+// a reader learns *what* changed rather than only which hash won.
+func TestSummarizeCohortReportsArchitectureChangesAgainstTheBaseline(t *testing.T) {
+	st := aggStore(t)
+	ctx := context.Background()
+
+	// aggInsert stamps runs with profile p1/ph1, so that profile must exist for
+	// the run foreign keys. The arm profiles below are what the diff reads.
+	if err := st.InsertProfile(ctx, store.ProfileRow{
+		ID: "p1", ProfileHash: "ph1", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev",
+		CanonicalJSON: `{"schema":1}`, CreatedAt: "2026-01-01T00:00:00Z",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Two genuinely different configurations: the baseline has one agent, the
+	// candidate adds a reviewer subagent.
+	if err := st.InsertProfile(ctx, store.ProfileRow{
+		ID: "p-base", ProfileHash: "ph-base", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev",
+		CanonicalJSON: `{"schema":1,"agent":{"build":{"description":"works alone"}}}`,
+		CreatedAt:     "2026-01-01T00:00:00Z",
+	}, []store.ComponentRow{
+		{Kind: "primary", Name: "build", Hash: "h1", CanonicalJSON: `{"model":"m"}`},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertProfile(ctx, store.ProfileRow{
+		ID: "p-cand", ProfileHash: "ph-cand", OpenCodeVersion: "1.18.32", OCBenchVersion: "dev",
+		CanonicalJSON: `{"schema":1,"agent":{"build":{"description":"works alone"},"reviewer":{"description":"reads diffs"}}}`,
+		CreatedAt:     "2026-01-01T00:00:00Z",
+	}, []store.ComponentRow{
+		{Kind: "primary", Name: "build", Hash: "h2", CanonicalJSON: `{"model":"m"}`},
+		{Kind: "agent", Name: "reviewer", Hash: "h3", CanonicalJSON: `{"model":"m"}`},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertExperiment(ctx, store.ExperimentRow{
+		ID: "exp-arch", Name: "core efficiency", SpecJSON: `{"baseline":"baseline","tasks":["t1"]}`,
+		CreatedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, arm := range []store.ExperimentArmRow{
+		{ID: "arm-0", ExperimentID: "exp-arch", Label: "baseline", ProfileHash: "ph-base", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+		{ID: "arm-1", ExperimentID: "exp-arch", Label: "candidate", ProfileHash: "ph-cand", OverlayKind: "none", CreatedAt: "2026-01-01T00:00:00Z"},
+	} {
+		if err := st.InsertExperimentArm(ctx, arm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for repeat := 0; repeat < 3; repeat++ {
+		for _, arm := range []string{"arm-0", "arm-1"} {
+			aggInsert(t, st, "exp-arch", arm, aggRun{
+				task: "t1", repeat: repeat, success: true,
+				cost: 1, tokens: 100, duration: 1000,
+			})
+		}
+	}
+
+	summary, err := SummarizeCohort(ctx, st, "exp-arch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Baseline != "baseline" {
+		t.Errorf("baseline = %q, want the label recorded in the spec", summary.Baseline)
+	}
+	if len(summary.Arms) != 2 {
+		t.Fatalf("arms = %d, want 2", len(summary.Arms))
+	}
+	if len(summary.Arms[0].Changes) != 0 {
+		t.Errorf("the baseline arm has no diff against itself: %+v", summary.Arms[0].Changes)
+	}
+	candidate := summary.Arms[1]
+	if candidate.Unavailable {
+		t.Fatalf("candidate arm reported unavailable although both profiles were readable")
+	}
+	if len(candidate.Changes) == 0 {
+		t.Fatal("candidate arm reported no changes against a different profile")
+	}
+	var sawReviewer bool
+	for _, note := range candidate.Changes {
+		if note.Kind == "agent" && note.Name == "reviewer" && note.Sign == "+" {
+			sawReviewer = true
+		}
+	}
+	if !sawReviewer {
+		t.Errorf("changes do not name the added reviewer subagent: %+v", candidate.Changes)
+	}
+}

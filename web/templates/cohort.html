@@ -10,5 +10,17 @@
     <tbody>{{range .Arms}}<tr><td>{{.Label}}</td><td><a class="hash" href="/arch/{{.ProfileHash}}">{{.ProfileHash}}</a></td><td>{{.Tasks}}</td><td>{{.MinRepeats}}</td><td>{{.Pass}}</td><td>{{.Cost}}</td><td>{{.Tokens}}</td><td>{{.Environments}}</td><td><span class="tag {{if eq .Status "eligible"}}good{{else}}warn{{end}}">{{.Status}}</span></td></tr>{{end}}</tbody>
   </table>
 </section>
+{{if .HasChanges}}
+<section class="card">
+  <header><div><h2>What changed</h2><span class="muted">Each arm's configuration, compared with the baseline <code class="hash">{{.Baseline}}</code>.</span></div></header>
+  {{range .Arms}}{{if .Changes}}
+  <div class="change-arm"><h3>{{.Label}}</h3><ul>
+    {{range .Changes}}<li><span class="sign">{{.Sign}}</span> <span class="dim">{{.Kind}}</span>/{{.Name}} — {{if .Note}}{{.Note}}{{else}}{{.Change}}{{end}}</li>{{end}}
+  </ul></div>
+  {{else if .ChangeNote}}
+  <div class="change-arm"><h3>{{.Label}}</h3><p class="muted">{{.ChangeNote}}</p></div>
+  {{end}}{{end}}
+</section>
+{{end}}
 {{if .Warnings}}<section class="card"><h2>Compatibility warnings</h2><ul>{{range .Warnings}}<li>{{.}}</li>{{end}}</ul></section>{{end}}
 {{end}}

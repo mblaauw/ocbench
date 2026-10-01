@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"mbl/ocbench/internal/profile"
 	"mbl/ocbench/internal/stats"
 	"mbl/ocbench/internal/store"
 )
@@ -26,6 +27,14 @@ type CohortArm struct {
 	MedianTokensOK     bool
 	RunnerEnvironments []string
 	Eligible           bool
+	// Changes are the configuration differences between this arm's profile and
+	// the baseline's, in the reader's scan order. They are what turns a
+	// portable report from a table of hashes into something a reader can act
+	// on: without them, "arm B cost less" says nothing about what to change.
+	// Empty means identical to the baseline, or that a profile could not be
+	// read; Unavailable distinguishes those two cases.
+	Changes     []profile.ChangeNote
+	Unavailable bool
 }
 
 // RankableRepeats is the smallest number of executions per task, per arm, that
@@ -37,7 +46,10 @@ const RankableRepeats = 3
 // persisted experiment. Experiments are the controlled cohorts: they already
 // pin the suite, selected tasks, arms and repeats before any run is written.
 type CohortSummary struct {
-	Experiment         store.ExperimentRow
+	Experiment store.ExperimentRow
+	// Baseline is the arm every other arm's Changes are measured against: the
+	// configuration the experiment was framed as "compared to".
+	Baseline           string
 	Arms               []CohortArm
 	RunnerEnvironments []string
 	Ranked             bool
@@ -84,9 +96,11 @@ func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) 
 
 	out := CohortSummary{
 		Experiment:         summary.Experiment,
+		Baseline:           cohortBaseline(summary.Experiment),
 		RunnerEnvironments: sortedStrings(allEnvs),
 		DriftWarnings:      append([]string(nil), summary.DriftWarnings...),
 	}
+	baselineProfile, baselineReadable := armProfile(ctx, st, out.Baseline, summary.Arms)
 	taskIDs := cohortTaskIDs(summary)
 	taskByID := make(map[string]TaskSummary, len(summary.Tasks))
 	for _, task := range summary.Tasks {
@@ -104,6 +118,18 @@ func SummarizeCohort(ctx context.Context, st *store.Store, experimentID string) 
 			Label:              arm.Label,
 			ProfileHash:        arm.ProfileHash,
 			RunnerEnvironments: sortedStrings(envsByArm[arm.Label]),
+		}
+		// Every arm states what it changes relative to the baseline. The
+		// baseline itself has no diff; an unreadable profile says so rather
+		// than implying the two configurations are the same.
+		if arm.Label != out.Baseline {
+			if !baselineReadable {
+				item.Unavailable = true
+			} else if armProfile, ok := armProfile(ctx, st, arm.Label, summary.Arms); ok {
+				item.Changes = profile.DiffNotes(baselineProfile, armProfile)
+			} else {
+				item.Unavailable = true
+			}
 		}
 		allPassed := true
 		missingCost := false
@@ -234,4 +260,40 @@ func joinWarnings(warnings []string) string {
 		return "unknown drift"
 	}
 	return strings.Join(warnings, "; ")
+}
+
+// cohortBaseline reads the baseline arm label from the experiment spec, falling
+// back to the first arm when the spec predates the field. An empty label means
+// no arm is the reference and no diffs are reported.
+func cohortBaseline(exp store.ExperimentRow) string {
+	var spec struct {
+		Baseline string `json:"baseline"`
+	}
+	if err := json.Unmarshal([]byte(exp.SpecJSON), &spec); err != nil {
+		return ""
+	}
+	return spec.Baseline
+}
+
+// armProfile loads the stored profile behind an arm label. ok is false when the
+// label is unknown or its profile is missing or undecodable, which the caller
+// reports as unavailable rather than as "no differences".
+func armProfile(ctx context.Context, st *store.Store, label string, arms []store.ExperimentArmRow) (*profile.Profile, bool) {
+	if label == "" {
+		return nil, false
+	}
+	for _, arm := range arms {
+		if arm.Label != label {
+			continue
+		}
+		if arm.ProfileHash == "" {
+			return nil, false
+		}
+		p, err := profile.Load(ctx, st, arm.ProfileHash)
+		if err != nil {
+			return nil, false
+		}
+		return p, true
+	}
+	return nil, false
 }
